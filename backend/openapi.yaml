@@ -1,0 +1,1205 @@
+openapi: 3.0.3
+info:
+  title: Personal Net Worth API
+  version: 1.0.0
+  description: >-
+    REST API for account access, profile management, financial transactions,
+    categories, assets, liabilities, and dashboard summaries. All amounts are
+    expressed as numbers in the application's configured currency; no currency
+    conversion is performed.
+servers:
+  - url: http://localhost:8080
+    description: Local backend (the port can be overridden with PORT)
+tags:
+  - name: Authentication
+    description: Account registration, login, logout, and credential management.
+  - name: Profile
+    description: Read and update the authenticated user's profile.
+  - name: Categories
+    description: User-owned transaction categories and subcategories.
+  - name: Transactions
+    description: Create, list, and delete income or expense transactions.
+  - name: Holdings
+    description: Track assets and liabilities used for net-worth calculations.
+  - name: Dashboard
+    description: Aggregated financial indicators and summaries.
+security:
+  - bearerAuth: []
+  - tokenCookie: []
+paths:
+  /api/auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a user
+      description: >-
+        Creates an account, seeds that user's default categories, and signs the
+        user in. The response includes a JWT and the server also sets an HTTP-only
+        `token` cookie valid for 24 hours. Email uniqueness is checked before
+        creation.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            example:
+              email: alex@example.com
+              password: correct-horse-battery
+      responses:
+        '200':
+          description: Account created and authenticated.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/AuthCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Email or password was not supplied.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '409':
+          description: An account already exists for this email address.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /api/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Log in
+      description: >-
+        Verifies the email and password, then returns a JWT and sets the
+        HTTP-only `token` cookie for 24 hours.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+            example:
+              email: alex@example.com
+              password: correct-horse-battery
+      responses:
+        '200':
+          description: Credentials accepted.
+          headers:
+            Set-Cookie:
+              $ref: '#/components/headers/AuthCookie'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          description: Email or password is invalid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+  /api/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Log out
+      description: >-
+        Expires the `token` cookie in the response. This endpoint does not
+        invalidate a JWT supplied separately in an Authorization header.
+      security: []
+      responses:
+        '200':
+          description: Cookie expiration was sent.
+          headers:
+            Set-Cookie:
+              description: Clears the token cookie by setting its maximum age to zero.
+              schema:
+                type: string
+                example: token=; Path=/; HttpOnly; Max-Age=0
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+  /api/auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get the current user
+      description: Returns the identity of the user authenticated by the JWT.
+      responses:
+        '200':
+          description: Current user identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user]
+                properties:
+                  user:
+                    $ref: '#/components/schemas/UserSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/auth/change-password:
+    post:
+      tags: [Authentication]
+      summary: Change password
+      description: >-
+        Changes the authenticated user's password after validating the current
+        password. The new password is stored using the backend password encoder.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                  description: The user's existing password.
+                newPassword:
+                  type: string
+                  format: password
+                  description: The password to set for future logins.
+            example:
+              currentPassword: old-password
+              newPassword: new-password
+      responses:
+        '200':
+          description: Password changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, message]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Password changed successfully
+        '400':
+          description: Current password does not match.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/profile:
+    get:
+      tags: [Profile]
+      summary: Get profile
+      description: Returns the authenticated user's profile; the password is never included.
+      responses:
+        '200':
+          description: Profile retrieved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    put:
+      tags: [Profile]
+      summary: Update profile
+      description: >-
+        Updates only the supplied non-null fields. Omitted fields are unchanged.
+        An unparseable `age` is ignored by the current implementation. Email and
+        password cannot be changed through this endpoint.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+            example:
+              name: Alex Morgan
+              age: 32
+              gender: Prefer not to say
+              phone: '+1-555-0100'
+              photo: https://example.com/alex.jpg
+      responses:
+        '200':
+          description: Updated profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data, message]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+                  message:
+                    type: string
+                    example: Profile updated successfully
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/categories:
+    get:
+      tags: [Categories]
+      summary: List categories
+      description: Returns categories belonging to the authenticated user.
+      parameters:
+        - name: type
+          in: query
+          required: false
+          description: If supplied and non-empty, restricts results to this category type (commonly `income` or `expense`).
+          schema:
+            type: string
+          example: expense
+      responses:
+        '200':
+          description: Categories retrieved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Category'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Categories]
+      summary: Create category
+      description: Creates a category for the authenticated user. A duplicate type/name pair returns a conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CategoryCreate'
+            example:
+              type: expense
+              name: Home
+      responses:
+        '201':
+          description: Category created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Category'
+        '400':
+          description: Category type or name is missing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A category with this type and name already exists for the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+  /api/subcategories:
+    get:
+      tags: [Categories]
+      summary: List subcategories
+      description: Returns the authenticated user's subcategories, optionally filtered by category.
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: Subcategories retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubCategoryListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Categories]
+      summary: Create subcategory
+      description: Creates a subcategory owned by the authenticated user under the supplied category ID.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubCategoryCreate'
+            example:
+              categoryId: 12
+              name: Electricity
+      responses:
+        '201':
+          description: Subcategory created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SubCategory'
+        '400':
+          description: Category ID or name is missing or cannot be parsed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/categories/subcategories:
+    get:
+      tags: [Categories]
+      summary: List subcategories (category route)
+      description: Alias for `GET /api/subcategories`; optionally filters by category ID.
+      parameters:
+        - $ref: '#/components/parameters/CategoryId'
+      responses:
+        '200':
+          description: Subcategories retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubCategoryListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Categories]
+      summary: Create subcategory (category route)
+      description: Alias for `POST /api/subcategories`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubCategoryCreate'
+            example:
+              categoryId: 12
+              name: Electricity
+      responses:
+        '201':
+          description: Subcategory created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/SubCategory'
+        '400':
+          description: Category ID or name is missing or cannot be parsed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions
+      description: >-
+        Returns the user's transactions ordered by most recently updated. A
+        positive `limit` truncates the list; an omitted, zero, or negative limit
+        returns the full list.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of records to return when greater than zero.
+          schema:
+            type: integer
+          example: 20
+      responses:
+        '200':
+          description: Transactions retrieved.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Transactions]
+      summary: Create transaction
+      description: >-
+        Records an income or expense for the authenticated user. `date` must
+        begin with an ISO calendar date (`YYYY-MM-DD`); an ISO date-time string
+        is also accepted because only its first 10 characters are parsed. The
+        request may supply `details` or `description` for the transaction
+        description; `details` takes precedence. `card` is stored only when
+        `paymentMode` is `credit` (case-insensitive).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionCreate'
+            examples:
+              expense:
+                summary: Expense paid by credit card
+                value:
+                  date: '2026-10-11'
+                  type: expense
+                  category: Home
+                  subcategory: Electricity
+                  details: October utility bill
+                  amount: 85.5
+                  paymentMode: credit
+                  card: Visa
+              income:
+                summary: Income received by bank transfer
+                value:
+                  date: '2026-10-11'
+                  type: income
+                  amount: 3200
+                  paymentMode: bank transfer
+      responses:
+        '201':
+          description: Transaction created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Transaction'
+        '400':
+          description: Required fields are missing or amount is not numeric. An invalid date may also be rejected.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/transactions/{id}:
+    delete:
+      tags: [Transactions]
+      summary: Delete transaction
+      description: Deletes the transaction only if it belongs to the authenticated user.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Transaction deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Transaction does not exist or is not owned by this user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+  /api/holdings/assets:
+    get:
+      tags: [Holdings]
+      summary: List assets
+      description: Returns the user's assets and the sum of their values.
+      responses:
+        '200':
+          description: Assets and total value retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Holdings]
+      summary: Create asset
+      description: Adds an asset to the authenticated user's holdings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldingCreate'
+            example:
+              name: Checking account
+              type: cash
+              value: 5400.25
+      responses:
+        '201':
+          description: Asset created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Holding'
+        '400':
+          description: Name, type, or value is missing or value cannot be parsed as a number.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/holdings/assets/{id}:
+    delete:
+      tags: [Holdings]
+      summary: Delete asset
+      description: Deletes an asset only if it belongs to the authenticated user.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Asset deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Asset does not exist or is not owned by this user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+  /api/holdings/liabilities:
+    get:
+      tags: [Holdings]
+      summary: List liabilities
+      description: Returns the user's liabilities and the sum of their values.
+      responses:
+        '200':
+          description: Liabilities and total value retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldingsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Holdings]
+      summary: Create liability
+      description: Adds a liability to the authenticated user's holdings.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldingCreate'
+            example:
+              name: Student loan
+              type: loan
+              value: 12500
+      responses:
+        '201':
+          description: Liability created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Holding'
+        '400':
+          description: Name, type, or value is missing or value cannot be parsed as a number.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/holdings/liabilities/{id}:
+    delete:
+      tags: [Holdings]
+      summary: Delete liability
+      description: Deletes a liability only if it belongs to the authenticated user.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Liability deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Liability does not exist or is not owned by this user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+  /api/dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Get financial summary
+      description: >-
+        Aggregates all of the user's transactions, assets, and liabilities.
+        Savings are clamped to zero when cash flow is negative; budgetRemaining
+        is also clamped to zero. Savings rate is a rounded percentage of income.
+      responses:
+        '200':
+          description: Financial summary calculated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/DashboardSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/dashboard/monthly:
+    get:
+      tags: [Dashboard]
+      summary: Get monthly totals
+      description: >-
+        Returns income, expense, and non-negative savings for each of the 12
+        months in the requested year. Defaults to the server's current year.
+      parameters:
+        - name: year
+          in: query
+          required: false
+          description: Calendar year to summarize; defaults to the current server year.
+          schema:
+            type: integer
+          example: 2026
+      responses:
+        '200':
+          description: Monthly totals calculated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, year, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  year:
+                    type: integer
+                    example: 2026
+                  data:
+                    type: array
+                    minItems: 12
+                    maxItems: 12
+                    items:
+                      $ref: '#/components/schemas/MonthlyTotal'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/dashboard/top-categories:
+    get:
+      tags: [Dashboard]
+      summary: Get top expense categories
+      description: >-
+        Groups all expense transactions by category, sorts by total amount in
+        descending order, and returns up to `limit` categories. Missing category
+        names are grouped as `Uncategorized`; limit defaults to 5.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Maximum number of categories to return; defaults to 5.
+          schema:
+            type: integer
+            default: 5
+          example: 5
+      responses:
+        '200':
+          description: Top expense categories calculated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [success, data]
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TopCategory'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT returned by the login or registration endpoint.
+    tokenCookie:
+      type: apiKey
+      in: cookie
+      name: token
+      description: HTTP-only JWT cookie set by login or registration.
+  headers:
+    AuthCookie:
+      description: HTTP-only token cookie with a 24-hour lifetime.
+      schema:
+        type: string
+        example: token=<jwt>; Path=/; HttpOnly; Max-Age=86400
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      description: Numeric identifier of the record to act on.
+      schema:
+        type: integer
+        format: int64
+      example: 42
+    CategoryId:
+      name: categoryId
+      in: query
+      required: false
+      description: Restricts subcategories to this category when supplied.
+      schema:
+        type: integer
+        format: int64
+      example: 12
+  responses:
+    Unauthorized:
+      description: Authentication is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/MessageError'
+  schemas:
+    AuthRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address.
+        password:
+          type: string
+          format: password
+          description: Account password.
+    AuthResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the authentication operation succeeded.
+        user:
+          $ref: '#/components/schemas/UserSummary'
+        token:
+          type: string
+          description: JWT for subsequent authenticated requests.
+        error:
+          type: string
+          description: Failure reason, when the operation is unsuccessful.
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+    UserProfile:
+      type: object
+      description: User entity serialized without its password.
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+          nullable: true
+        age:
+          type: integer
+          nullable: true
+        gender:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        photo:
+          type: string
+          nullable: true
+          description: Optional profile image URL or data URI.
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    ProfileUpdate:
+      type: object
+      description: All fields are optional; only provided, non-null values are applied.
+      properties:
+        name:
+          type: string
+        age:
+          oneOf:
+            - type: integer
+            - type: string
+          description: Integer age, either as a JSON number or a numeric string.
+        gender:
+          type: string
+        phone:
+          type: string
+        photo:
+          type: string
+          description: Optional profile image URL or data URI.
+    CategoryCreate:
+      type: object
+      required: [type, name]
+      properties:
+        type:
+          type: string
+          description: Category classification, commonly income or expense.
+        name:
+          type: string
+          description: Display name; unique per user and type.
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        userId:
+          type: integer
+          format: int64
+        type:
+          type: string
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+    SubCategoryCreate:
+      type: object
+      required: [categoryId, name]
+      properties:
+        categoryId:
+          type: integer
+          format: int64
+          description: ID of the parent category.
+        name:
+          type: string
+          description: Subcategory display name.
+    SubCategory:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        userId:
+          type: integer
+          format: int64
+        categoryId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+    SubCategoryListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubCategory'
+    TransactionCreate:
+      type: object
+      required: [date, type, amount, paymentMode]
+      properties:
+        date:
+          type: string
+          description: ISO date (YYYY-MM-DD); an ISO date-time beginning with this date is also accepted.
+          example: '2026-10-11'
+        type:
+          type: string
+          description: Transaction classification, commonly income or expense.
+        category:
+          type: string
+          nullable: true
+        subcategory:
+          type: string
+          nullable: true
+        details:
+          type: string
+          nullable: true
+          description: Preferred alias for description when both are provided.
+        description:
+          type: string
+          nullable: true
+          description: Alternative transaction description field.
+        amount:
+          type: number
+          format: double
+        paymentMode:
+          type: string
+          description: Payment method; credit triggers storage of the optional card field.
+        card:
+          type: string
+          nullable: true
+          description: Card label; stored only when paymentMode is credit.
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        date:
+          type: string
+          format: date
+        type:
+          type: string
+        category:
+          type: string
+          nullable: true
+        subcategory:
+          type: string
+          nullable: true
+        description:
+          type: string
+          nullable: true
+        amount:
+          type: number
+          format: double
+        paymentMode:
+          type: string
+        card:
+          type: string
+          nullable: true
+        userId:
+          type: integer
+          format: int64
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    HoldingCreate:
+      type: object
+      required: [name, type, value]
+      properties:
+        name:
+          type: string
+          description: Display name for the asset or liability.
+        type:
+          type: string
+          description: User-defined holding type, such as cash, property, or loan.
+        value:
+          type: number
+          format: double
+          description: Monetary value in the application's configured currency.
+    Holding:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        userId:
+          type: integer
+          format: int64
+        name:
+          type: string
+        type:
+          type: string
+        value:
+          type: number
+          format: double
+        createdAt:
+          type: string
+          format: date-time
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+    HoldingsResponse:
+      type: object
+      required: [success, data, total]
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Holding'
+        total:
+          type: number
+          format: double
+          description: Sum of value for all returned holdings of this kind.
+    DashboardSummary:
+      type: object
+      properties:
+        totalIncome:
+          type: number
+          format: double
+        totalExpenses:
+          type: number
+          format: double
+        totalSavings:
+          type: number
+          format: double
+          description: Maximum of zero and total income minus total expenses.
+        cashFlow:
+          type: number
+          format: double
+          description: Total income minus total expenses.
+        budgetRemaining:
+          type: number
+          format: double
+          description: Maximum of zero and cash flow.
+        netWorth:
+          type: number
+          format: double
+          description: Total assets minus total liabilities.
+        totalAssets:
+          type: number
+          format: double
+        totalLiabilities:
+          type: number
+          format: double
+        savingsRate:
+          type: number
+          format: double
+          description: Rounded percentage of income saved; zero when income is not positive.
+        healthScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Heuristic score based on income, expenses, assets, and liabilities.
+    MonthlyTotal:
+      type: object
+      required: [month, income, expense, savings]
+      properties:
+        month:
+          type: string
+          example: Jan
+        income:
+          type: number
+          format: double
+        expense:
+          type: number
+          format: double
+        savings:
+          type: number
+          format: double
+          description: Maximum of zero and income minus expense for this month.
+    TopCategory:
+      type: object
+      required: [category, amount]
+      properties:
+        category:
+          type: string
+          example: Home
+        amount:
+          type: number
+          format: double
+          description: Sum of expense transaction amounts in this category.
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          example: true
+    MessageError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          example: Unauthorized
+    OperationError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: Current password is incorrect
+
