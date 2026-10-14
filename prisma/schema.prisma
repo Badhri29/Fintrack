@@ -1,0 +1,108 @@
+// Fintrack database schema — source of truth for MySQL tables.
+// Apply: npm run db:migrate   (dev)  or  npm run db:deploy  (CI/prod)
+// The Spring Boot backend uses JPA entities that mirror these models.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  age       Int?
+  gender    String?
+  phone     String?
+  photo     String?  @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("users")
+}
+
+model Transaction {
+  id          Int      @id @default(autoincrement())
+  date        DateTime @db.Date
+  type        String
+  category    String?
+  subcategory String?
+  description String?
+  amount      Float
+  paymentMode String
+  card        String?
+  userId      Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now()) @updatedAt
+
+  @@map("transactions")
+}
+
+model Category {
+  id        Int      @id @default(autoincrement())
+  user_id   Int
+  type      String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([user_id, type, name], map: "userId_type_name")
+  @@map("categories")
+}
+
+model SubCategory {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  category_id Int
+  name        String
+  createdAt   DateTime @default(now())
+
+  @@unique([user_id, category_id, name], map: "userId_categoryId_name")
+  @@map("sub_categories")
+}
+
+model Asset {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  type      String
+  value     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("assets")
+}
+
+model Liability {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  name      String
+  type      String
+  value     Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("liabilities")
+}
+
+model DefaultCategory {
+  id        Int      @id @default(autoincrement())
+  type      String
+  name      String
+  createdAt DateTime @default(now())
+
+  @@map("Default_Categories")
+}
+
+model DefaultSubCategory {
+  id          Int      @id @default(autoincrement())
+  category_id Int
+  name        String
+  createdAt   DateTime @default(now())
+
+  @@map("Default_SubCategories")
+}
