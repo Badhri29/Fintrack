@@ -5,6 +5,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CirclePlus,
+  Pencil,
   PiggyBank,
   Plus,
   Trash2,
@@ -345,14 +346,24 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
       ),
     );
 
-  const leafValues = (line: Line) =>
-    mode === 'actual'
-      ? line.values
-      : MONTHS.map(
-          (_, month) =>
-            (budgetValues[line.id]?.[month] || 0) +
-            budgetTransactionValues(line)[month],
-        );
+  const leafValues = (line: Line) => {
+    if (mode === 'actual') {
+      return line.values;
+    }
+    const txs = budgetTransactions[line.id] || [];
+    const txTotal = txs.reduce((sum, tx) => sum + total(tx.values), 0);
+    if (txs.length > 0 && txTotal > 0) {
+      return budgetTransactionValues(line);
+    }
+    if (txs.length > 0 && txTotal === 0) {
+      const direct = budgetValues[line.id];
+      if (direct && total(direct) > 0) {
+        return direct;
+      }
+      return budgetTransactionValues(line);
+    }
+    return budgetValues[line.id] || zeros();
+  };
 
   const categoryValues = (category: Category) =>
     mode === 'actual'
@@ -374,25 +385,6 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
       ),
     );
 
-  const editBudget = (
-    line: Line,
-    month: number,
-    input: string,
-  ) => {
-    const next = {
-      ...budgetValues,
-      [line.id]: [...(budgetValues[line.id] || zeros())],
-    };
-
-    next[line.id][month] = Math.max(0, Number(input) || 0);
-
-    setBudgetValues(next);
-
-    localStorage.setItem(
-      `fintrack-budget-${selectedYear}`,
-      JSON.stringify(next),
-    );
-  };
 
   const beginBudgetTransaction = (subcategory: Line) => {
     if (budgetTransactionDrafts[subcategory.id]) return;
@@ -403,8 +395,26 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
         id: `transaction-draft:${Date.now()}`,
         name: '',
         date: `${selectedYear}-01-01`,
-        paymentMode: '',
+        paymentMode: '01',
         values: zeros(),
+      },
+    }));
+
+    setExpandedSubcategories(
+      (current) => new Set(current).add(subcategory.id),
+    );
+  };
+
+  const beginEditExistingTransaction = (
+    subcategory: Line,
+    transaction: TransactionDetail,
+  ) => {
+    setBudgetTransactionDrafts((current) => ({
+      ...current,
+      [subcategory.id]: {
+        ...transaction,
+        paymentMode: transaction.date?.slice(8, 10) || '01',
+        values: [...transaction.values],
       },
     }));
 
@@ -536,17 +546,28 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
       return;
     }
 
-    const nextTransaction = {
+    const nextTransaction: TransactionDetail = {
       ...draft,
-      name: draft.name.trim() || 'Planned transaction',
+      name: draft.name.trim() || 'Transaction',
+      date: draft.date || `${selectedYear}-01-01`,
     };
+
+    const existingList = budgetTransactions[subcategory.id] || [];
+    const existingIndex = existingList.findIndex(
+      (transaction) => transaction.id === draft.id,
+    );
+
+    let nextList: TransactionDetail[];
+    if (existingIndex >= 0) {
+      nextList = [...existingList];
+      nextList[existingIndex] = nextTransaction;
+    } else {
+      nextList = [...existingList, nextTransaction];
+    }
 
     const next = {
       ...budgetTransactions,
-      [subcategory.id]: [
-        ...(budgetTransactions[subcategory.id] || []),
-        nextTransaction,
-      ],
+      [subcategory.id]: nextList,
     };
 
     setBudgetTransactions(next);
@@ -598,66 +619,52 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
   const drawBudgetTransactionDraft = (
     subcategory: Line,
     draft: TransactionDetail,
-  ) => (
-    <tr
-      className="budget-transaction-row budget-transaction-edit-row"
-      key={`${draft.id}:draft`}
-    >
-      <td className="sticky-col budget-transaction-label">
-        <input
-          className="budget-transaction-date-input"
-          type="text"
-          value={draft.paymentMode || ''}
-          onChange={(event) =>
-            editBudgetTransactionDraft(subcategory, {
-              paymentMode: event.target.value,
-            })
-          }
-          onKeyDown={(event) =>
-            handleBudgetTransactionDraftKeyDown(
-              event,
-              subcategory,
-            )
-          }
-          placeholder="Pay"
-          aria-label="Payment mode"
-          autoFocus
-        />
+  ) => {
+    const dayValue =
+      draft.paymentMode !== undefined
+        ? draft.paymentMode
+        : draft.date?.slice(8, 10) || '01';
 
-        <input
-          className="budget-transaction-description-input"
-          type="text"
-          value={draft.name}
-          onChange={(event) =>
-            editBudgetTransactionDraft(subcategory, {
-              name: event.target.value,
-            })
-          }
-          onKeyDown={(event) =>
-            handleBudgetTransactionDraftKeyDown(
-              event,
-              subcategory,
-            )
-          }
-          placeholder="Description"
-          aria-label="Transaction description"
-        />
-      </td>
-
-      {MONTHS.map((_, month) => (
-        <td key={month}>
+    return (
+      <tr
+        className="budget-transaction-row budget-transaction-edit-row"
+        key={`${draft.id}:draft`}
+      >
+        <td className="sticky-col budget-transaction-label budget-transaction-edit-label">
           <input
-            className="budget-transaction-amount-input"
-            aria-label={`${subcategory.name} ${MONTHS[month]} ${
-              mode === 'actual' ? 'actual transaction' : 'planned amount'
-            }`}
-            value={draft.values[month] || ''}
-            onChange={(event) =>
-              editBudgetTransactionDraftAmount(
+            className="budget-transaction-day-input"
+            type="text"
+            value={dayValue}
+            onChange={(event) => {
+              const raw = event.target.value.replace(/\D/g, '').slice(0, 2);
+              const num = raw ? Math.min(31, Math.max(1, Number(raw))) : '';
+              const padded = num ? String(num).padStart(2, '0') : '';
+              const newDate = `${selectedYear}-01-${padded || '01'}`;
+              editBudgetTransactionDraft(subcategory, {
+                paymentMode: raw,
+                date: newDate,
+              });
+            }}
+            onKeyDown={(event) =>
+              handleBudgetTransactionDraftKeyDown(
+                event,
                 subcategory,
-                month,
-                event.target.value,
               )
+            }
+            placeholder="Day"
+            aria-label="Day"
+            maxLength={2}
+            autoFocus
+          />
+
+          <input
+            className="budget-transaction-description-input"
+            type="text"
+            value={draft.name}
+            onChange={(event) =>
+              editBudgetTransactionDraft(subcategory, {
+                name: event.target.value,
+              })
             }
             onKeyDown={(event) =>
               handleBudgetTransactionDraftKeyDown(
@@ -665,37 +672,64 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                 subcategory,
               )
             }
-            placeholder="₹"
-            inputMode="decimal"
+            placeholder="Description"
+            aria-label="Transaction description"
           />
         </td>
-      ))}
 
-      <td className="col-year-total">
-        <button
-          type="button"
-          className="budget-inline-save"
-          onClick={() =>
-            void commitBudgetTransactionDraft(subcategory)
-          }
-          disabled={total(draft.values) <= 0}
-        >
-          Add
-        </button>
+        {MONTHS.map((_, month) => (
+          <td key={month} className="budget-transaction-amount-cell">
+            <input
+              className="budget-transaction-amount-input"
+              aria-label={`${subcategory.name} ${MONTHS[month]} ${
+                mode === 'actual' ? 'actual transaction' : 'planned amount'
+              }`}
+              value={draft.values[month] || ''}
+              onChange={(event) =>
+                editBudgetTransactionDraftAmount(
+                  subcategory,
+                  month,
+                  event.target.value,
+                )
+              }
+              onKeyDown={(event) =>
+                handleBudgetTransactionDraftKeyDown(
+                  event,
+                  subcategory,
+                )
+              }
+              placeholder="₹"
+              inputMode="decimal"
+            />
+          </td>
+        ))}
 
-        <button
-          type="button"
-          className="budget-inline-cancel"
-          onClick={() =>
-            cancelBudgetTransactionDraft(subcategory)
-          }
-          aria-label="Cancel transaction"
-        >
-          ×
-        </button>
-      </td>
-    </tr>
-  );
+        <td className="col-year-total budget-transaction-actions-cell">
+          <button
+            type="button"
+            className="budget-inline-save"
+            onClick={() =>
+              void commitBudgetTransactionDraft(subcategory)
+            }
+            disabled={total(draft.values) <= 0}
+          >
+            Add
+          </button>
+
+          <button
+            type="button"
+            className="budget-inline-cancel"
+            onClick={() =>
+              cancelBudgetTransactionDraft(subcategory)
+            }
+            aria-label="Cancel transaction"
+          >
+            ×
+          </button>
+        </td>
+      </tr>
+    );
+  };
 
   const toggle = (id: string) =>
     setExpanded((current) => {
@@ -946,49 +980,40 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                             <span>{subcategory.name}</span>
 
                             {mode === 'budget' && (
-                              <button
-                                className="budget-delete-button"
-                                type="button"
-                                title="Remove subcategory from budget"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  removeSubcategory(
-                                    section,
-                                    category.id,
-                                    subcategory.id,
-                                  );
-                                }}
-                              >
-                                <Trash2 size={13} />
-                              </button>
+                              <div className="budget-row-actions">
+                                <button
+                                  className="budget-inline-add-btn"
+                                  type="button"
+                                  title="Add transaction"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    beginBudgetTransaction(subcategory);
+                                  }}
+                                >
+                                  <Plus size={13} />
+                                </button>
+                                <button
+                                  className="budget-delete-button"
+                                  type="button"
+                                  title="Remove subcategory from budget"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    removeSubcategory(
+                                      section,
+                                      category.id,
+                                      subcategory.id,
+                                    );
+                                  }}
+                                >
+                                  <Trash2 size={13} />
+                                </button>
+                              </div>
                             )}
                           </td>
 
                           {MONTHS.map((_, month) => (
                             <td key={month}>
-                              {mode === 'budget' ? (
-                                <input
-                                  aria-label={`${subcategory.name} ${MONTHS[month]} budget`}
-                                  value={
-                                    (budgetValues[subcategory.id] ||
-                                      zeros())[month] || ''
-                                  }
-                                  onClick={(event) =>
-                                    event.stopPropagation()
-                                  }
-                                  onChange={(event) =>
-                                    editBudget(
-                                      subcategory,
-                                      month,
-                                      event.target.value,
-                                    )
-                                  }
-                                  placeholder="₹"
-                                  inputMode="decimal"
-                                />
-                              ) : (
-                                cell(subcategoryValues[month])
-                              )}
+                              {cell(subcategoryValues[month])}
                             </td>
                           ))}
 
@@ -998,46 +1023,67 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                         </tr>
 
                         {detailsOpen &&
-                          details.map((detail) => (
-                            <tr
-                              className="budget-transaction-row"
-                              key={detail.id}
-                            >
-                              <td className="sticky-col budget-transaction-label">
-                                <small>
-                                  {detail.date.slice(8, 10)}
-                                </small>
+                          details
+                            .filter(
+                              (detail) =>
+                                detail.id !==
+                                budgetTransactionDrafts[subcategory.id]?.id,
+                            )
+                            .map((detail) => (
+                              <tr
+                                className="budget-transaction-row"
+                                key={detail.id}
+                              >
+                                <td className="sticky-col budget-transaction-label">
+                                  <small>
+                                    {detail.date.slice(8, 10) || '01'}
+                                  </small>
 
-                                <span>{detail.name}</span>
+                                  <span>{detail.name}</span>
 
-                                {mode === 'budget' && (
-                                  <button
-                                    className="budget-delete-button"
-                                    type="button"
-                                    title="Delete planned transaction"
-                                    onClick={() =>
-                                      removeBudgetTransaction(
-                                        subcategory,
-                                        detail.id,
-                                      )
-                                    }
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                )}
-                              </td>
-
-                              {MONTHS.map((_, month) => (
-                                <td key={month}>
-                                  {cell(detail.values[month] || 0)}
+                                  {mode === 'budget' && (
+                                    <div className="budget-row-actions">
+                                      <button
+                                        className="budget-edit-button"
+                                        type="button"
+                                        title="Edit transaction"
+                                        onClick={() =>
+                                          beginEditExistingTransaction(
+                                            subcategory,
+                                            detail,
+                                          )
+                                        }
+                                      >
+                                        <Pencil size={12} />
+                                      </button>
+                                      <button
+                                        className="budget-delete-button"
+                                        type="button"
+                                        title="Delete planned transaction"
+                                        onClick={() =>
+                                          removeBudgetTransaction(
+                                            subcategory,
+                                            detail.id,
+                                          )
+                                        }
+                                      >
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  )}
                                 </td>
-                              ))}
 
-                              <td className="col-year-total">
-                                {currency(total(detail.values))}
-                              </td>
-                            </tr>
-                          ))}
+                                {MONTHS.map((_, month) => (
+                                  <td key={month}>
+                                    {cell(detail.values[month] || 0)}
+                                  </td>
+                                ))}
+
+                                <td className="col-year-total">
+                                  {currency(total(detail.values))}
+                                </td>
+                              </tr>
+                            ))}
 
                         {detailsOpen &&
                           budgetTransactionDrafts[subcategory.id] &&
@@ -1046,7 +1092,7 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                             budgetTransactionDrafts[subcategory.id],
                           )}
 
-                        {detailsOpen && (
+                        {detailsOpen && !budgetTransactionDrafts[subcategory.id] && (
                           <tr className="budget-add-row">
                             <td className="sticky-col">
                               <button
@@ -1112,7 +1158,7 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
     <main className="budget-planning-page">
       <div className="budget-toolbar">
         <div className="budget-heading">
-          <h1>Budget Planning</h1>
+          <h1>Budget</h1>
           <span className="budget-heading-divider" />
           <span>{selectedYear} — Personal Finance</span>
         </div>

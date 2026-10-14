@@ -71,7 +71,7 @@ function AppContent() {
         <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
       )}
 
-      {activeTab === 'Budget Planning' && (
+      {activeTab === 'Budget' && (
         <BudgetPlanningView key={refreshKey} onOpenNewTransaction={openTransactionModal} />
       )}
 
