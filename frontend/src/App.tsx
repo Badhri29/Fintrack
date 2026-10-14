@@ -14,11 +14,17 @@ function AppContent() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('Dashboard');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [transactionDefaults, setTransactionDefaults] = useState<{ category?: string; subcategory?: string; type?: 'income' | 'expense' }>({});
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
 
   const handleTransactionSuccess = () => {
     setRefreshKey(prev => prev + 1);
+  };
+
+  const openTransactionModal = (category?: string, subcategory?: string, type?: 'income' | 'expense') => {
+    setTransactionDefaults({ category: typeof category === 'string' ? category : undefined, subcategory, type });
+    setIsModalOpen(true);
   };
 
   const handleProfileSuccess = () => {
@@ -62,18 +68,18 @@ function AppContent() {
       />
 
       {activeTab === 'Dashboard' && (
-        <DashboardView key={refreshKey} onOpenNewTransaction={() => setIsModalOpen(true)} />
+        <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
       )}
 
-      {activeTab === 'Budget Planning' && (
-        <BudgetPlanningView key={refreshKey} onOpenNewTransaction={() => setIsModalOpen(true)} />
+      {activeTab === 'Budget' && (
+        <BudgetPlanningView key={refreshKey} onOpenNewTransaction={openTransactionModal} />
       )}
 
       {activeTab === 'Transactions' && (
         <TransactionsView
           key={refreshKey}
           globalSearchQuery={globalSearchQuery}
-          onOpenNewTransaction={() => setIsModalOpen(true)}
+          onOpenNewTransaction={() => openTransactionModal()}
         />
       )}
 
@@ -85,6 +91,9 @@ function AppContent() {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleTransactionSuccess}
+        initialCategory={transactionDefaults.category}
+        initialSubcategory={transactionDefaults.subcategory}
+        initialType={transactionDefaults.type}
       />
 
       <ProfileModal

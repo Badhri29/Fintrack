@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { X, Check } from 'lucide-react';
 import api from '../services/api';
 
@@ -6,6 +6,9 @@ interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  initialCategory?: string;
+  initialSubcategory?: string;
+  initialType?: 'income' | 'expense';
 }
 
 const SUBCATEGORY_OPTIONS: Record<string, string[]> = {
@@ -21,7 +24,7 @@ const SUBCATEGORY_OPTIONS: Record<string, string[]> = {
   'Freelance & Business': ['Consulting Fees', 'Client Project Payment', 'Royalties & Licensing', 'Side Hustle Income', 'Other']
 };
 
-export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, onSuccess }) => {
+export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, onSuccess, initialCategory, initialSubcategory, initialType }) => {
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [date, setDate] = useState<string>(new Date().toISOString().substring(0, 10));
   const [amount, setAmount] = useState<string>('');
@@ -34,6 +37,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
   const [description, setDescription] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (initialCategory) setCategory(initialCategory);
+    if (initialSubcategory) setSubcategory(initialSubcategory);
+    if (initialType) setType(initialType);
+  }, [isOpen, initialCategory, initialSubcategory, initialType]);
 
   if (!isOpen) return null;
 
@@ -89,7 +99,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
     }
   };
 
-  const subcategoryList = SUBCATEGORY_OPTIONS[category] || ['Other'];
+  const subcategoryList = Array.from(new Set([...(SUBCATEGORY_OPTIONS[category] || []), subcategory, 'Other']));
+  const categoryList = Array.from(new Set([...Object.keys(SUBCATEGORY_OPTIONS), category]));
 
   return (
     <div className="modal-overlay">
@@ -234,7 +245,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
                   color: 'var(--text-primary)'
                 }}
               >
-                {Object.keys(SUBCATEGORY_OPTIONS).map(cat => (
+                {categoryList.map(cat => (
                   <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>

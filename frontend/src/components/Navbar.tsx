@@ -19,7 +19,7 @@ interface NotificationItem {
 
 const TABS = [
   'Dashboard',
-  'Budget Planning',
+  'Budget',
   'Transactions',
   'Settings'
 ];
