@@ -402,7 +402,7 @@ export const SettingsView: React.FC = () => {
 
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Database Engine</span>
-              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>MySQL 8.0 (Hibernate JPA)</span>
+              <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>MySQL 8.0 (Prisma schema + Spring JPA)</span>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '14px 16px', background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
