@@ -1,5 +1,5 @@
-// Fintrack database schema — source of truth for MySQL tables.
-// Apply: npm run db:migrate   (dev)  or  npm run db:deploy  (CI/prod)
+// Finance Monitoring database schema — source of truth for MySQL tables.
+// Apply: npm run db:migrate (dev) or npm run db:deploy (CI/prod)
 // The Spring Boot backend uses JPA entities that mirror these models.
 
 generator client {
@@ -7,8 +7,9 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
-  url      = env("DATABASE_URL")
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 model User {
