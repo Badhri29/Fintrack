@@ -1,52 +1,56 @@
-# Fintrack
+## Troubleshooting
 
-Fin Track Intelligence: track net worth, transactions, and budgets in real time.
+### 1. Port 8080 Already in Use
 
-## Stack
+Check which process is using port `8080`:
 
-- **Frontend:** React + Vite (`frontend/`)
-- **Backend:** Spring Boot 3 + JPA (`backend/`)
-- **Database:** MySQL 8 — schema defined in **`prisma/schema.prisma`** (same workflow as Prisma-based projects)
+```powershell
+netstat -ano | findstr :8080
+```
 
-## Database setup (no manual table creation)
+Identify the process using its PID:
 
-1. Create an empty MySQL database (e.g. `networth_db`) and a user with access.
-2. Copy environment file and set your connection string:
+```powershell
+tasklist /FI "PID eq YOUR_PID"
+```
 
-   ```bash
-   cp .env .env
-   ```
+If it is the unused `Tomcat11` service, stop it from Administrator PowerShell:
 
-   Edit `DATABASE_URL` in `.env` to match your MySQL user, password, host, and database name.
+```powershell
+Stop-Service -Name Tomcat11
+```
 
-3. Install Prisma CLI dependencies (repo root):
+If it is a confirmed unused process, terminate it using its PID:
 
-   ```bash
-   npm install
-   ```
+```powershell
+taskkill /PID YOUR_PID /F
+```
 
-4. Create all tables from the schema:
+Verify that port `8080` is free:
 
-   ```bash
-   npm run db:migrate
-   ```
+```powershell
+netstat -ano | findstr :8080
+```
 
-   On first run, Prisma will prompt for a migration name (e.g. `init`). This applies SQL under `prisma/migrations/` to MySQL.
+Restart the backend:
 
-**Other commands**
+```powershell
+cd C:\Users\Badhrinarayanan\Desktop\Fintrack\backend
+mvn spring-boot:run
+```
 
-| Command | Purpose |
-|--------|---------|
-| `npm run db:push` | Sync schema to DB without a migration file (prototyping) |
-| `npm run db:deploy` | Apply pending migrations (production/CI) |
-| `npm run db:studio` | Browse/edit data in Prisma Studio |
+**Note:** Do not terminate an unfamiliar process. Stop only processes you know are safe to close.
 
-After the database exists, start the backend with `DB_USER`, `DB_PASSWORD`, and `DB_*` aligned with `.env`, then run the frontend as usual.
+### 2. Database Connection Failed
 
-**Already have tables in MySQL?** Either drop and recreate with `npm run db:migrate`, or run `npx prisma db pull` to sync `schema.prisma` from the live DB, then `npx prisma migrate resolve --applied 20261014120000_init` to mark the initial migration as applied without re-running it.
+- Ensure the SSH tunnel is running.
+- Verify MySQL is running on Oracle Cloud.
+- Check the database credentials and port `3307`.
 
-## Changing the schema
+### 3. Frontend Cannot Connect
 
-1. Edit `prisma/schema.prisma`.
-2. Run `npm run db:migrate` and give the migration a name.
-3. Update the matching JPA entity under `backend/src/main/java/com/networth/entity/` so Spring Boot stays in sync.
+Ensure the backend is running on port `8080` and the frontend API URL is correct.
+
+### 4. Maven Compilation Failed
+
+Check Java 17 and Lombok configuration.
