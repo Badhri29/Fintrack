@@ -6,8 +6,8 @@ spring:
     name: personal-net-worth-backend
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:networth_db}
-    username: pns_user
-    password: YOUR_NEW_PASSWORD
+    username: ${DB_USER:pns_user}
+    password: ${DB_PASSWORD:YOUR_NEW_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:

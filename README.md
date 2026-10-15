@@ -14,7 +14,7 @@ Fin Track Intelligence: track net worth, transactions, and budgets in real time.
 2. Copy environment file and set your connection string:
 
    ```bash
-   cp .env.example .env
+   cp .env .env
    ```
 
    Edit `DATABASE_URL` in `.env` to match your MySQL user, password, host, and database name.
