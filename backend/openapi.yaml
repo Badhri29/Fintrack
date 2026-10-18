@@ -6,10 +6,16 @@ info:
     REST API for account access, profile management, financial transactions,
     categories, assets, liabilities, and dashboard summaries. All amounts are
     expressed as numbers in the application's configured currency; no currency
-    conversion is performed.
+    conversion is performed. The public server is `https://networth.duckdns.org`
+    and the local server is `http://localhost:5173`. Paths already include the
+    `/api` prefix. Registration and login are POST requests with a JSON body.
+    For protected endpoints, use Authorize and supply the JWT returned by login
+    or registration.
 servers:
-  - url: http://localhost:8080
-    description: Local backend (the port can be overridden with PORT)
+  - url: https://networth.duckdns.org
+    description: Public frontend origin; API requests are served under /api
+  - url: http://localhost:5173
+    description: Local frontend origin; Vite proxies /api requests to the backend
 tags:
   - name: Authentication
     description: Account registration, login, logout, and credential management.
@@ -143,6 +149,8 @@ paths:
                 properties:
                   user:
                     $ref: '#/components/schemas/UserSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/auth/change-password:
@@ -192,6 +200,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperationError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/profile:
@@ -213,6 +223,8 @@ paths:
                     example: true
                   data:
                     $ref: '#/components/schemas/UserProfile'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     put:
@@ -251,6 +263,8 @@ paths:
                   message:
                     type: string
                     example: Profile updated successfully
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/categories:
@@ -282,6 +296,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Category'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -317,6 +333,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '409':
@@ -339,6 +357,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubCategoryListResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -374,6 +394,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/categories/subcategories:
@@ -390,6 +412,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SubCategoryListResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -425,6 +449,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/transactions:
@@ -459,6 +485,8 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Transaction'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -511,11 +539,19 @@ paths:
                   data:
                     $ref: '#/components/schemas/Transaction'
         '400':
-          description: Required fields are missing or amount is not numeric. An invalid date may also be rejected.
+          description: Required fields are missing or amount is not numeric.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '500':
+          description: Date parsing failed or an unexpected server error occurred.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/transactions/{id}:
@@ -532,6 +568,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -552,6 +590,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HoldingsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -588,6 +628,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/holdings/assets/{id}:
@@ -604,6 +646,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -624,6 +668,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/HoldingsResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
     post:
@@ -660,6 +706,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/holdings/liabilities/{id}:
@@ -676,6 +724,8 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SuccessResponse'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '404':
@@ -706,6 +756,8 @@ paths:
                     example: true
                   data:
                     $ref: '#/components/schemas/DashboardSummary'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/dashboard/monthly:
@@ -744,6 +796,8 @@ paths:
                     maxItems: 12
                     items:
                       $ref: '#/components/schemas/MonthlyTotal'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
   /api/dashboard/top-categories:
@@ -758,9 +812,10 @@ paths:
         - name: limit
           in: query
           required: false
-          description: Maximum number of categories to return; defaults to 5.
+          description: Maximum number of categories to return; defaults to 5. Zero returns an empty list.
           schema:
             type: integer
+            minimum: 0
             default: 5
           example: 5
       responses:
@@ -779,6 +834,14 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/TopCategory'
+        '400':
+          description: The limit is negative.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageError'
+        '403':
+          $ref: '#/components/responses/Forbidden'
         '401':
           $ref: '#/components/responses/Unauthorized'
 components:
@@ -787,12 +850,17 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: JWT returned by the login or registration endpoint.
+      description: >-
+        For protected endpoints, paste the raw JWT returned by login or
+        registration into Authorize. Swagger UI adds the `Bearer` prefix.
     tokenCookie:
       type: apiKey
       in: cookie
       name: token
-      description: HTTP-only JWT cookie set by login or registration.
+      description: >-
+        HTTP-only JWT cookie set by login or registration. Browsers may block
+        this cookie when Swagger Editor is on a different origin; use bearerAuth
+        for reliable Try it out requests.
   headers:
     AuthCookie:
       description: HTTP-only token cookie with a 24-hour lifetime.
@@ -819,8 +887,15 @@ components:
         format: int64
       example: 12
   responses:
+    Forbidden:
+      description: >-
+        The API rejected this request because it was unauthenticated or not
+        authorized. Spring Security returns HTTP 403 when credentials are
+        missing or invalid; its default response may have no response body.
     Unauthorized:
-      description: Authentication is missing or invalid.
+      description: >-
+        Authentication is missing or invalid. The current Spring Security
+        configuration may return HTTP 403 for protected API requests.
       content:
         application/json:
           schema:
@@ -1186,13 +1261,24 @@ components:
           example: true
     MessageError:
       type: object
+      description: Error payload returned by controller validation or the global exception handler.
       properties:
         success:
           type: boolean
           example: false
         message:
           type: string
-          example: Unauthorized
+          description: Human-readable error message, when supplied.
+          example: Request could not be completed
+        error:
+          type: string
+          description: Error detail, when supplied by the global exception handler.
+          example: Invalid value
+        data:
+          type: object
+          additionalProperties:
+            type: string
+          description: Optional field-level validation details.
     OperationError:
       type: object
       properties:
