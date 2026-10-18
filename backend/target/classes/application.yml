@@ -1,14 +1,18 @@
 server:
-  port: ${PORT:8080}
+  port: ${PORT:8081}
 
 spring:
+  config:
+    import: optional:file:./.env
   application:
-    name: personal-net-worth-backend
+    name: finance-monitoring-backend
+
   datasource:
-    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:networth_db}
-    username: ${DB_USER:pns_user}
-    password: ${DB_PASSWORD:YOUR_NEW_PASSWORD}
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3307}/${DB_NAME:finance_monitoring_shadow}
+    username: ${DB_USER:finance_monitoring}
+    password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
+
   jpa:
     hibernate:
       ddl-auto: none
@@ -22,5 +26,5 @@ spring:
     open-in-view: false
 
 jwt:
-  secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-  expiration: 86400000 # 24 hours in milliseconds
+  secret: ${JWT_SECRET}
+  expiration: 86400000
