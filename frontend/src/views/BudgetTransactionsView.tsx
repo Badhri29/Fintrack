@@ -24,7 +24,7 @@ import api from '../services/api';
 import { TransactionModal } from '../components/TransactionModal';
 
 interface BudgetTransactionsViewProps {
-  onOpenNewTransaction: (category?: string, subcategory?: string, type?: 'income' | 'expense') => void;
+  onOpenNewTransaction: (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => void;
   globalSearchQuery?: string;
   initialViewMode?: 'combined' | 'budget' | 'transactions';
 }
@@ -108,15 +108,21 @@ interface ApiSubcategory {
 
 const zeros = () => new Array(12).fill(0) as number[];
 
-const getSection = (item: any): Section =>
-  item.type === 'income'
-    ? 'income'
-    : item.type === 'savings' ||
-        ['Investments', 'Savings', 'Mutual Funds', 'Emergency Fund'].includes(
-          item.category,
-        )
-      ? 'savings'
-      : 'expense';
+const getSection = (item: any): Section => {
+  const type = String(item?.type || '').toLowerCase();
+  const cat = String(item?.category || '').trim();
+
+  // If item explicitly has type 'savings' or belongs to known savings categories:
+  if (type === 'savings' || ['Investments', 'Savings', 'Mutual Funds', 'Emergency Fund'].includes(cat)) {
+    return 'savings';
+  }
+  if (type === 'income' || ['Salary', 'Bonus & Incentives', 'Other Income', 'Freelance & Business'].includes(cat)) {
+    return 'income';
+  }
+  if (type === 'expense') return 'expense';
+
+  return 'expense';
+};
 
 export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   onOpenNewTransaction,
@@ -127,7 +133,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     globalSearchQuery ? 'transactions' : initialViewMode
   );
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [mode, setMode] = useState<Mode>('budget');
+  const [mode, setMode] = useState<Mode>('actual');
 
   // Section references for scroll-to navigation and scroll-spy
   const budgetSectionRef = useRef<HTMLElement>(null);
@@ -182,16 +188,72 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setIsEditModalOpen(true);
   };
 
+  // Robust date parser supporting YYYY-MM-DD, DD-MM-YYYY, and timestamps
+  const parseTransactionDate = (
+    dateStr?: string,
+  ): { year: number; month: number; day: number; formatted: string; iso: string } | null => {
+    if (!dateStr) return null;
+    const s = String(dateStr).trim();
+
+    // Case 1: YYYY-MM-DD or ISO string starting with YYYY-MM-DD
+    const ymdMatch = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (ymdMatch) {
+      const year = parseInt(ymdMatch[1], 10);
+      const month = parseInt(ymdMatch[2], 10) - 1; // 0-indexed (0=Jan)
+      const day = parseInt(ymdMatch[3], 10);
+      const dStr = String(day).padStart(2, '0');
+      const mStr = String(month + 1).padStart(2, '0');
+      return {
+        year,
+        month,
+        day,
+        formatted: `${dStr}-${mStr}-${year}`,
+        iso: `${year}-${mStr}-${dStr}`,
+      };
+    }
+
+    // Case 2: DD-MM-YYYY or DD/MM/YYYY
+    const dmyMatch = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (dmyMatch) {
+      const day = parseInt(dmyMatch[1], 10);
+      const month = parseInt(dmyMatch[2], 10) - 1; // 0-indexed (0=Jan)
+      const year = parseInt(dmyMatch[3], 10);
+      const dStr = String(day).padStart(2, '0');
+      const mStr = String(month + 1).padStart(2, '0');
+      return {
+        year,
+        month,
+        day,
+        formatted: `${dStr}-${mStr}-${year}`,
+        iso: `${year}-${mStr}-${dStr}`,
+      };
+    }
+
+    // Fallback Date parser
+    const parsed = new Date(s);
+    if (!isNaN(parsed.getTime())) {
+      const year = parsed.getFullYear();
+      const month = parsed.getMonth();
+      const day = parsed.getDate();
+      const dStr = String(day).padStart(2, '0');
+      const mStr = String(month + 1).padStart(2, '0');
+      return {
+        year,
+        month,
+        day,
+        formatted: `${dStr}-${mStr}-${year}`,
+        iso: `${year}-${mStr}-${dStr}`,
+      };
+    }
+
+    return null;
+  };
+
   // Date formatter: DD-MM-YYYY
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
-    const clean = String(dateStr).substring(0, 10);
-    const parts = clean.split('-');
-    if (parts.length === 3) {
-      const [y, m, d] = parts;
-      return `${d}-${m}-${y}`;
-    }
-    return dateStr;
+    const parsed = parseTransactionDate(dateStr);
+    return parsed ? parsed.formatted : dateStr;
   };
 
   // Automatically close year picker popover on scroll or click outside
@@ -432,15 +494,19 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     });
 
     transactions
-      .filter((item) => String(item.date || '').startsWith(String(selectedYear)))
+      .map((item) => ({ item, parsedDate: parseTransactionDate(item.date) }))
+      .filter(({ parsedDate }) => parsedDate && parsedDate.year === selectedYear)
       .sort((a, b) => {
-        const dayA = Number(String(a.date || '').slice(8, 10)) || 1;
-        const dayB = Number(String(b.date || '').slice(8, 10)) || 1;
-        if (dayA !== dayB) return dayA - dayB;
-        return String(a.date || '').localeCompare(String(b.date || ''));
+        if (a.parsedDate!.month !== b.parsedDate!.month) {
+          return a.parsedDate!.month - b.parsedDate!.month;
+        }
+        if (a.parsedDate!.day !== b.parsedDate!.day) {
+          return a.parsedDate!.day - b.parsedDate!.day;
+        }
+        return String(a.item.id).localeCompare(String(b.item.id));
       })
-      .forEach((item) => {
-        const month = Number(String(item.date).slice(5, 7)) - 1;
+      .forEach(({ item, parsedDate }) => {
+        const month = parsedDate!.month;
 
         if (month < 0 || month > 11) return;
 
@@ -462,7 +528,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         subcategory.transactions?.push({
           id: `transaction:${item.id}`,
           name: item.description || item.subcategory || 'Transaction',
-          date: String(item.date),
+          date: parsedDate!.iso,
           values: MONTHS.map((_, index) => (index === month ? amount : 0)),
         });
       });
@@ -490,8 +556,13 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   const filteredTransactions = useMemo(() => {
     return rawTransactions.filter((t) => {
-      // 1. Filter by Type
-      if (filterType !== 'all' && t.type !== filterType) return false;
+      // 1. Filter by Type (consistently using getSection)
+      if (filterType !== 'all') {
+        const itemSection = getSection(t);
+        if (itemSection !== filterType) {
+          return false;
+        }
+      }
 
       // 2. Filter by Category
       if (selectedCategory !== 'All Categories' && t.category !== selectedCategory) return false;
@@ -503,7 +574,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         const matchSub = t.subcategory && String(t.subcategory).toLowerCase().includes(q);
         const matchDesc = t.description && String(t.description).toLowerCase().includes(q);
         const matchMode = t.paymentMode && String(t.paymentMode).toLowerCase().includes(q);
-        const matchDate = t.date && String(t.date).toLowerCase().includes(q);
+        const matchDate = t.date && (String(t.date).toLowerCase().includes(q) || formatDate(t.date).toLowerCase().includes(q));
         const matchAmt = t.amount && String(t.amount).includes(q);
         if (!matchCat && !matchSub && !matchDesc && !matchMode && !matchDate && !matchAmt) {
           return false;
@@ -735,7 +806,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           await api.post('/transactions', {
             date,
-            type: parent.section === 'income' ? 'income' : 'expense',
+            type: parent.section,
             category: parent.category.name,
             subcategory: subcategory.name,
             amount,
@@ -824,6 +895,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const drawBudgetTransactionDraft = (
     subcategory: Line,
     draft: TransactionDetail,
+    section: Section = 'savings',
   ) => {
     const dayValue =
       draft.paymentMode !== undefined
@@ -839,7 +911,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
     return (
       <React.Fragment key={`${draft.id}:draft`}>
-        <tr className="budget-transaction-row budget-transaction-edit-row">
+        <tr className={`budget-transaction-row budget-transaction-edit-row budget-transaction-row-${section}`}>
           <td className="sticky-col budget-transaction-label budget-transaction-edit-label">
             <input
               className="budget-transaction-day-input"
@@ -896,8 +968,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           <td
             className="col-year-total budget-transaction-actions-cell"
             rowSpan={mode === 'actual' ? 2 : 1}
+            style={{ textAlign: 'center', verticalAlign: 'middle' }}
           >
-            <div className="budget-transaction-actions-inner">
+            <div
+              className="budget-transaction-actions-inner"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                height: '100%',
+                width: '100%',
+                margin: '0 auto',
+              }}
+            >
               <button
                 type="button"
                 className="budget-inline-save"
@@ -920,11 +1004,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         </tr>
 
         {mode === 'actual' && (
-          <tr className="budget-transaction-row budget-transaction-paymode-row">
+          <tr className={`budget-transaction-row budget-transaction-paymode-row budget-transaction-row-${section}`}>
             <td className="sticky-col budget-transaction-label budget-transaction-paymode-label">
               <button
                 type="button"
                 className="budget-set-all-btn"
+                title="Apply selected payment mode to all 12 months"
                 onClick={() => {
                   const commonSelect = document.getElementById(
                     `common-paymode-${draft.id}`,
@@ -935,7 +1020,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   });
                 }}
               >
-                Set to all
+                Set All
               </button>
               <select
                 id={`common-paymode-${draft.id}`}
@@ -1224,60 +1309,66 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                 detail.id !== budgetTransactionDrafts[subcategory.id]?.id,
                             )
                             .sort((a, b) => {
-                              const dayA = Number(String(a.date || '').slice(8, 10)) || 1;
-                              const dayB = Number(String(b.date || '').slice(8, 10)) || 1;
+                              const dayA = parseTransactionDate(a.date)?.day || Number(String(a.date || '').slice(8, 10)) || 1;
+                              const dayB = parseTransactionDate(b.date)?.day || Number(String(b.date || '').slice(8, 10)) || 1;
                               if (dayA !== dayB) return dayA - dayB;
                               const cmpDate = (a.date || '').localeCompare(b.date || '');
                               if (cmpDate !== 0) return cmpDate;
                               return (a.name || '').localeCompare(b.name || '');
                             })
-                            .map((detail) => (
-                              <tr className="budget-transaction-row" key={detail.id}>
-                                <td className="sticky-col budget-transaction-label">
-                                  <small>{detail.date.slice(8, 10) || '01'}</small>
-                                  <span>{detail.name}</span>
+                            .map((detail) => {
+                              const parsedDay = parseTransactionDate(detail.date)?.day;
+                              const displayDay = parsedDay != null ? String(parsedDay).padStart(2, '0') : (detail.date.slice(8, 10) || '01');
 
-                                  {mode === 'budget' && (
-                                    <div className="budget-row-actions">
-                                      <button
-                                        className="budget-edit-button"
-                                        type="button"
-                                        title="Edit transaction"
-                                        onClick={() =>
-                                          beginEditExistingTransaction(subcategory, detail)
-                                        }
-                                      >
-                                        <Pencil size={12} />
-                                      </button>
-                                      <button
-                                        className="budget-delete-button"
-                                        type="button"
-                                        title="Delete planned transaction"
-                                        onClick={() =>
-                                          removeBudgetTransaction(subcategory, detail.id)
-                                        }
-                                      >
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                  )}
-                                </td>
+                              return (
+                                <tr className={`budget-transaction-row budget-transaction-row-${section}`} key={detail.id}>
+                                  <td className="sticky-col budget-transaction-label">
+                                    <small>{displayDay}</small>
+                                    <span>{detail.name}</span>
 
-                                {MONTHS.map((_, month) => (
-                                  <td key={month}>{cell(detail.values[month] || 0)}</td>
-                                ))}
+                                    {mode === 'budget' && (
+                                      <div className="budget-row-actions">
+                                        <button
+                                          className="budget-edit-button"
+                                          type="button"
+                                          title="Edit transaction"
+                                          onClick={() =>
+                                            beginEditExistingTransaction(subcategory, detail)
+                                          }
+                                        >
+                                          <Pencil size={12} />
+                                        </button>
+                                        <button
+                                          className="budget-delete-button"
+                                          type="button"
+                                          title="Delete planned transaction"
+                                          onClick={() =>
+                                            removeBudgetTransaction(subcategory, detail.id)
+                                          }
+                                        >
+                                          <Trash2 size={12} />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
 
-                                <td className="col-year-total">
-                                  {currency(total(detail.values))}
-                                </td>
-                              </tr>
-                            ))}
+                                  {MONTHS.map((_, month) => (
+                                    <td key={month}>{cell(detail.values[month] || 0)}</td>
+                                  ))}
+
+                                  <td className="col-year-total">
+                                    {currency(total(detail.values))}
+                                  </td>
+                                </tr>
+                              );
+                            })}
 
                         {detailsOpen &&
                           budgetTransactionDrafts[subcategory.id] &&
                           drawBudgetTransactionDraft(
                             subcategory,
                             budgetTransactionDrafts[subcategory.id],
+                            section,
                           )}
 
                         {detailsOpen && !budgetTransactionDrafts[subcategory.id] && (
@@ -1550,7 +1641,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 {drawSection('expense', 'EXPENSES', <TrendingDown size={15} />)}
 
                 <tr className="net-cashflow-row">
-                  <td className="sticky-col">NET CASH FLOW</td>
+                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle' }}>NET CASH FLOW</td>
                   {MONTHS.map((_, month) => {
                     const value = incomeTotals[month] - expenseTotals[month];
                     return (
@@ -1668,6 +1759,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   onClick={() => setFilterType('expense')}
                 >
                   Expenses
+                </button>
+                <button
+                  className={`segmented-btn ${filterType === 'savings' ? 'active' : ''}`}
+                  onClick={() => setFilterType('savings')}
+                >
+                  Savings
                 </button>
               </div>
 
@@ -1798,7 +1895,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           {/* Transactions Table */}
           <div style={{ padding: '0 28px 20px' }}>
-            <div className="glass-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div className="glass-card table-card" style={{ padding: 0, overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
                 <table className="transactions-table" style={{ width: '100%', textAlign: 'left', tableLayout: 'fixed' }}>
                   <colgroup>
@@ -1855,29 +1952,43 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             {formatDate(t.date)}
                           </td>
                           <td>
-                            <span
-                              style={{
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                gap: 4,
-                                padding: '4px 8px',
-                                borderRadius: 6,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                background:
-                                  t.type === 'income'
-                                    ? 'rgba(16, 185, 129, 0.15)'
-                                    : 'rgba(239, 68, 68, 0.15)',
-                                color: t.type === 'income' ? '#10B981' : '#EF4444',
-                              }}
-                            >
-                              {t.type === 'income' ? (
-                                <ArrowUpRight size={14} />
-                              ) : (
-                                <ArrowDownRight size={14} />
-                              )}
-                              {t.type ? String(t.type).toUpperCase() : ''}
-                            </span>
+                            {(() => {
+                              const section = getSection(t);
+                              return (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    padding: '4px 8px',
+                                    borderRadius: 6,
+                                    fontSize: 12,
+                                    fontWeight: 700,
+                                    background:
+                                      section === 'income'
+                                        ? 'rgba(16, 185, 129, 0.15)'
+                                        : section === 'savings'
+                                        ? 'rgba(59, 130, 246, 0.15)'
+                                        : 'rgba(239, 68, 68, 0.15)',
+                                    color:
+                                      section === 'income'
+                                        ? '#10B981'
+                                        : section === 'savings'
+                                        ? '#60A5FA'
+                                        : '#EF4444',
+                                  }}
+                                >
+                                  {section === 'income' ? (
+                                    <ArrowUpRight size={14} />
+                                  ) : section === 'savings' ? (
+                                    <PiggyBank size={14} />
+                                  ) : (
+                                    <ArrowDownRight size={14} />
+                                  )}
+                                  {section.toUpperCase()}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td style={{ fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.category}</div>
@@ -1928,7 +2039,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             style={{
                               textAlign: 'right',
                               fontWeight: 700,
-                              color: t.type === 'income' ? '#10B981' : '#EF4444',
+                              color:
+                                t.type === 'income'
+                                  ? '#10B981'
+                                  : t.type === 'savings'
+                                  ? '#60A5FA'
+                                  : '#EF4444',
                             }}
                           >
                             {t.type === 'income' ? '+' : '-'}
