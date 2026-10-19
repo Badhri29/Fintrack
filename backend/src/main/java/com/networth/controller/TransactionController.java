@@ -102,4 +102,63 @@ public class TransactionController {
         transactionRepository.deleteByIdAndUserId(id, principal.getId());
         return ResponseEntity.ok(Map.of("success", true));
     }
+
+    @PutMapping("/{id}")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateTransaction(@AuthenticationPrincipal UserPrincipal principal,
+                                                                 @PathVariable Long id,
+                                                                 @RequestBody Map<String, Object> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+
+        var opt = transactionRepository.findByIdAndUserId(id, principal.getId());
+        if (opt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("success", false, "message", "Transaction not found"));
+        }
+
+        Transaction transaction = opt.get();
+
+        if (body.containsKey("date")) {
+            String dateStr = (String) body.get("date");
+            if (dateStr != null && dateStr.length() >= 10) {
+                transaction.setDate(LocalDate.parse(dateStr.substring(0, 10)));
+            }
+        }
+        if (body.containsKey("type")) {
+            transaction.setType((String) body.get("type"));
+        }
+        if (body.containsKey("category")) {
+            transaction.setCategory((String) body.get("category"));
+        }
+        if (body.containsKey("subcategory")) {
+            transaction.setSubcategory((String) body.get("subcategory"));
+        }
+        if (body.containsKey("details") || body.containsKey("description")) {
+            String details = (String) body.get("details");
+            if (details == null) details = (String) body.get("description");
+            transaction.setDescription(details);
+        }
+        if (body.containsKey("amount")) {
+            Object amtObj = body.get("amount");
+            if (amtObj != null) {
+                try {
+                    transaction.setAmount(Double.valueOf(amtObj.toString()));
+                } catch (NumberFormatException e) {
+                    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                            .body(Map.of("success", false, "message", "Amount must be a valid number"));
+                }
+            }
+        }
+        if (body.containsKey("paymentMode")) {
+            String paymentMode = (String) body.get("paymentMode");
+            transaction.setPaymentMode(paymentMode);
+            String card = (String) body.get("card");
+            transaction.setCard("credit".equalsIgnoreCase(paymentMode) ? card : null);
+        }
+
+        transaction = transactionRepository.save(transaction);
+        return ResponseEntity.ok(Map.of("success", true, "data", transaction));
+    }
 }
