@@ -3,8 +3,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './views/DashboardView';
-import { BudgetPlanningView } from './views/BudgetPlanningView';
-import { TransactionsView } from './views/TransactionsView';
+import { BudgetTransactionsView } from './views/BudgetTransactionsView';
 import { SettingsView } from './views/SettingsView';
 import { LoginView } from './views/LoginView';
 import { TransactionModal } from './components/TransactionModal';
@@ -63,7 +62,7 @@ function AppContent() {
         onOpenProfile={() => setIsProfileOpen(true)}
         onGlobalSearch={(query) => {
           setGlobalSearchQuery(query);
-          setActiveTab('Transactions');
+          setActiveTab('Budget & Transactions');
         }}
       />
 
@@ -71,15 +70,11 @@ function AppContent() {
         <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
       )}
 
-      {activeTab === 'Budget' && (
-        <BudgetPlanningView key={refreshKey} onOpenNewTransaction={openTransactionModal} />
-      )}
-
-      {activeTab === 'Transactions' && (
-        <TransactionsView
+      {(activeTab === 'Budget & Transactions' || activeTab === 'Budget' || activeTab === 'Transactions') && (
+        <BudgetTransactionsView
           key={refreshKey}
           globalSearchQuery={globalSearchQuery}
-          onOpenNewTransaction={() => openTransactionModal()}
+          onOpenNewTransaction={openTransactionModal}
         />
       )}
 

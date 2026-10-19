@@ -19,8 +19,7 @@ interface NotificationItem {
 
 const TABS = [
   'Dashboard',
-  'Budget',
-  'Transactions',
+  'Budget & Transactions',
   'Settings'
 ];
 
@@ -122,15 +121,22 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
     setSearchQuery(val);
     onGlobalSearch?.(val);
     if (val.trim()) {
-      onTabChange('Transactions');
+      onTabChange('Budget & Transactions');
     }
   };
 
   const handleSearchKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && searchQuery.trim()) {
       onGlobalSearch?.(searchQuery.trim());
-      onTabChange('Transactions');
+      onTabChange('Budget & Transactions');
     }
+  };
+
+  const isTabActive = (tab: string) => {
+    if (tab === 'Budget & Transactions') {
+      return activeTab === 'Budget & Transactions' || activeTab === 'Budget' || activeTab === 'Transactions';
+    }
+    return activeTab === tab;
   };
 
   return (
@@ -151,7 +157,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         {TABS.map(tab => (
           <button
             key={tab}
-            className={`nav-tab ${activeTab === tab ? 'active' : ''}`}
+            className={`nav-tab ${isTabActive(tab) ? 'active' : ''}`}
             onClick={() => onTabChange(tab)}
           >
             {tab}
