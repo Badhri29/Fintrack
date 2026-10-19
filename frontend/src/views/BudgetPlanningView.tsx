@@ -1093,7 +1093,7 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                           )}
 
                         {detailsOpen && !budgetTransactionDrafts[subcategory.id] && (
-                          <tr className="budget-add-row">
+                          <tr className={`budget-add-row budget-add-transaction-row budget-add-transaction-${section}`}>
                             <td className="sticky-col">
                               <button
                                 type="button"
@@ -1113,7 +1113,7 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
                   })}
 
                 {isOpen && (
-                  <tr className="budget-add-row">
+                  <tr className="budget-add-row budget-add-subcategory-row">
                     <td className="sticky-col">
                       <button
                         type="button"
@@ -1134,7 +1134,7 @@ export const BudgetPlanningView: React.FC<BudgetPlanningViewProps> = ({
           })}
 
         {open && (
-          <tr className="budget-add-row">
+          <tr className="budget-add-row budget-add-category-row">
             <td className="sticky-col">
               <button
                 type="button"

@@ -782,8 +782,51 @@ body {
   color: #60a5fa;
 }
 .budget-add-row td { height: 36px; background: #0b1120; border-top-color: transparent; }
-.budget-add-row button { gap: 7px; border: 0; padding: 0 0 0 28px; background: transparent; color: #4384d8; cursor: pointer; font: inherit; font-size: 12px; }
+.budget-add-row button {
+  gap: 7px;
+  border: 0;
+  padding: 0 0 0 28px;
+  background: transparent;
+  color: #4384d8;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  transition: color 0.15s ease;
+}
 .budget-add-row button:hover { color: #75aaff; }
+
+.budget-add-category-row button {
+  padding: 0 0 0 28px;
+}
+
+.budget-add-subcategory-row button {
+  padding: 0 0 0 58px;
+}
+
+.budget-add-transaction-row button {
+  padding: 0 0 0 88px;
+}
+
+.budget-add-transaction-income button {
+  color: #10c495;
+}
+.budget-add-transaction-income button:hover {
+  color: #38c69b;
+}
+
+.budget-add-transaction-savings button {
+  color: #60a5fa;
+}
+.budget-add-transaction-savings button:hover {
+  color: #93c5fd;
+}
+
+.budget-add-transaction-expense button {
+  color: #fb7185;
+}
+.budget-add-transaction-expense button:hover {
+  color: #fda4af;
+}
 .net-cashflow-row { font-weight: 800; }
 .net-cashflow-row td { background: #15152d; color: #c1b4ff; }
 .net-cashflow-row td.sticky-col { background: #1b1938; color: #d7d1ff; }
