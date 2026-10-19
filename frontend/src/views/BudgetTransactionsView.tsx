@@ -18,10 +18,17 @@ import {
   Filter,
   X,
   Table as TableIcon,
-  ReceiptText
+  ReceiptText,
+  Check,
+  FolderPlus,
+  Layers,
+  Loader2,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
 import api from '../services/api';
 import { TransactionModal } from '../components/TransactionModal';
+import { CategoryModal } from '../components/CategoryModal';
 
 interface BudgetTransactionsViewProps {
   onOpenNewTransaction: (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => void;
@@ -187,6 +194,32 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setEditingTransaction(tx);
     setIsEditModalOpen(true);
   };
+
+  // Category & Subcategory Modal State
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState<boolean>(false);
+  const [categoryModalInitialMode, setCategoryModalInitialMode] = useState<'category' | 'subcategory'>('category');
+  const [categoryModalInitialSection, setCategoryModalInitialSection] = useState<Section>('expense');
+  const [categoryModalInitialCategoryName, setCategoryModalInitialCategoryName] = useState<string>('');
+
+  // Inline Category Add State
+  const [activeAddCategorySection, setActiveAddCategorySection] = useState<Section | null>(null);
+  const [categoryInputName, setCategoryInputName] = useState<string>('');
+  const [categoryInlineError, setCategoryInlineError] = useState<string | null>(null);
+  const [isCategorySubmitting, setIsCategorySubmitting] = useState<boolean>(false);
+  const categoryInputRef = useRef<HTMLInputElement>(null);
+
+  // Inline Subcategory Add State
+  const [activeAddSubcategoryId, setActiveAddSubcategoryId] = useState<string | null>(null);
+  const [subcategoryInputName, setSubcategoryInputName] = useState<string>('');
+  const [subcategoryInlineError, setSubcategoryInlineError] = useState<string | null>(null);
+  const [isSubcategorySubmitting, setIsSubcategorySubmitting] = useState<boolean>(false);
+  const subcategoryInputRef = useRef<HTMLInputElement>(null);
+
+  const modalCategoriesBySection = useMemo(() => ({
+    income: (sections.income || []).map((c) => ({ id: c.categoryId, name: c.name })),
+    savings: (sections.savings || []).map((c) => ({ id: c.categoryId, name: c.name })),
+    expense: (sections.expense || []).map((c) => ({ id: c.categoryId, name: c.name })),
+  }), [sections]);
 
   // Robust date parser supporting YYYY-MM-DD, DD-MM-YYYY, and timestamps
   const parseTransactionDate = (
@@ -1123,25 +1156,86 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     }));
   };
 
-  const addCategory = async (section: Section) => {
-    const name = window.prompt('New category name');
-    if (!name?.trim()) return;
+  const openAddCategoryModal = (
+    section: Section = 'expense',
+    mode: 'category' | 'subcategory' = 'category',
+    categoryName: string = '',
+  ) => {
+    setCategoryModalInitialMode(mode);
+    setCategoryModalInitialSection(section);
+    setCategoryModalInitialCategoryName(categoryName);
+    setIsCategoryModalOpen(true);
+  };
 
+  const handleStartAddCategory = (section: Section) => {
+    setActiveAddCategorySection(section);
+    setCategoryInputName('');
+    setCategoryInlineError(null);
+    setActiveAddSubcategoryId(null);
+    setSectionOpen((cur) => ({ ...cur, [section]: true }));
+    setTimeout(() => {
+      categoryInputRef.current?.focus();
+    }, 50);
+  };
+
+  const handleCancelAddCategory = () => {
+    setActiveAddCategorySection(null);
+    setCategoryInputName('');
+    setCategoryInlineError(null);
+  };
+
+  const handleConfirmAddCategory = async (section: Section) => {
+    const name = categoryInputName.trim();
+    if (!name) {
+      setCategoryInlineError('Category name cannot be empty');
+      return;
+    }
+
+    setIsCategorySubmitting(true);
+    setCategoryInlineError(null);
     try {
       await api.post('/categories', {
-        name: name.trim(),
+        name,
         type: section,
       });
       await loadAllData();
-    } catch {
-      window.alert('Category could not be saved. Make sure the backend is running.');
+      setActiveAddCategorySection(null);
+      setCategoryInputName('');
+    } catch (error: any) {
+      setCategoryInlineError(
+        error.response?.data?.message || 'Category could not be saved. It may already exist.',
+      );
+    } finally {
+      setIsCategorySubmitting(false);
     }
   };
 
-  const addSubcategory = async (section: Section, category: Category) => {
-    const name = window.prompt(`New subcategory for ${category.name}`);
-    if (!name?.trim()) return;
+  const handleStartAddSubcategory = (category: Category) => {
+    setActiveAddSubcategoryId(category.id);
+    setSubcategoryInputName('');
+    setSubcategoryInlineError(null);
+    setActiveAddCategorySection(null);
+    setExpanded((cur) => new Set(cur).add(category.id));
+    setTimeout(() => {
+      subcategoryInputRef.current?.focus();
+    }, 50);
+  };
 
+  const handleCancelAddSubcategory = () => {
+    setActiveAddSubcategoryId(null);
+    setSubcategoryInputName('');
+    setSubcategoryInlineError(null);
+  };
+
+  const handleConfirmAddSubcategory = async (section: Section, category: Category) => {
+    const name = subcategoryInputName.trim();
+    if (!name) {
+      setSubcategoryInlineError('Subcategory name cannot be empty');
+      return;
+    }
+
+    setIsSubcategorySubmitting(true);
+    setSubcategoryInlineError(null);
     try {
       let categoryId = category.categoryId;
 
@@ -1166,16 +1260,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
       await api.post('/subcategories', {
         categoryId,
-        name: name.trim(),
+        name,
       });
 
       await loadAllData();
       setExpanded((current) => new Set(current).add(category.id));
+      setActiveAddSubcategoryId(null);
+      setSubcategoryInputName('');
     } catch (error: any) {
-      window.alert(
+      setSubcategoryInlineError(
         error.response?.data?.message ||
           'Subcategory could not be saved. Make sure the backend is running.',
       );
+    } finally {
+      setIsSubcategorySubmitting(false);
     }
   };
 
@@ -1392,36 +1490,194 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   })}
 
                 {isOpen && (
-                  <tr className="budget-add-row budget-add-subcategory-row">
-                    <td className="sticky-col">
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          addSubcategory(section, category);
-                        }}
-                      >
-                        <Plus size={14} />
-                        Add subcategory
-                      </button>
-                    </td>
-                    <td colSpan={13} />
-                  </tr>
+                  activeAddSubcategoryId === category.id ? (
+                    <tr
+                      className={`budget-add-row budget-inline-add-row budget-inline-add-sub budget-inline-add-${section}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <td className="sticky-col budget-inline-add-cell budget-inline-add-subcategory-cell">
+                        <form
+                          className="budget-inline-unified-bar"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            handleConfirmAddSubcategory(section, category);
+                          }}
+                        >
+                          <div className="budget-inline-bar-icon">
+                            <Layers size={13} />
+                          </div>
+                          <input
+                            ref={subcategoryInputRef}
+                            type="text"
+                            className="budget-inline-bar-input"
+                            placeholder="Subcategory name..."
+                            value={subcategoryInputName}
+                            onChange={(e) => {
+                              setSubcategoryInputName(e.target.value);
+                              setSubcategoryInlineError(null);
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Escape') {
+                                e.preventDefault();
+                                handleCancelAddSubcategory();
+                              }
+                            }}
+                            autoFocus
+                            disabled={isSubcategorySubmitting}
+                          />
+                          <div className="budget-inline-bar-actions">
+                            <button
+                              type="submit"
+                              className="budget-inline-action-btn budget-inline-btn-save"
+                              title="Save subcategory (Enter)"
+                              disabled={isSubcategorySubmitting || !subcategoryInputName.trim()}
+                            >
+                              {isSubcategorySubmitting ? (
+                                <Loader2 size={13} className="spin" />
+                              ) : (
+                                <Check size={14} strokeWidth={2.6} />
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              className="budget-inline-action-btn budget-inline-btn-cancel"
+                              title="Cancel (Esc)"
+                              onClick={handleCancelAddSubcategory}
+                              disabled={isSubcategorySubmitting}
+                            >
+                              <X size={13} strokeWidth={2.4} />
+                            </button>
+                            <button
+                              type="button"
+                              className="budget-inline-action-btn budget-inline-btn-modal"
+                              title="Open in modal dialog"
+                              onClick={() => openAddCategoryModal(section, 'subcategory', category.name)}
+                              disabled={isSubcategorySubmitting}
+                            >
+                              <ExternalLink size={12} strokeWidth={2.2} />
+                            </button>
+                          </div>
+                        </form>
+                        {subcategoryInlineError && (
+                          <div className="budget-inline-add-error">
+                            <AlertCircle size={11} />
+                            <span>{subcategoryInlineError}</span>
+                          </div>
+                        )}
+                      </td>
+                      <td colSpan={13} className="budget-inline-add-empty-cols" />
+                    </tr>
+                  ) : (
+                    <tr className="budget-add-row budget-add-subcategory-row">
+                      <td className="sticky-col">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleStartAddSubcategory(category);
+                          }}
+                        >
+                          <Plus size={14} />
+                          Add subcategory
+                        </button>
+                      </td>
+                      <td colSpan={13} />
+                    </tr>
+                  )
                 )}
               </React.Fragment>
             );
           })}
 
         {open && (
-          <tr className="budget-add-row budget-add-category-row">
-            <td className="sticky-col">
-              <button type="button" onClick={() => addCategory(section)}>
-                <CirclePlus size={14} />
-                Add category
-              </button>
-            </td>
-            <td colSpan={13} />
-          </tr>
+          activeAddCategorySection === section ? (
+            <tr
+              className={`budget-add-row budget-inline-add-row budget-inline-add-cat budget-inline-add-${section}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <td className="sticky-col budget-inline-add-cell budget-inline-add-category-cell">
+                <form
+                  className="budget-inline-unified-bar"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleConfirmAddCategory(section);
+                  }}
+                >
+                  <div className="budget-inline-bar-icon">
+                    <FolderPlus size={14} />
+                  </div>
+                  <input
+                    ref={categoryInputRef}
+                    type="text"
+                    className="budget-inline-bar-input"
+                    placeholder="Category name..."
+                    value={categoryInputName}
+                    onChange={(e) => {
+                      setCategoryInputName(e.target.value);
+                      setCategoryInlineError(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        handleCancelAddCategory();
+                      }
+                    }}
+                    autoFocus
+                    disabled={isCategorySubmitting}
+                  />
+                  <div className="budget-inline-bar-actions">
+                    <button
+                      type="submit"
+                      className="budget-inline-action-btn budget-inline-btn-save"
+                      title="Save category (Enter)"
+                      disabled={isCategorySubmitting || !categoryInputName.trim()}
+                    >
+                      {isCategorySubmitting ? (
+                        <Loader2 size={13} className="spin" />
+                      ) : (
+                        <Check size={14} strokeWidth={2.6} />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="budget-inline-action-btn budget-inline-btn-cancel"
+                      title="Cancel (Esc)"
+                      onClick={handleCancelAddCategory}
+                      disabled={isCategorySubmitting}
+                    >
+                      <X size={13} strokeWidth={2.4} />
+                    </button>
+                    <button
+                      type="button"
+                      className="budget-inline-action-btn budget-inline-btn-modal"
+                      title="Open in modal dialog"
+                      onClick={() => openAddCategoryModal(section, 'category')}
+                      disabled={isCategorySubmitting}
+                    >
+                      <ExternalLink size={12} strokeWidth={2.2} />
+                    </button>
+                  </div>
+                </form>
+                {categoryInlineError && (
+                  <div className="budget-inline-add-error">
+                    <AlertCircle size={11} />
+                    <span>{categoryInlineError}</span>
+                  </div>
+                )}
+              </td>
+              <td colSpan={13} className="budget-inline-add-empty-cols" />
+            </tr>
+          ) : (
+            <tr className="budget-add-row budget-add-category-row">
+              <td className="sticky-col">
+                <button type="button" onClick={() => handleStartAddCategory(section)}>
+                  <CirclePlus size={14} />
+                  Add category
+                </button>
+              </td>
+              <td colSpan={13} />
+            </tr>
+          )
         )}
       </React.Fragment>
     );
@@ -1600,6 +1856,17 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   Budget
                 </button>
               </div>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => openAddCategoryModal()}
+                style={{ padding: '6px 14px', fontSize: 12 }}
+                title="Add Category or Subcategory"
+              >
+                <FolderPlus size={14} />
+                <span>Add Category</span>
+              </button>
 
               <button
                 className="btn-primary"
@@ -2279,6 +2546,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           setEditingTransaction(null);
         }}
         transactionToEdit={editingTransaction}
+      />
+
+      {/* Category & Subcategory Modal */}
+      <CategoryModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        onSuccess={() => {
+          loadAllData();
+          setIsCategoryModalOpen(false);
+        }}
+        initialMode={categoryModalInitialMode}
+        initialSection={categoryModalInitialSection}
+        initialCategoryName={categoryModalInitialCategoryName}
+        categoriesBySection={modalCategoriesBySection}
       />
     </main>
   );
