@@ -17,11 +17,11 @@ import {
   Search,
   Filter,
   X,
-  Layers,
   Table as TableIcon,
   ReceiptText
 } from 'lucide-react';
 import api from '../services/api';
+import { TransactionModal } from '../components/TransactionModal';
 
 interface BudgetTransactionsViewProps {
   onOpenNewTransaction: (category?: string, subcategory?: string, type?: 'income' | 'expense') => void;
@@ -141,6 +141,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>(globalSearchQuery || '');
 
+  // Pagination state for transactions table
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+
   // Categories API state
   const [apiCategories, setApiCategories] = useState<ApiCategory[]>([]);
   const [apiSubcategories, setApiSubcategories] = useState<ApiSubcategory[]>([]);
@@ -167,6 +171,53 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const [budgetTransactionDrafts, setBudgetTransactionDrafts] = useState<Record<string, TransactionDetail>>({});
 
   const [showYearPicker, setShowYearPicker] = useState<boolean>(false);
+  const yearPickerRef = useRef<HTMLDivElement>(null);
+
+  // Edit transaction modal state
+  const [editingTransaction, setEditingTransaction] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState<boolean>(false);
+
+  const handleEditTransaction = (tx: any) => {
+    setEditingTransaction(tx);
+    setIsEditModalOpen(true);
+  };
+
+  // Date formatter: DD-MM-YYYY
+  const formatDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    const clean = String(dateStr).substring(0, 10);
+    const parts = clean.split('-');
+    if (parts.length === 3) {
+      const [y, m, d] = parts;
+      return `${d}-${m}-${y}`;
+    }
+    return dateStr;
+  };
+
+  // Automatically close year picker popover on scroll or click outside
+  useEffect(() => {
+    if (!showYearPicker) return;
+
+    const handleScroll = () => {
+      setShowYearPicker(false);
+    };
+
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (yearPickerRef.current && !yearPickerRef.current.contains(e.target as Node)) {
+        setShowYearPicker(false);
+      }
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true, capture: true });
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
+    return () => {
+      window.removeEventListener('scroll', handleScroll, { capture: true });
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [showYearPicker]);
 
   // Scroll to section helper
   const scrollToSection = (sec: 'budget' | 'transactions') => {
@@ -462,6 +513,19 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       return true;
     });
   }, [rawTransactions, filterType, selectedCategory, searchQuery]);
+
+  // Reset to first page when filtering or searching
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterType, selectedCategory, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedTransactions = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * pageSize;
+    return filteredTransactions.slice(startIndex, startIndex + pageSize);
+  }, [filteredTransactions, safeCurrentPage, pageSize]);
 
   const hasActiveFilters =
     filterType !== 'all' || selectedCategory !== 'All Categories' || searchQuery.trim().length > 0;
@@ -1277,67 +1341,6 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   return (
     <main className="budget-planning-page" style={{ paddingBottom: 60 }}>
-      {/* Top Header / View Mode Bar */}
-      <div className="budget-toolbar" style={{ flexWrap: 'wrap', gap: 14 }}>
-        <div className="budget-heading">
-          <h1 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            Budget & Transactions
-          </h1>
-          <span className="budget-heading-divider" />
-          <span>Annual planning & transaction records</span>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          {/* View Mode Switcher */}
-          <div className="segmented-control">
-            <button
-              type="button"
-              className={`segmented-btn ${viewMode === 'combined' ? 'active' : ''}`}
-              onClick={() => {
-                setViewMode('combined');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <Layers size={14} />
-              <span>Combined</span>
-            </button>
-            <button
-              type="button"
-              className={`segmented-btn ${
-                viewMode === 'budget' || (viewMode === 'combined' && activeSection === 'budget') ? 'active' : ''
-              }`}
-              onClick={() => scrollToSection('budget')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <TableIcon size={14} />
-              <span>Budget Planner</span>
-            </button>
-            <button
-              type="button"
-              className={`segmented-btn ${
-                viewMode === 'transactions' || (viewMode === 'combined' && activeSection === 'transactions') ? 'active' : ''
-              }`}
-              onClick={() => scrollToSection('transactions')}
-              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-            >
-              <ReceiptText size={14} />
-              <span>Transactions</span>
-            </button>
-          </div>
-
-          {/* Add Transaction Button */}
-          <button
-            className="btn-primary"
-            onClick={() => onOpenNewTransaction()}
-            style={{ padding: '7px 14px', fontSize: 13 }}
-          >
-            <Plus size={16} />
-            <span>Add Transaction</span>
-          </button>
-        </div>
-      </div>
-
       {/* SECTION 1: BUDGET PLANNER */}
       {(viewMode === 'combined' || viewMode === 'budget') && (
         <section
@@ -1443,7 +1446,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   <ChevronRight size={16} />
                 </button>
 
-                <div className="year-picker-wrap">
+                <div className="year-picker-wrap" ref={yearPickerRef}>
                   <button
                     className="year-picker-button"
                     type="button"
@@ -1455,11 +1458,25 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
                   {showYearPicker && (
                     <div className="year-picker-popover">
-                      <span>Choose year</span>
+                      <div className="year-picker-header">
+                        <span>Choose year</span>
+                        <button
+                          type="button"
+                          className="year-picker-current-btn"
+                          onClick={() => {
+                            setSelectedYear(new Date().getFullYear());
+                            setShowYearPicker(false);
+                          }}
+                          title={`Go to current year (${new Date().getFullYear()})`}
+                        >
+                          Current
+                        </button>
+                      </div>
                       <div>
                         {pickerYears.map((year) => (
                           <button
                             key={year}
+                            type="button"
                             className={year === selectedYear ? 'active' : ''}
                             onClick={() => {
                               setSelectedYear(year);
@@ -1492,6 +1509,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   Budget
                 </button>
               </div>
+
+              <button
+                className="btn-primary"
+                onClick={() => onOpenNewTransaction()}
+                style={{ padding: '6px 14px', fontSize: 12 }}
+              >
+                <Plus size={15} />
+                <span>Add Transaction</span>
+              </button>
             </div>
           </div>
 
@@ -1507,14 +1533,14 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               </colgroup>
               <thead>
                 <tr>
-                  <th className="sticky-col budget-category-head">
+                  <th className="sticky-col budget-category-head" style={{ textAlign: 'center', verticalAlign: 'middle' }}>
                     <CalendarDays size={14} />
                     <span>Category</span>
                   </th>
                   {MONTHS.map((month) => (
-                    <th key={month} style={{ textAlign: 'right' }}>{month}</th>
+                    <th key={month} style={{ textAlign: 'center', verticalAlign: 'middle' }}>{month}</th>
                   ))}
-                  <th className="col-year-total" style={{ textAlign: 'right' }}>{selectedYear}</th>
+                  <th className="col-year-total" style={{ textAlign: 'center', verticalAlign: 'middle' }}>{selectedYear}</th>
                 </tr>
               </thead>
 
@@ -1786,13 +1812,13 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   </colgroup>
                   <thead>
                     <tr>
-                      <th style={{ textAlign: 'left' }}>Date</th>
-                      <th style={{ textAlign: 'left' }}>Type</th>
-                      <th style={{ textAlign: 'left' }}>Category</th>
-                      <th style={{ textAlign: 'left' }}>Description</th>
-                      <th style={{ textAlign: 'left' }}>Payment Mode</th>
-                      <th style={{ textAlign: 'right' }}>Amount</th>
-                      <th style={{ textAlign: 'center' }}>Action</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Date</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Type</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Category</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Description</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Payment Mode</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Amount</th>
+                      <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1823,9 +1849,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                         </td>
                       </tr>
                     ) : (
-                      filteredTransactions.map((t, idx) => (
+                      paginatedTransactions.map((t, idx) => (
                         <tr key={t.id || idx}>
-                          <td style={{ color: 'var(--text-secondary)' }}>{t.date}</td>
+                          <td style={{ textAlign: 'center', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                            {formatDate(t.date)}
+                          </td>
                           <td>
                             <span
                               style={{
@@ -1869,7 +1897,16 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               </div>
                             ) : null}
                           </td>
-                          <td style={{ color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.description || ''}>
+                          <td
+                            style={{
+                              textAlign: 'center',
+                              color: 'var(--text-secondary)',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                            title={t.description || ''}
+                          >
                             {t.description || '—'}
                           </td>
                           <td>
@@ -1898,21 +1935,50 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             {currency(t.amount)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            <button
-                              onClick={() => handleDeleteTransaction(t.id)}
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'var(--text-muted)',
-                                cursor: 'pointer',
-                                padding: 4,
-                                borderRadius: 4,
-                                transition: 'color 0.2s',
-                              }}
-                              title="Delete transaction"
-                            >
-                              <Trash2 size={16} />
-                            </button>
+                            <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                              <button
+                                type="button"
+                                onClick={() => handleEditTransaction(t)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: 4,
+                                  borderRadius: 4,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'color 0.2s',
+                                }}
+                                title="Update transaction"
+                                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--accent-indigo)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteTransaction(t.id)}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: 'var(--text-muted)',
+                                  cursor: 'pointer',
+                                  padding: 4,
+                                  borderRadius: 4,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  transition: 'color 0.2s',
+                                }}
+                                title="Delete transaction"
+                                onMouseEnter={(e) => (e.currentTarget.style.color = '#EF4444')}
+                                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1920,10 +1986,184 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {filteredTransactions.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    padding: '12px 20px',
+                    borderTop: '1px solid var(--border-color)',
+                    background: 'rgba(11, 14, 20, 0.45)',
+                    fontSize: 13,
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {/* Left: Showing count & Rows per page */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                    <span>
+                      Showing{' '}
+                      <strong style={{ color: 'var(--text-primary)' }}>
+                        {(safeCurrentPage - 1) * pageSize + 1}
+                      </strong>{' '}
+                      to{' '}
+                      <strong style={{ color: 'var(--text-primary)' }}>
+                        {Math.min(safeCurrentPage * pageSize, filteredTransactions.length)}
+                      </strong>{' '}
+                      of{' '}
+                      <strong style={{ color: 'var(--text-primary)' }}>
+                        {filteredTransactions.length}
+                      </strong>{' '}
+                      transactions
+                    </span>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>Rows per page:</span>
+                      <select
+                        value={pageSize}
+                        onChange={(e) => {
+                          setPageSize(Number(e.target.value));
+                          setCurrentPage(1);
+                        }}
+                        style={{
+                          background: 'var(--bg-input)',
+                          border: '1px solid var(--border-color)',
+                          color: 'var(--text-primary)',
+                          borderRadius: 6,
+                          padding: '4px 8px',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          outline: 'none',
+                        }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Right: Page navigation */}
+                  {totalPages > 1 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={safeCurrentPage === 1}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: safeCurrentPage === 1 ? 'transparent' : 'var(--bg-input)',
+                          color: safeCurrentPage === 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: safeCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <ChevronLeft size={14} />
+                        <span>Previous</span>
+                      </button>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        {Array.from({ length: totalPages }, (_, i) => i + 1)
+                          .filter((page) => {
+                            if (page === 1 || page === totalPages) return true;
+                            if (Math.abs(page - safeCurrentPage) <= 1) return true;
+                            return false;
+                          })
+                          .map((page, idx, arr) => {
+                            const prev = arr[idx - 1];
+                            const showEllipsis = prev && page - prev > 1;
+
+                            return (
+                              <React.Fragment key={page}>
+                                {showEllipsis && (
+                                  <span style={{ padding: '0 4px', color: 'var(--text-muted)' }}>...</span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => setCurrentPage(page)}
+                                  style={{
+                                    width: 30,
+                                    height: 30,
+                                    borderRadius: 6,
+                                    border: '1px solid',
+                                    borderColor:
+                                      page === safeCurrentPage
+                                        ? 'var(--accent-indigo)'
+                                        : 'var(--border-color)',
+                                    background:
+                                      page === safeCurrentPage
+                                        ? 'var(--accent-indigo)'
+                                        : 'var(--bg-input)',
+                                    color: page === safeCurrentPage ? '#fff' : 'var(--text-primary)',
+                                    fontWeight: page === safeCurrentPage ? 700 : 500,
+                                    fontSize: 12,
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                  }}
+                                >
+                                  {page}
+                                </button>
+                              </React.Fragment>
+                            );
+                          })}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={safeCurrentPage === totalPages}
+                        style={{
+                          padding: '5px 10px',
+                          borderRadius: 6,
+                          border: '1px solid var(--border-color)',
+                          background: safeCurrentPage === totalPages ? 'transparent' : 'var(--bg-input)',
+                          color: safeCurrentPage === totalPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                          cursor: safeCurrentPage === totalPages ? 'not-allowed' : 'pointer',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4,
+                          transition: 'all 0.2s',
+                        }}
+                      >
+                        <span>Next</span>
+                        <ChevronRight size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </section>
       )}
+
+      {/* Edit / Update Transaction Modal */}
+      <TransactionModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false);
+          setEditingTransaction(null);
+        }}
+        onSuccess={() => {
+          loadAllData();
+          setIsEditModalOpen(false);
+          setEditingTransaction(null);
+        }}
+        transactionToEdit={editingTransaction}
+      />
     </main>
   );
 };

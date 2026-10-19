@@ -2,6 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { X, Check } from 'lucide-react';
 import api from '../services/api';
 
+export interface TransactionToEdit {
+  id: number;
+  type?: 'income' | 'expense' | string;
+  date?: string;
+  amount?: number | string;
+  category?: string;
+  subcategory?: string;
+  paymentMode?: string;
+  card?: string;
+  description?: string;
+}
+
 interface TransactionModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -9,6 +21,7 @@ interface TransactionModalProps {
   initialCategory?: string;
   initialSubcategory?: string;
   initialType?: 'income' | 'expense';
+  transactionToEdit?: TransactionToEdit | null;
 }
 
 const SUBCATEGORY_OPTIONS: Record<string, string[]> = {
@@ -24,7 +37,17 @@ const SUBCATEGORY_OPTIONS: Record<string, string[]> = {
   'Freelance & Business': ['Consulting Fees', 'Client Project Payment', 'Royalties & Licensing', 'Side Hustle Income', 'Other']
 };
 
-export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onClose, onSuccess, initialCategory, initialSubcategory, initialType }) => {
+export const TransactionModal: React.FC<TransactionModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccess,
+  initialCategory,
+  initialSubcategory,
+  initialType,
+  transactionToEdit,
+}) => {
+  const isEditing = Boolean(transactionToEdit && transactionToEdit.id);
+
   const [type, setType] = useState<'expense' | 'income'>('expense');
   const [date, setDate] = useState<string>(new Date().toISOString().substring(0, 10));
   const [amount, setAmount] = useState<string>('');
@@ -40,10 +63,48 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
 
   useEffect(() => {
     if (!isOpen) return;
-    if (initialCategory) setCategory(initialCategory);
-    if (initialSubcategory) setSubcategory(initialSubcategory);
-    if (initialType) setType(initialType);
-  }, [isOpen, initialCategory, initialSubcategory, initialType]);
+
+    if (transactionToEdit) {
+      setType(transactionToEdit.type === 'income' ? 'income' : 'expense');
+      setDate(
+        transactionToEdit.date
+          ? transactionToEdit.date.substring(0, 10)
+          : new Date().toISOString().substring(0, 10),
+      );
+      setAmount(
+        transactionToEdit.amount != null ? String(transactionToEdit.amount) : '',
+      );
+      const cat = transactionToEdit.category || 'Housing & Rent';
+      setCategory(cat);
+      const sub = transactionToEdit.subcategory || '';
+      const knownSubcategories = SUBCATEGORY_OPTIONS[cat] || [];
+      if (sub && !knownSubcategories.includes(sub)) {
+        setSubcategory('Other');
+        setIsCustomSubcategory(true);
+        setCustomSubcategoryText(sub);
+      } else {
+        setSubcategory(sub || knownSubcategories[0] || 'Other');
+        setIsCustomSubcategory(false);
+        setCustomSubcategoryText('');
+      }
+      const pm = transactionToEdit.paymentMode
+        ? transactionToEdit.paymentMode.toLowerCase()
+        : 'upi';
+      setPaymentMode(['upi', 'credit', 'debit', 'cash'].includes(pm) ? pm : 'upi');
+      setCard(transactionToEdit.card || '');
+      setDescription(transactionToEdit.description || '');
+      setError(null);
+    } else {
+      if (initialCategory) setCategory(initialCategory);
+      if (initialSubcategory) setSubcategory(initialSubcategory);
+      if (initialType) setType(initialType);
+      setDate(new Date().toISOString().substring(0, 10));
+      setAmount('');
+      setDescription('');
+      setCard('');
+      setError(null);
+    }
+  }, [isOpen, initialCategory, initialSubcategory, initialType, transactionToEdit]);
 
   if (!isOpen) return null;
 
@@ -79,21 +140,36 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
     setSubmitting(true);
     setError(null);
 
+    const payload = {
+      date,
+      type,
+      category,
+      subcategory: finalSubcategory,
+      amount: Number(amount),
+      paymentMode,
+      card: paymentMode === 'credit' ? card : null,
+      description
+    };
+
     try {
-      await api.post('/transactions', {
-        date,
-        type,
-        category,
-        subcategory: finalSubcategory,
-        amount: Number(amount),
-        paymentMode,
-        card: paymentMode === 'credit' ? card : null,
-        description
-      });
+      if (isEditing && transactionToEdit?.id) {
+        try {
+          await api.put(`/transactions/${transactionToEdit.id}`, payload);
+        } catch (err: any) {
+          if (err.response?.status === 404 || err.response?.status === 405) {
+            await api.delete(`/transactions/${transactionToEdit.id}`);
+            await api.post('/transactions', payload);
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        await api.post('/transactions', payload);
+      }
       onSuccess();
       onClose();
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to save transaction');
+      setError(err.response?.data?.message || (isEditing ? 'Failed to update transaction' : 'Failed to save transaction'));
     } finally {
       setSubmitting(false);
     }
@@ -109,10 +185,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
         <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 16 }}>
           <div>
             <h2 className="modal-title" style={{ margin: 0, fontSize: 18, color: 'var(--text-primary)' }}>
-              Add New Transaction
+              {isEditing ? 'Update Transaction' : 'Add New Transaction'}
             </h2>
             <p style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 0' }}>
-              Log income or expense into your personal financial record
+              {isEditing
+                ? 'Modify transaction details in your personal financial record'
+                : 'Log income or expense into your personal financial record'}
             </p>
           </div>
           <button
@@ -393,7 +471,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({ isOpen, onCl
               }}
             >
               <Check size={16} />
-              <span>{submitting ? 'Saving...' : 'Add Transaction'}</span>
+              <span>{submitting ? 'Saving...' : isEditing ? 'Update Transaction' : 'Add Transaction'}</span>
             </button>
           </div>
         </form>
