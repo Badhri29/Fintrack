@@ -66,7 +66,12 @@
   color: #1E293B;
 }
 
-[data-theme="light"] .spreadsheet-table th.sticky-col,
+[data-theme="light"] .spreadsheet-table th.sticky-col {
+  background: #F1F5F9;
+  color: #0F172A;
+  border-right: 2px solid #CBD5E1;
+}
+
 [data-theme="light"] .spreadsheet-table td.sticky-col {
   background: #FFFFFF;
   color: #0F172A;
@@ -458,6 +463,65 @@ body {
   min-width: 0;
 }
 
+#budget-planner-section,
+#transactions-ledger-section {
+  scroll-margin-top: 72px;
+}
+
+.sticky-section-header {
+  position: sticky;
+  top: 72px;
+  z-index: 35;
+  background: rgba(11, 14, 20, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-color);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-theme="light"] .sticky-section-header {
+  background: rgba(255, 255, 255, 0.95);
+  border-bottom: 1px solid #E2E8F0;
+  box-shadow: 0 4px 16px rgba(148, 163, 184, 0.15);
+}
+
+.section-title-clickable {
+  border-radius: 8px;
+  transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.section-title-clickable:hover {
+  background: rgba(99, 102, 241, 0.12);
+  transform: translateY(-1px);
+}
+
+[data-theme="light"] .section-title-clickable:hover {
+  background: rgba(99, 102, 241, 0.08);
+}
+
+.section-nav-pills {
+  background: rgba(15, 20, 30, 0.7);
+  border: 1px solid var(--border-color);
+}
+
+[data-theme="light"] .section-nav-pills {
+  background: #F1F5F9;
+  border-color: #CBD5E1;
+}
+
+.section-nav-pills .segmented-btn.active {
+  background: var(--accent-indigo);
+  color: white;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.35);
+}
+
 .budget-toolbar {
   min-height: 62px;
   display: flex;
@@ -573,6 +637,39 @@ body {
   background: #0c1324;
   border-right: 1px solid #24334c;
   overflow: hidden;
+}
+
+/* Transactions Ledger Table */
+.transactions-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.transactions-table th,
+.transactions-table td {
+  height: 42px;
+  padding: 8px 12px;
+  border: 1px solid rgba(47, 57, 81, 0.45);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.transactions-table th {
+  background: #0b1120;
+  font-weight: 700;
+  color: #6e819f;
+  position: static;
+}
+
+[data-theme="light"] .transactions-table th {
+  background: #F1F5F9;
+  color: #1E293B;
+  border-color: #E2E8F0;
+}
+
+[data-theme="light"] .transactions-table td {
+  border-color: #E2E8F0;
 }
 
 .col-year-total {
