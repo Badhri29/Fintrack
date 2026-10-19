@@ -615,6 +615,7 @@ body {
 .budget-transaction-day-input {
   width: 44px;
   min-width: 44px;
+  max-width: 44px;
   height: 28px;
   padding: 2px 4px;
   background: #0c1324;
@@ -642,6 +643,8 @@ body {
 
 .budget-transaction-description-input {
   width: 140px;
+  min-width: 140px;
+  max-width: 140px;
   height: 28px;
   padding: 2px 8px;
   background: #0c1324;
@@ -697,12 +700,16 @@ body {
 }
 
 .budget-transaction-actions-cell {
+  vertical-align: middle !important;
+  text-align: right !important;
+  padding: 4px 10px !important;
+}
+
+.budget-transaction-actions-inner {
   display: flex !important;
   align-items: center !important;
   justify-content: flex-end !important;
   gap: 6px !important;
-  height: 40px !important;
-  padding: 4px 10px !important;
 }
 
 .budget-inline-save {
@@ -827,6 +834,84 @@ body {
 .budget-add-transaction-expense button:hover {
   color: #fda4af;
 }
+
+/* Payment mode selectors per month */
+.budget-transaction-paymode-row td {
+  height: 32px !important;
+  background: #070b15 !important;
+  border-top: none !important;
+}
+
+.budget-transaction-paymode-label {
+  padding-left: 76px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.budget-set-all-btn {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.18);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.budget-set-all-btn:hover {
+  background: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+  border-color: rgba(99, 102, 241, 0.55);
+}
+
+.budget-paymode-select {
+  width: 100%;
+  min-width: 54px;
+  height: 24px;
+  padding: 0 4px;
+  background: #0c1324;
+  border: 1px solid rgba(75, 95, 135, 0.35);
+  border-radius: 5px;
+  color: #7dd3fc;
+  font-family: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  outline: none;
+  cursor: pointer;
+  appearance: auto;
+  transition: all 0.15s ease;
+}
+
+.budget-paymode-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.3);
+}
+
+.budget-paymode-common {
+  width: 140px;
+  min-width: 140px;
+  max-width: 140px;
+  height: 28px;
+  border-radius: 6px;
+}
+
+.budget-transaction-paymode-cell {
+  padding: 2px 4px !important;
+}
+
 .net-cashflow-row { font-weight: 800; }
 .net-cashflow-row td { background: #15152d; color: #c1b4ff; }
 .net-cashflow-row td.sticky-col { background: #1b1938; color: #d7d1ff; }

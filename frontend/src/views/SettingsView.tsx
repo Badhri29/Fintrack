@@ -360,6 +360,74 @@ export const SettingsView: React.FC = () => {
           )}
         </div>
 
+        {/* Transactions Settings Card */}
+        <div className="summary-card" style={{ padding: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#10B981'
+              }}
+            >
+              <Tag size={22} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                TRANSACTIONS
+              </h2>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                Configure default transaction preferences
+              </span>
+            </div>
+          </div>
+
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '14px 16px',
+            background: 'rgba(255,255,255,0.02)',
+            borderRadius: 10,
+            border: '1px solid var(--border-color)'
+          }}>
+            <div>
+              <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
+                Default Payment Mode
+              </div>
+              <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                Used when a payment mode is not selected while adding a transaction.
+              </div>
+            </div>
+            <select
+              className="modal-select"
+              style={{ width: 140, minWidth: 140 }}
+              value={(() => {
+                try { return localStorage.getItem('fintrack-default-payment-mode') || 'upi'; } catch { return 'upi'; }
+              })()}
+              onChange={(e) => {
+                localStorage.setItem('fintrack-default-payment-mode', e.target.value);
+                // Force re-render
+                setCatMessage({ type: 'success', text: `Default payment mode set to ${e.target.options[e.target.selectedIndex].text}` });
+              }}
+            >
+              <option value="upi">UPI</option>
+              <option value="credit">Credit Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="debit">Debit Card</option>
+              <option value="cash">Cash</option>
+              <option value="neft_rtgs">NEFT/RTGS</option>
+              <option value="cheque">Cheque</option>
+              <option value="auto_debit">Auto Debit</option>
+            </select>
+          </div>
+        </div>
+
         {/* Security & System Info Card */}
         <div className="summary-card" style={{ padding: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
