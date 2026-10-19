@@ -22,6 +22,28 @@ public class TransactionController {
     @Autowired
     private TransactionRepository transactionRepository;
 
+    private LocalDate parseLocalDate(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) {
+            return LocalDate.now();
+        }
+        String s = dateStr.trim();
+        if (s.length() > 10) {
+            s = s.substring(0, 10);
+        }
+        try {
+            if (s.matches("^\\d{4}[-/]\\d{1,2}[-/]\\d{1,2}$")) {
+                String[] p = s.split("[-/]");
+                return LocalDate.of(Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]));
+            } else if (s.matches("^\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}$")) {
+                String[] p = s.split("[-/]");
+                return LocalDate.of(Integer.parseInt(p[2]), Integer.parseInt(p[1]), Integer.parseInt(p[0]));
+            }
+            return LocalDate.parse(s);
+        } catch (Exception e) {
+            return LocalDate.now();
+        }
+    }
+
     @PostMapping
     public ResponseEntity<Map<String, Object>> createTransaction(@AuthenticationPrincipal UserPrincipal principal,
                                                                  @RequestBody Map<String, Object> body) {
@@ -52,8 +74,17 @@ public class TransactionController {
                     .body(Map.of("success", false, "message", "Amount must be a valid number"));
         }
 
+        // Normalize type if category belongs to savings
+        if (("expense".equalsIgnoreCase(type) || type == null || type.trim().isEmpty()) && category != null) {
+            String cat = category.trim();
+            if (cat.equalsIgnoreCase("Investments") || cat.equalsIgnoreCase("Savings")
+                    || cat.equalsIgnoreCase("Mutual Funds") || cat.equalsIgnoreCase("Emergency Fund")) {
+                type = "savings";
+            }
+        }
+
         Transaction transaction = Transaction.builder()
-                .date(LocalDate.parse(dateStr.substring(0, 10)))
+                .date(parseLocalDate(dateStr))
                 .type(type)
                 .category(category)
                 .subcategory(subcategory)
@@ -78,6 +109,16 @@ public class TransactionController {
         }
 
         List<Transaction> transactions = transactionRepository.findByUserIdOrderByUpdatedAtDesc(principal.getId());
+        for (Transaction t : transactions) {
+            if ("expense".equalsIgnoreCase(t.getType()) && t.getCategory() != null) {
+                String cat = t.getCategory().trim();
+                if (cat.equalsIgnoreCase("Investments") || cat.equalsIgnoreCase("Savings")
+                        || cat.equalsIgnoreCase("Mutual Funds") || cat.equalsIgnoreCase("Emergency Fund")) {
+                    t.setType("savings");
+                    transactionRepository.save(t);
+                }
+            }
+        }
         if (limit != null && limit > 0 && limit < transactions.size()) {
             transactions = transactions.stream().limit(limit).collect(Collectors.toList());
         }
@@ -122,8 +163,8 @@ public class TransactionController {
 
         if (body.containsKey("date")) {
             String dateStr = (String) body.get("date");
-            if (dateStr != null && dateStr.length() >= 10) {
-                transaction.setDate(LocalDate.parse(dateStr.substring(0, 10)));
+            if (dateStr != null && !dateStr.trim().isEmpty()) {
+                transaction.setDate(parseLocalDate(dateStr));
             }
         }
         if (body.containsKey("type")) {

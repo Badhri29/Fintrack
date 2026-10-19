@@ -13,7 +13,7 @@ function AppContent() {
   const { user, loading } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('Dashboard');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [transactionDefaults, setTransactionDefaults] = useState<{ category?: string; subcategory?: string; type?: 'income' | 'expense' }>({});
+  const [transactionDefaults, setTransactionDefaults] = useState<{ category?: string; subcategory?: string; type?: 'income' | 'expense' | 'savings' }>({});
   const [isProfileOpen, setIsProfileOpen] = useState<boolean>(false);
   const [refreshKey, setRefreshKey] = useState<number>(0);
 
@@ -21,7 +21,7 @@ function AppContent() {
     setRefreshKey(prev => prev + 1);
   };
 
-  const openTransactionModal = (category?: string, subcategory?: string, type?: 'income' | 'expense') => {
+  const openTransactionModal = (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => {
     setTransactionDefaults({ category: typeof category === 'string' ? category : undefined, subcategory, type });
     setIsModalOpen(true);
   };
