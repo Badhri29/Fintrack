@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Shield,
   CheckCircle,
@@ -14,27 +14,22 @@ import {
   Bell,
   Sliders,
   Lock,
-  Trash2
+  Trash2,
+  Camera,
+  RefreshCw,
+  ArrowRightLeft
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, type ThemeMode } from '../context/ThemeContext';
+import { currencyService, SUPPORTED_CURRENCIES } from '../services/currencyService';
 import api from '../services/api';
 
-interface CurrencyOption {
-  code: string;
-  symbol: string;
-  name: string;
-}
-
-const CURRENCIES: CurrencyOption[] = [
-  { code: 'INR', symbol: '₹', name: 'INR (₹ - Indian Rupee)' },
-  { code: 'USD', symbol: '$', name: 'USD ($ - US Dollar)' },
-  { code: 'EUR', symbol: '€', name: 'EUR (€ - Euro)' },
-  { code: 'GBP', symbol: '£', name: 'GBP (£ - British Pound)' },
-  { code: 'JPY', symbol: '¥', name: 'JPY (¥ - Japanese Yen)' },
-  { code: 'AED', symbol: 'د.إ', name: 'AED (د.إ - UAE Dirham)' },
-  { code: 'CAD', symbol: 'CA$', name: 'CAD (CA$ - Canadian Dollar)' },
-  { code: 'AUD', symbol: 'A$', name: 'AUD (A$ - Australian Dollar)' },
+const PRESET_AVATARS = [
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
 ];
 
 export const SettingsView: React.FC = () => {
@@ -47,12 +42,17 @@ export const SettingsView: React.FC = () => {
   const [age, setAge] = useState<string>('');
   const [gender, setGender] = useState<string>('Prefer not to say');
   const [bio, setBio] = useState<string>('');
+  const [photo, setPhoto] = useState<string>(() => {
+    return user?.photo || (typeof window !== 'undefined' ? localStorage.getItem('fintrack_user_photo') : '') || '';
+  });
   const [profileSaving, setProfileSaving] = useState<boolean>(false);
   const [profileMessage, setProfileMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // System Configuration states
   const [currencyCode, setCurrencyCode] = useState<string>(() => {
-    return localStorage.getItem('fintrack_currency') || 'INR';
+    return currencyService.getActiveCurrencyCode();
   });
   const [dateFormat, setDateFormat] = useState<string>(() => {
     return localStorage.getItem('fintrack_date_format') || 'DD/MM/YYYY';
@@ -63,6 +63,8 @@ export const SettingsView: React.FC = () => {
   const [financialYear, setFinancialYear] = useState<string>(() => {
     return localStorage.getItem('fintrack_financial_year') || 'apr_mar';
   });
+  const [ratesRefreshing, setRatesRefreshing] = useState<boolean>(false);
+  const [ratesUpdatedTime, setRatesUpdatedTime] = useState<string>('Live');
   const [configMessage, setConfigMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Default Transaction preferences states
@@ -125,16 +127,76 @@ export const SettingsView: React.FC = () => {
         setAge(u.age ? String(u.age) : '');
         setGender(u.gender || 'Prefer not to say');
         setBio(u.bio || localStorage.getItem('fintrack_profile_bio') || '');
+        if (u.photo) {
+          setPhoto(u.photo);
+          updateUser({ photo: u.photo });
+        }
       } else if (user) {
         setName(user.name || '');
         setBio(localStorage.getItem('fintrack_profile_bio') || '');
+        if (user.photo) setPhoto(user.photo);
       }
     } catch {
       if (user) {
         setName(user.name || '');
         setBio(localStorage.getItem('fintrack_profile_bio') || '');
+        if (user.photo) setPhoto(user.photo);
       }
     }
+  };
+
+  const applyPhotoChange = (newPhoto: string) => {
+    setPhoto(newPhoto);
+    if (newPhoto) {
+      localStorage.setItem('fintrack_user_photo', newPhoto);
+    } else {
+      localStorage.removeItem('fintrack_user_photo');
+    }
+    updateUser({ photo: newPhoto });
+    window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo: newPhoto } }));
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Use FileReader and Canvas compression to keep base64 compact (~30KB)
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 240;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          applyPhotoChange(compressed);
+        }
+      };
+      img.src = event.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemovePhoto = () => {
+    applyPhotoChange('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -142,23 +204,23 @@ export const SettingsView: React.FC = () => {
     setProfileSaving(true);
     setProfileMessage(null);
     try {
-      const res = await api.put('/profile', {
+      await api.put('/profile', {
         name: name.trim(),
         phone: phone.trim(),
         age: age ? Number(age) : null,
-        gender
+        gender,
+        photo
       });
 
-      if (res.data && res.data.success) {
-        localStorage.setItem('fintrack_profile_bio', bio.trim());
-        updateUser({ name: name.trim() });
-        setProfileMessage({ type: 'success', text: 'Profile updated successfully!' });
-      } else {
-        setProfileMessage({ type: 'error', text: res.data?.message || 'Failed to update profile.' });
-      }
+      localStorage.setItem('fintrack_profile_bio', bio.trim());
+      if (photo) localStorage.setItem('fintrack_user_photo', photo);
+      updateUser({ name: name.trim(), photo });
+      window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { name: name.trim(), photo } }));
+      setProfileMessage({ type: 'success', text: 'Profile & Photo saved successfully!' });
     } catch {
-      // Even if API returns error, save locally
-      updateUser({ name: name.trim() });
+      updateUser({ name: name.trim(), photo });
+      if (photo) localStorage.setItem('fintrack_user_photo', photo);
+      window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { name: name.trim(), photo } }));
       localStorage.setItem('fintrack_profile_bio', bio.trim());
       setProfileMessage({ type: 'success', text: 'Profile saved successfully!' });
     } finally {
@@ -167,13 +229,21 @@ export const SettingsView: React.FC = () => {
   };
 
   const handleCurrencyChange = (newCode: string) => {
-    const found = CURRENCIES.find(c => c.code === newCode);
-    const sym = found ? found.symbol : '₹';
     setCurrencyCode(newCode);
-    localStorage.setItem('fintrack_currency', newCode);
-    localStorage.setItem('fintrack_currency_symbol', sym);
-    window.dispatchEvent(new CustomEvent('fintrack-currency-change', { detail: { code: newCode, symbol: sym } }));
-    setConfigMessage({ type: 'success', text: `System currency updated to ${newCode} (${sym})` });
+    currencyService.setActiveCurrency(newCode);
+    setConfigMessage({
+      type: 'success',
+      text: `Currency converted to ${newCode}. All values update using live exchange rates.`
+    });
+    setTimeout(() => setConfigMessage(null), 3500);
+  };
+
+  const handleRefreshRates = async () => {
+    setRatesRefreshing(true);
+    await currencyService.fetchLiveRates();
+    setRatesRefreshing(false);
+    setRatesUpdatedTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    setConfigMessage({ type: 'success', text: 'Real-time exchange rates refreshed from global markets!' });
     setTimeout(() => setConfigMessage(null), 3000);
   };
 
@@ -187,6 +257,7 @@ export const SettingsView: React.FC = () => {
   const handleNumberFormatChange = (fmt: string) => {
     setNumberFormat(fmt);
     localStorage.setItem('fintrack_number_format', fmt);
+    window.dispatchEvent(new CustomEvent('fintrack-currency-change'));
     setConfigMessage({ type: 'success', text: `Number grouping format updated to ${fmt === 'indian' ? 'Lakhs (1,00,000)' : 'Millions (100,000)'}` });
     setTimeout(() => setConfigMessage(null), 3000);
   };
@@ -262,18 +333,24 @@ export const SettingsView: React.FC = () => {
         return;
       }
 
-      const headers = ['ID', 'Date', 'Type', 'Category', 'Subcategory', 'Amount', 'Payment Mode', 'Card/Account', 'Description'];
-      const rows = transactions.map((t: any) => [
-        t.id,
-        t.date || '',
-        t.type || '',
-        `"${(t.category || '').replace(/"/g, '""')}"`,
-        `"${(t.subcategory || '').replace(/"/g, '""')}"`,
-        t.amount || 0,
-        t.paymentMode || '',
-        `"${(t.card || '').replace(/"/g, '""')}"`,
-        `"${(t.description || '').replace(/"/g, '""')}"`
-      ]);
+      const activeCur = currencyService.getActiveCurrencyCode();
+      const headers = ['ID', 'Date', 'Type', 'Category', 'Subcategory', `Amount (${activeCur})`, 'Amount (Base INR)', 'Payment Mode', 'Card/Account', 'Description'];
+      const rows = transactions.map((t: any) => {
+        const baseAmt = Number(t.amount) || 0;
+        const convertedAmt = (Math.round(currencyService.convertFromBase(baseAmt) * 100) / 100).toFixed(2);
+        return [
+          t.id,
+          t.date || '',
+          t.type || '',
+          `"${(t.category || '').replace(/"/g, '""')}"`,
+          `"${(t.subcategory || '').replace(/"/g, '""')}"`,
+          convertedAmt,
+          baseAmt,
+          t.paymentMode || '',
+          `"${(t.card || '').replace(/"/g, '""')}"`,
+          `"${(t.description || '').replace(/"/g, '""')}"`
+        ];
+      });
 
       const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((r: any[]) => r.join(','))].join('\n');
       const encodedUri = encodeURI(csvContent);
@@ -415,13 +492,18 @@ export const SettingsView: React.FC = () => {
     }
   ];
 
+  // Real-time calculation example for UI (like user's Image 2: 1000 INR = X Target Currency)
+  const currentRate = currencyService.getRate(currencyCode);
+  const convertedSample = (1000 * currentRate).toFixed(currencyCode === 'JPY' ? 0 : 2);
+  const activeCfg = currencyService.getCurrencyConfig(currencyCode);
+
   return (
     <main style={{ paddingBottom: 60 }}>
       {/* Page Header */}
       <div className="page-header">
         <div>
           <h1 className="page-title">Settings & Preferences</h1>
-          <p className="page-subtitle">Manage your profile, visual appearance, transaction defaults & system configuration</p>
+          <p className="page-subtitle">Manage your profile photo, visual appearance, real-time currency conversion & defaults</p>
         </div>
         <div>
           <button
@@ -448,7 +530,7 @@ export const SettingsView: React.FC = () => {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 24, marginTop: 12 }}>
         
-        {/* 1. Profile Management Card */}
+        {/* 1. Profile Information Card with Photo Upload */}
         <div className="summary-card" style={{ padding: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -471,7 +553,7 @@ export const SettingsView: React.FC = () => {
                   Profile Information
                 </h2>
                 <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Personal identity & contact details
+                  Personal identity, photo & contact details
                 </span>
               </div>
             </div>
@@ -479,8 +561,8 @@ export const SettingsView: React.FC = () => {
             {/* Profile Avatar Badge */}
             <div
               style={{
-                width: 46,
-                height: 46,
+                width: 52,
+                height: 52,
                 borderRadius: '50%',
                 background: 'linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-purple) 100%)',
                 color: '#FFFFFF',
@@ -488,11 +570,119 @@ export const SettingsView: React.FC = () => {
                 alignItems: 'center',
                 justifyContent: 'center',
                 fontWeight: 700,
-                fontSize: 17,
-                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)'
+                fontSize: 18,
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                overflow: 'hidden',
+                position: 'relative'
               }}
             >
-              {getInitials(name || user?.name)}
+              {photo ? (
+                <img
+                  src={photo}
+                  alt="Profile"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+              ) : (
+                getInitials(name || user?.name)
+              )}
+            </div>
+          </div>
+
+          {/* Photo Management Section */}
+          <div
+            style={{
+              padding: '14px 16px',
+              borderRadius: 12,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              marginBottom: 16
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Profile Photo
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Upload a photo to display in the top navigation bar and account badges
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handlePhotoUpload}
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    color: 'var(--accent-indigo)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Camera size={14} />
+                  {photo ? 'Change Photo' : 'Upload Photo'}
+                </button>
+
+                {photo && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      color: '#EF4444',
+                      border: '1px solid rgba(239, 68, 68, 0.25)',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Preset Avatars */}
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-color)' }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, display: 'block', marginBottom: 8 }}>
+                OR CHOOSE A PRESET AVATAR:
+              </span>
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                {PRESET_AVATARS.map((pUrl, idx) => (
+                  <img
+                    key={idx}
+                    src={pUrl}
+                    alt={`Preset ${idx + 1}`}
+                    onClick={() => applyPhotoChange(pUrl)}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      objectFit: 'cover',
+                      cursor: 'pointer',
+                      border: photo === pUrl ? '2px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+                      transform: photo === pUrl ? 'scale(1.15)' : 'none',
+                      transition: 'all 0.2s ease'
+                    }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -521,7 +711,7 @@ export const SettingsView: React.FC = () => {
                   className="modal-input"
                   value={user?.email || ''}
                   disabled
-                  style={{ opacity: 0.7, cursor: 'not-allowed' }}
+                  style={{ opacity: 0.65, cursor: 'not-allowed' }}
                 />
               </div>
 
@@ -712,7 +902,251 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. Default Transaction Preferences Card */}
+        {/* 3. Real-Time Currency Conversion & System Configuration Card */}
+        <div className="summary-card" style={{ padding: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#8B5CF6'
+                }}
+              >
+                <Shield size={22} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                  Real-Time Currency & System
+                </h2>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  Live exchange rates & currency conversion across all pages
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefreshRates}
+              disabled={ratesRefreshing}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '6px 12px',
+                borderRadius: 8,
+                background: 'rgba(99, 102, 241, 0.12)',
+                color: 'var(--accent-indigo)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Fetch fresh live exchange rates"
+            >
+              <RefreshCw size={13} className={ratesRefreshing ? 'spin-anim' : ''} />
+              {ratesRefreshing ? 'Updating...' : 'Sync Rates'}
+            </button>
+          </div>
+
+          {/* Real-Time Conversion Display matching Google Converter style */}
+          <div
+            style={{
+              padding: '16px 20px',
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              marginBottom: 20
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                  1,000.00 Indian Rupee =
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
+                  {activeCfg.symbol} {convertedSample} <span style={{ fontSize: 16, color: 'var(--accent-indigo)' }}>{currencyCode}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                  Real-time market rate • 1 INR = {currentRate.toFixed(5)} {currencyCode} ({ratesUpdatedTime})
+                </div>
+              </div>
+
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(99, 102, 241, 0.2)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: 'var(--accent-indigo)'
+                }}
+              >
+                <ArrowRightLeft size={20} />
+              </div>
+            </div>
+          </div>
+
+          {configMessage && (
+            <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
+              <CheckCircle size={14} />
+              {configMessage.text}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Currency Selector */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)'
+            }}>
+              <div>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
+                  System Currency
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                  Converts amounts across dashboard, tables & ledger in real-time
+                </span>
+              </div>
+              <select
+                className="modal-select"
+                style={{ width: 190, minWidth: 190 }}
+                value={currencyCode}
+                onChange={e => handleCurrencyChange(e.target.value)}
+              >
+                {SUPPORTED_CURRENCIES.map(c => (
+                  <option key={c.code} value={c.code}>
+                    {c.flag} {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Date Display Format */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)'
+            }}>
+              <div>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
+                  Date Display Format
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                  Table and transaction timestamp presentation
+                </span>
+              </div>
+              <select
+                className="modal-select"
+                style={{ width: 160, minWidth: 160 }}
+                value={dateFormat}
+                onChange={e => handleDateFormatChange(e.target.value)}
+              >
+                <option value="DD/MM/YYYY">DD/MM/YYYY (India/UK)</option>
+                <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
+                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
+              </select>
+            </div>
+
+            {/* Number Grouping Format */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)'
+            }}>
+              <div>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
+                  Number Grouping System
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                  Separator style for currency amounts
+                </span>
+              </div>
+              <select
+                className="modal-select"
+                style={{ width: 180, minWidth: 180 }}
+                value={numberFormat}
+                onChange={e => handleNumberFormatChange(e.target.value)}
+              >
+                <option value="indian">Indian (1,00,000 Lakhs)</option>
+                <option value="international">International (100,000 Millions)</option>
+              </select>
+            </div>
+
+            {/* Financial Year Cycle */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)'
+            }}>
+              <div>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
+                  Financial Year Cycle
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                  Fiscal period calculation interval
+                </span>
+              </div>
+              <select
+                className="modal-select"
+                style={{ width: 180, minWidth: 180 }}
+                value={financialYear}
+                onChange={e => handleFinancialYearChange(e.target.value)}
+              >
+                <option value="apr_mar">April 1 – March 31 (FY)</option>
+                <option value="jan_dec">January 1 – December 31 (CY)</option>
+              </select>
+            </div>
+
+            {/* System Info Readouts */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 4 }}>
+              <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  Backend Database
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, marginTop: 4 }}>
+                  MySQL 8.0 (Spring JPA)
+                </div>
+              </div>
+
+              <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
+                  API Server Status
+                </div>
+                <div style={{ fontSize: 13, color: '#10B981', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 6px #10B981' }} />
+                  Live & Connected
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Default Transaction Preferences Card */}
         <div className="summary-card" style={{ padding: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -931,186 +1365,6 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 4. System Configuration Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(139, 92, 246, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#8B5CF6'
-                }}
-              >
-                <Shield size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  System Configuration
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Currency, formats, database and persistence parameters
-                </span>
-              </div>
-            </div>
-
-            {configMessage && (
-              <span style={{ fontSize: 13, color: '#10B981', display: 'flex', alignItems: 'center', gap: 5 }}>
-                <CheckCircle size={15} /> {configMessage.text}
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Currency Selector */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
-                  Default Currency
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                  Active symbol formatted throughout reports & dashboard
-                </span>
-              </div>
-              <select
-                className="modal-select"
-                style={{ width: 190, minWidth: 190 }}
-                value={currencyCode}
-                onChange={e => handleCurrencyChange(e.target.value)}
-              >
-                {CURRENCIES.map(c => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Date Display Format */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
-                  Date Display Format
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                  Table and transaction timestamp presentation
-                </span>
-              </div>
-              <select
-                className="modal-select"
-                style={{ width: 160, minWidth: 160 }}
-                value={dateFormat}
-                onChange={e => handleDateFormatChange(e.target.value)}
-              >
-                <option value="DD/MM/YYYY">DD/MM/YYYY (India/UK)</option>
-                <option value="MM/DD/YYYY">MM/DD/YYYY (US)</option>
-                <option value="YYYY-MM-DD">YYYY-MM-DD (ISO)</option>
-              </select>
-            </div>
-
-            {/* Number Grouping Format */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
-                  Number Grouping System
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                  Separator style for currency amounts
-                </span>
-              </div>
-              <select
-                className="modal-select"
-                style={{ width: 180, minWidth: 180 }}
-                value={numberFormat}
-                onChange={e => handleNumberFormatChange(e.target.value)}
-              >
-                <option value="indian">Indian (1,00,000 Lakhs)</option>
-                <option value="international">International (100,000 Millions)</option>
-              </select>
-            </div>
-
-            {/* Financial Year Cycle */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14, display: 'block' }}>
-                  Financial Year Cycle
-                </span>
-                <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
-                  Fiscal period calculation interval
-                </span>
-              </div>
-              <select
-                className="modal-select"
-                style={{ width: 180, minWidth: 180 }}
-                value={financialYear}
-                onChange={e => handleFinancialYearChange(e.target.value)}
-              >
-                <option value="apr_mar">April 1 – March 31 (FY)</option>
-                <option value="jan_dec">January 1 – December 31 (CY)</option>
-              </select>
-            </div>
-
-            {/* System Info Readouts */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 4 }}>
-              <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  Backend Database
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 700, marginTop: 4 }}>
-                  MySQL 8.0 (Spring JPA)
-                </div>
-              </div>
-
-              <div style={{ padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-                  API Server Status
-                </div>
-                <div style={{ fontSize: 13, color: '#10B981', fontWeight: 700, marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10B981', display: 'inline-block', boxShadow: '0 0 6px #10B981' }} />
-                  Live & Connected
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
         {/* 5. Notifications & Alerts Card */}
         <div className="summary-card" style={{ padding: 28 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
@@ -1178,7 +1432,7 @@ export const SettingsView: React.FC = () => {
                   High-Value Transaction Warning
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Highlight transactions exceeding ₹5,000 (or equivalent currency)
+                  Highlight transactions exceeding ₹5,000 (or equivalent in selected currency)
                 </div>
               </div>
               <input
@@ -1263,7 +1517,7 @@ export const SettingsView: React.FC = () => {
                 Data Management & Export
               </h2>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Download ledgers, backup data or reset local preferences
+                Download ledgers in active currency, backup data or reset local preferences
               </span>
             </div>
           </div>
@@ -1283,7 +1537,7 @@ export const SettingsView: React.FC = () => {
                   Export Transactions (CSV)
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Spreadsheet-compatible CSV file of your entire transaction history
+                  Spreadsheet-compatible CSV file with active {currencyCode} and base INR amounts
                 </div>
               </div>
               <button

@@ -5,6 +5,7 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  photo?: string;
 }
 
 interface AuthContextType {
@@ -38,16 +39,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const res = await api.get('/auth/me');
       if (res.data && res.data.user) {
-        let currentUser = res.data.user;
+        let currentUser: User = res.data.user;
         const profRes = await api.get('/profile').catch(() => null);
-        if (profRes?.data?.success && profRes.data.data?.name) {
-          currentUser = { ...currentUser, name: profRes.data.data.name };
+        if (profRes?.data?.success && profRes.data.data) {
+          if (profRes.data.data.name) currentUser.name = profRes.data.data.name;
+          if (profRes.data.data.photo) currentUser.photo = profRes.data.data.photo;
+        }
+        if (!currentUser.photo) {
+          const cachedPhoto = localStorage.getItem('fintrack_user_photo');
+          if (cachedPhoto) currentUser.photo = cachedPhoto;
         }
         setUser(currentUser);
       } else {
         setUser(null);
       }
-    } catch (err) {
+    } catch {
       setUser(null);
     } finally {
       setLoading(false);
@@ -63,10 +69,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
       if (res?.data?.success) {
         if (res.data.token) localStorage.setItem('token', res.data.token);
-        let userData = res.data.user;
+        let userData: User = res.data.user;
         const profRes = await api.get('/profile').catch(() => null);
-        if (profRes?.data?.success && profRes.data.data?.name) {
-          userData = { ...userData, name: profRes.data.data.name };
+        if (profRes?.data?.success && profRes.data.data) {
+          if (profRes.data.data.name) userData.name = profRes.data.data.name;
+          if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
+        }
+        if (!userData.photo) {
+          const cachedPhoto = localStorage.getItem('fintrack_user_photo');
+          if (cachedPhoto) userData.photo = cachedPhoto;
         }
         setUser(userData);
       }
@@ -76,6 +87,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateUser = (data: Partial<User>) => {
+    if (data.photo !== undefined) {
+      if (data.photo) localStorage.setItem('fintrack_user_photo', data.photo);
+      else localStorage.removeItem('fintrack_user_photo');
+    }
     setUser(prev => (prev ? { ...prev, ...data } : null));
   };
 
@@ -83,10 +98,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const res = await api.post('/auth/login', { email, password: pass });
     if (res.data && res.data.success) {
       if (res.data.token) localStorage.setItem('token', res.data.token);
-      let userData = res.data.user;
+      let userData: User = res.data.user;
       const profRes = await api.get('/profile').catch(() => null);
-      if (profRes?.data?.success && profRes.data.data?.name) {
-        userData = { ...userData, name: profRes.data.data.name };
+      if (profRes?.data?.success && profRes.data.data) {
+        if (profRes.data.data.name) userData.name = profRes.data.data.name;
+        if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
+      }
+      if (!userData.photo) {
+        const cachedPhoto = localStorage.getItem('fintrack_user_photo');
+        if (cachedPhoto) userData.photo = cachedPhoto;
       }
       setUser(userData);
     } else {
@@ -98,10 +118,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const res = await api.post('/auth/register', { email, password: pass });
     if (res.data && res.data.success) {
       if (res.data.token) localStorage.setItem('token', res.data.token);
-      let userData = res.data.user;
+      let userData: User = res.data.user;
       if (name) {
-        userData = { ...userData, name };
         await api.put('/profile', { name }).catch(() => null);
+        userData.name = name;
       }
       setUser(userData);
     } else {
@@ -110,12 +130,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
-    try {
-      await api.post('/auth/logout').catch(() => null);
-    } finally {
-      localStorage.removeItem('token');
-      setUser(null);
-    }
+    localStorage.removeItem('token');
+    localStorage.removeItem('fintrack_user_photo');
+    setUser(null);
   };
 
   return (
@@ -127,6 +144,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
   return context;
 };

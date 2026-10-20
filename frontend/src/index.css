@@ -340,6 +340,81 @@ body {
   border-radius: var(--radius-lg);
 }
 
+.summary-card {
+  background: var(--bg-card);
+  backdrop-filter: var(--backdrop-blur);
+  -webkit-backdrop-filter: var(--backdrop-blur);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.summary-card:hover {
+  border-color: var(--border-highlight);
+}
+
+/* Global Form Input and Select Theming for Dark & Light Modes */
+input,
+select,
+textarea,
+.modal-input,
+.modal-select {
+  background: var(--bg-input, #131824) !important;
+  color: var(--text-primary, #F8FAFC) !important;
+  border: 1px solid var(--border-color, #232D42) !important;
+  border-radius: var(--radius-sm, 8px) !important;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 13.5px;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus,
+.modal-input:focus,
+.modal-select:focus {
+  border-color: var(--accent-indigo, #6366F1) !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted, #64748B);
+}
+
+select option {
+  background: var(--bg-primary, #0B0E14);
+  color: var(--text-primary, #F8FAFC);
+}
+
+[data-theme="light"] input,
+[data-theme="light"] select,
+[data-theme="light"] textarea,
+[data-theme="light"] .modal-input,
+[data-theme="light"] .modal-select {
+  background: #FFFFFF !important;
+  color: #0F172A !important;
+  border-color: #CBD5E1 !important;
+}
+
+[data-theme="light"] select option {
+  background: #FFFFFF;
+  color: #0F172A;
+}
+
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus,
+[data-theme="light"] .modal-input:focus,
+[data-theme="light"] .modal-select:focus {
+  border-color: #6366F1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
+}
+
 /* Navbar */
 .navbar {
   position: sticky;
