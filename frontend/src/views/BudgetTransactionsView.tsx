@@ -2529,8 +2529,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           {/* Search & Filter Toolbar */}
           <div
+            className="transactions-filter-toolbar"
             style={{
-              padding: '0 28px 16px',
               display: 'flex',
               alignItems: 'center',
               gap: 12,
