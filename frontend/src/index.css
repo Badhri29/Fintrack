@@ -854,14 +854,15 @@ body {
   display: inline-grid;
   place-items: center;
   margin-left: auto;
-  padding: 2px;
+  padding: 3px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #7b8ca7;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.8;
   flex-shrink: 0;
+  transition: all 0.15s ease;
 }
 
 .budget-category-label:hover .budget-delete-button,
@@ -929,9 +930,12 @@ body {
 .budget-transaction-row .budget-row-actions {
   position: absolute;
   right: 2px;
-  background: #080c16;
+  background: transparent;
   padding: 2px 4px;
   border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* Budget Transaction Draft / Edit Row */
@@ -1172,13 +1176,13 @@ body {
 .budget-edit-button {
   display: inline-grid;
   place-items: center;
-  padding: 2px;
+  padding: 3px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #7b8ca7;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.8;
   flex-shrink: 0;
   transition: all 0.15s ease;
 }
@@ -1192,6 +1196,58 @@ body {
 .budget-edit-button:hover {
   background: rgba(59, 130, 246, 0.18);
   color: #60a5fa;
+}
+
+/* Category-specific colors and hover backgrounds for action buttons */
+.budget-transaction-row-income .budget-edit-button,
+.budget-transaction-row-income .budget-delete-button,
+.budget-subcategory-row-income .budget-inline-add-btn,
+.budget-subcategory-row-income .budget-delete-button,
+.budget-category-row-income .budget-delete-button {
+  color: #38c69b;
+}
+
+.budget-transaction-row-income .budget-edit-button:hover,
+.budget-transaction-row-income .budget-delete-button:hover,
+.budget-subcategory-row-income .budget-inline-add-btn:hover,
+.budget-subcategory-row-income .budget-delete-button:hover,
+.budget-category-row-income .budget-delete-button:hover {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #38c69b !important;
+}
+
+.budget-transaction-row-savings .budget-edit-button,
+.budget-transaction-row-savings .budget-delete-button,
+.budget-subcategory-row-savings .budget-inline-add-btn,
+.budget-subcategory-row-savings .budget-delete-button,
+.budget-category-row-savings .budget-delete-button {
+  color: #60a5fa;
+}
+
+.budget-transaction-row-savings .budget-edit-button:hover,
+.budget-transaction-row-savings .budget-delete-button:hover,
+.budget-subcategory-row-savings .budget-inline-add-btn:hover,
+.budget-subcategory-row-savings .budget-delete-button:hover,
+.budget-category-row-savings .budget-delete-button:hover {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #60a5fa !important;
+}
+
+.budget-transaction-row-expense .budget-edit-button,
+.budget-transaction-row-expense .budget-delete-button,
+.budget-subcategory-row-expense .budget-inline-add-btn,
+.budget-subcategory-row-expense .budget-delete-button,
+.budget-category-row-expense .budget-delete-button {
+  color: #fb7185;
+}
+
+.budget-transaction-row-expense .budget-edit-button:hover,
+.budget-transaction-row-expense .budget-delete-button:hover,
+.budget-subcategory-row-expense .budget-inline-add-btn:hover,
+.budget-subcategory-row-expense .budget-delete-button:hover,
+.budget-category-row-expense .budget-delete-button:hover {
+  background: rgba(244, 63, 94, 0.2) !important;
+  color: #fb7185 !important;
 }
 .budget-add-row td { height: 32px; background: #0b1120; border-top-color: transparent; }
 .budget-add-row button {

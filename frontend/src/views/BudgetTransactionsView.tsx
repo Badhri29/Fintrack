@@ -1316,7 +1316,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
             return (
               <React.Fragment key={category.id}>
-                <tr className="budget-category-row" onClick={() => toggle(category.id)}>
+                <tr className={`budget-category-row budget-category-row-${section}`} onClick={() => toggle(category.id)}>
                   <td className="sticky-col budget-category-label">
                     {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                     <span>{category.name}</span>
@@ -1356,7 +1356,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     return (
                       <React.Fragment key={subcategory.id}>
                         <tr
-                          className="budget-subcategory-row has-transaction-details"
+                          className={`budget-subcategory-row budget-subcategory-row-${section} has-transaction-details`}
                           onClick={() => toggleSubcategory(subcategory.id)}
                         >
                           <td className="sticky-col budget-subcategory-label">
@@ -1698,6 +1698,31 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           {/* Sticky Header for Planner controls */}
           <div className="sticky-section-header budget-section-sticky-bar">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {viewMode === 'combined' && (
+                <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
+                  <button
+                    type="button"
+                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
+                    onClick={() => scrollToSection('budget')}
+                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                    title="Move to Budget Planner"
+                  >
+                    <TableIcon size={13} />
+                    <span>Budget Planner</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
+                    onClick={() => scrollToSection('transactions')}
+                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                    title="Move to Transactions"
+                  >
+                    <ReceiptText size={13} />
+                    <span>Transactions</span>
+                  </button>
+                </div>
+              )}
+
               <div
                 className="section-title-clickable"
                 onClick={() => scrollToSection('budget')}
@@ -1733,31 +1758,6 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   ({selectedYear})
                 </span>
               </div>
-
-              {viewMode === 'combined' && (
-                <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
-                  <button
-                    type="button"
-                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
-                    onClick={() => scrollToSection('budget')}
-                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                    title="Move to Budget Planner"
-                  >
-                    <TableIcon size={13} />
-                    <span>Budget Planner</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
-                    onClick={() => scrollToSection('transactions')}
-                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                    title="Move to Transactions"
-                  >
-                    <ReceiptText size={13} />
-                    <span>Transactions</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="budget-toolbar-actions" style={{ gap: 10 }}>
@@ -1867,15 +1867,6 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 <FolderPlus size={14} />
                 <span>Add Category</span>
               </button>
-
-              <button
-                className="btn-primary"
-                onClick={() => onOpenNewTransaction()}
-                style={{ padding: '6px 14px', fontSize: 12 }}
-              >
-                <Plus size={15} />
-                <span>Add Transaction</span>
-              </button>
             </div>
           </div>
 
@@ -1936,6 +1927,31 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           {/* Sticky Header for Transactions controls */}
           <div className="sticky-section-header transactions-section-sticky-bar">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {viewMode === 'combined' && (
+                <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
+                  <button
+                    type="button"
+                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
+                    onClick={() => scrollToSection('budget')}
+                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                    title="Move to Budget Planner"
+                  >
+                    <TableIcon size={13} />
+                    <span>Budget Planner</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
+                    onClick={() => scrollToSection('transactions')}
+                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
+                    title="Move to Transactions"
+                  >
+                    <ReceiptText size={13} />
+                    <span>Transactions</span>
+                  </button>
+                </div>
+              )}
+
               <div
                 className="section-title-clickable"
                 onClick={() => scrollToSection('transactions')}
@@ -1980,31 +1996,6 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   </span>
                 </div>
               </div>
-
-              {viewMode === 'combined' && (
-                <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
-                  <button
-                    type="button"
-                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
-                    onClick={() => scrollToSection('budget')}
-                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                    title="Move to Budget Planner"
-                  >
-                    <TableIcon size={13} />
-                    <span>Budget Planner</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
-                    onClick={() => scrollToSection('transactions')}
-                    style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                    title="Move to Transactions"
-                  >
-                    <ReceiptText size={13} />
-                    <span>Transactions</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
