@@ -37,6 +37,8 @@ interface TransactionModalProps {
   initialCategory?: string;
   initialSubcategory?: string;
   initialType?: 'income' | 'expense' | 'savings';
+  initialPaymentMode?: string;
+  initialCard?: string;
   transactionToEdit?: TransactionToEdit | null;
 }
 
@@ -165,6 +167,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   initialCategory,
   initialSubcategory,
   initialType,
+  initialPaymentMode,
+  initialCard,
   transactionToEdit,
 }) => {
   const isEditing = Boolean(transactionToEdit && transactionToEdit.id);
@@ -284,12 +288,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setIsCustomSubcategory(defaultSub === 'Other');
       setCustomSubcategoryText('');
 
-      const defaultMode = localStorage.getItem('fintrack-default-payment-mode') || 'upi';
+      const defaultMode = initialPaymentMode || localStorage.getItem('fintrack-default-payment-mode') || 'upi';
       const validModes = ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer'];
       setPaymentMode(validModes.includes(defaultMode) ? defaultMode : 'upi');
 
-      const defaultCard = localStorage.getItem('fintrack-default-card') || '';
-      setCard(defaultCard);
+      const defCard = initialCard || localStorage.getItem('fintrack-default-card') || '';
+      setCard(defCard);
 
       const defaultDesc = localStorage.getItem('fintrack-default-note') || '';
       setDescription(defaultDesc);
@@ -298,7 +302,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setAmount('');
       setError(null);
     }
-  }, [isOpen, initialCategory, initialSubcategory, initialType, transactionToEdit]);
+  }, [isOpen, initialCategory, initialSubcategory, initialType, initialPaymentMode, initialCard, transactionToEdit]);
 
   if (!isOpen) return null;
 

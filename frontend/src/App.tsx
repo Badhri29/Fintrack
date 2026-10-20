@@ -4,6 +4,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './views/DashboardView';
 import { BudgetTransactionsView } from './views/BudgetTransactionsView';
+import { CreditCardsView } from './views/CreditCardsView';
+import { LoansEmiView } from './views/LoansEmiView';
 import { SettingsView } from './views/SettingsView';
 import { LoginView } from './views/LoginView';
 import { TransactionModal } from './components/TransactionModal';
@@ -76,6 +78,14 @@ function AppContent() {
           globalSearchQuery={globalSearchQuery}
           onOpenNewTransaction={openTransactionModal}
         />
+      )}
+
+      {activeTab === 'Credit Cards' && (
+        <CreditCardsView key={refreshKey} />
+      )}
+
+      {activeTab === 'Loans & EMI' && (
+        <LoansEmiView key={refreshKey} />
       )}
 
       {activeTab === 'Settings' && (

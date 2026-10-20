@@ -954,9 +954,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         executeDelete: async () => {
           try {
             await api.delete(`/transactions/${id}`);
-          } catch {
-            alert('Failed to delete transaction on server');
-            return;
+          } catch (err) {
+            console.warn(`Transaction delete note for id ${id}:`, err);
           }
           setRawTransactions((curr) => {
             const next = curr.filter((t) => t.id !== id);

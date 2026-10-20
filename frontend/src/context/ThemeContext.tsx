@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useLayoutEffect } from 'react';
 
 export type ThemeMode = 'dark' | 'light' | 'system';
 
@@ -8,6 +8,33 @@ interface ThemeContextType {
   effectiveTheme: 'dark' | 'light';
 }
 
+export const resolveEffectiveTheme = (mode: ThemeMode): 'dark' | 'light' => {
+  if (mode === 'system') {
+    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
+  }
+  return mode;
+};
+
+export const applyThemeToDOM = (resolved: 'dark' | 'light') => {
+  if (typeof document === 'undefined') return;
+  document.documentElement.setAttribute('data-theme', resolved);
+  document.body.setAttribute('data-theme', resolved);
+  if (resolved === 'light') {
+    document.documentElement.classList.add('light-theme');
+    document.documentElement.classList.remove('dark-theme');
+    document.body.classList.add('light-theme');
+    document.body.classList.remove('dark-theme');
+  } else {
+    document.documentElement.classList.add('dark-theme');
+    document.documentElement.classList.remove('light-theme');
+    document.body.classList.add('dark-theme');
+    document.body.classList.remove('light-theme');
+  }
+  window.dispatchEvent(new CustomEvent('fintrack-theme-change', { detail: { theme: resolved } }));
+};
+
 const ThemeContext = createContext<ThemeContextType>({
   theme: 'dark',
   setTheme: () => {},
@@ -16,43 +43,30 @@ const ThemeContext = createContext<ThemeContextType>({
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setThemeState] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem('fintrack_theme') as ThemeMode;
-    return saved || 'system';
+    const saved = (typeof window !== 'undefined' ? localStorage.getItem('fintrack_theme') : null) as ThemeMode;
+    const initialMode = saved || 'system';
+    // Immediately apply to DOM on load so there is zero initial flash
+    const initialResolved = resolveEffectiveTheme(initialMode);
+    applyThemeToDOM(initialResolved);
+    return initialMode;
   });
 
-  const [effectiveTheme, setEffectiveTheme] = useState<'dark' | 'light'>('dark');
+  const effectiveTheme = resolveEffectiveTheme(theme);
+
+  // Synchronously update DOM if system preference changes
+  useLayoutEffect(() => {
+    applyThemeToDOM(effectiveTheme);
+  }, [effectiveTheme]);
 
   useEffect(() => {
-    const updateTheme = () => {
-      let resolved: 'dark' | 'light' = 'dark';
-      if (theme === 'system') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        resolved = prefersDark ? 'dark' : 'light';
-      } else {
-        resolved = theme;
-      }
-      setEffectiveTheme(resolved);
-      document.documentElement.setAttribute('data-theme', resolved);
-      document.body.setAttribute('data-theme', resolved);
-      if (resolved === 'light') {
-        document.documentElement.classList.add('light-theme');
-        document.documentElement.classList.remove('dark-theme');
-        document.body.classList.add('light-theme');
-        document.body.classList.remove('dark-theme');
-      } else {
-        document.documentElement.classList.add('dark-theme');
-        document.documentElement.classList.remove('light-theme');
-        document.body.classList.add('dark-theme');
-        document.body.classList.remove('light-theme');
-      }
-      window.dispatchEvent(new CustomEvent('fintrack-theme-change', { detail: { theme: resolved } }));
-    };
-
-    updateTheme();
-
     if (theme === 'system') {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-      const listener = () => updateTheme();
+      const listener = () => {
+        const resolved = resolveEffectiveTheme('system');
+        applyThemeToDOM(resolved);
+        // Force re-render to update effectiveTheme
+        setThemeState('system');
+      };
       mediaQuery.addEventListener('change', listener);
       return () => mediaQuery.removeEventListener('change', listener);
     }
@@ -60,6 +74,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const setTheme = (newTheme: ThemeMode) => {
     localStorage.setItem('fintrack_theme', newTheme);
+    // CRITICAL: Synchronously apply to DOM BEFORE React even re-renders!
+    const resolved = resolveEffectiveTheme(newTheme);
+    applyThemeToDOM(resolved);
     setThemeState(newTheme);
   };
 
