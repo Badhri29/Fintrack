@@ -966,9 +966,33 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     ]);
   };
 
-  // Budget calculations & formatting
-  const yearChoices = [selectedYear - 1, selectedYear, selectedYear + 1];
+  // Kinetic Year Selector Reel State & Handlers
+  const [trackOffset, setTrackOffset] = useState<number>(-54);
+  const [isAnimatingYear, setIsAnimatingYear] = useState<boolean>(false);
 
+  const handleNextYear = () => {
+    if (isAnimatingYear) return;
+    setIsAnimatingYear(true);
+    setTrackOffset(-108);
+    setTimeout(() => {
+      setSelectedYear((y) => y + 1);
+      setTrackOffset(-54);
+      setIsAnimatingYear(false);
+    }, 280);
+  };
+
+  const handlePrevYear = () => {
+    if (isAnimatingYear) return;
+    setIsAnimatingYear(true);
+    setTrackOffset(0);
+    setTimeout(() => {
+      setSelectedYear((y) => y - 1);
+      setTrackOffset(-54);
+      setIsAnimatingYear(false);
+    }, 280);
+  };
+
+  // Budget calculations & formatting
   const pickerYears = Array.from(
     { length: 12 },
     (_, index) => selectedYear - 5 + index,
@@ -2251,34 +2275,67 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             </div>
 
             <div className="budget-toolbar-actions" style={{ gap: 10 }}>
-              {/* Year controls */}
+              {/* Year controls with physical sliding carousel motion */}
               <div className="budget-year-control">
                 <button
-                  className="year-arrow"
+                  className="year-arrow year-arrow-prev"
                   type="button"
-                  onClick={() => setSelectedYear((year) => year - 1)}
+                  onClick={handlePrevYear}
+                  disabled={isAnimatingYear}
                   aria-label="Previous year"
+                  title="Previous year"
                 >
                   <ChevronLeft size={16} />
                 </button>
 
-                <div className="segmented-control budget-year-selector">
-                  {yearChoices.map((year) => (
-                    <button
-                      key={year}
-                      className={`segmented-btn ${selectedYear === year ? 'active' : ''}`}
-                      onClick={() => setSelectedYear(year)}
-                    >
-                      {year}
-                    </button>
-                  ))}
+                <div className="budget-year-carousel-window">
+                  {/* Glowing physical glider pill */}
+                  <div className={`budget-year-glider ${isAnimatingYear ? 'glider-animating' : ''}`} />
+
+                  {/* Physical moving reel track */}
+                  <div
+                    className="budget-year-carousel-track"
+                    style={{
+                      transform: `translateX(${trackOffset}px)`,
+                      transition: isAnimatingYear
+                        ? 'transform 0.28s cubic-bezier(0.25, 1, 0.5, 1)'
+                        : 'none',
+                    }}
+                  >
+                    {[
+                      selectedYear - 2,
+                      selectedYear - 1,
+                      selectedYear,
+                      selectedYear + 1,
+                      selectedYear + 2,
+                    ].map((year, idx) => {
+                      const isCenter = idx === 2;
+                      return (
+                        <button
+                          key={`${year}-${idx}`}
+                          type="button"
+                          className={`budget-year-slot-btn ${isCenter ? 'active' : ''}`}
+                          onClick={() => {
+                            if (idx === 1) handlePrevYear();
+                            else if (idx === 3) handleNextYear();
+                          }}
+                          disabled={isAnimatingYear}
+                          title={idx === 1 ? `Go to ${year}` : idx === 3 ? `Go to ${year}` : `${year}`}
+                        >
+                          {year}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <button
-                  className="year-arrow"
+                  className="year-arrow year-arrow-next"
                   type="button"
-                  onClick={() => setSelectedYear((year) => year + 1)}
+                  onClick={handleNextYear}
+                  disabled={isAnimatingYear}
                   aria-label="Next year"
+                  title="Next year"
                 >
                   <ChevronRight size={16} />
                 </button>
