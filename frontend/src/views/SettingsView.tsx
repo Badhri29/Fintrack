@@ -65,6 +65,7 @@ export const SettingsView: React.FC = () => {
   });
   const [ratesRefreshing, setRatesRefreshing] = useState<boolean>(false);
   const [ratesUpdatedTime, setRatesUpdatedTime] = useState<string>('Live');
+  const [swapPreview, setSwapPreview] = useState<boolean>(false);
   const [configMessage, setConfigMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Default Transaction preferences states
@@ -492,9 +493,11 @@ export const SettingsView: React.FC = () => {
     }
   ];
 
-  // Real-time calculation example for UI (like user's Image 2: 1000 INR = X Target Currency)
+  // Real-time calculation example for UI
   const currentRate = currencyService.getRate(currencyCode);
   const convertedSample = (1000 * currentRate).toFixed(currencyCode === 'JPY' ? 0 : 2);
+  const inverseRate = currentRate > 0 ? (1 / currentRate).toFixed(2) : '0';
+  const swappedSample = currentRate > 0 ? (100 / currentRate).toFixed(2) : '0';
   const activeCfg = currencyService.getCurrencyConfig(currencyCode);
 
   return (
@@ -955,44 +958,115 @@ export const SettingsView: React.FC = () => {
           </div>
 
           {/* Real-Time Conversion Display matching Google Converter style */}
-          <div
-            style={{
-              padding: '16px 20px',
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              marginBottom: 20
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
-                  1,000.00 Indian Rupee =
+          {currencyCode === 'INR' ? (
+            <div
+              style={{
+                padding: '16px 20px',
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.08) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                marginBottom: 20
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    Base Currency: Indian Rupee (INR ₹)
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    All transactions are recorded natively in INR. Live exchange benchmarks against major currencies:
+                  </div>
                 </div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
-                  {activeCfg.symbol} {convertedSample} <span style={{ fontSize: 16, color: 'var(--accent-indigo)' }}>{currencyCode}</span>
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                  Real-time market rate • 1 INR = {currentRate.toFixed(5)} {currencyCode} ({ratesUpdatedTime})
-                </div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Updated {ratesUpdatedTime}</span>
               </div>
 
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(99, 102, 241, 0.2)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--accent-indigo)'
-                }}
-              >
-                <ArrowRightLeft size={20} />
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+                {[
+                  { code: 'USD', flag: '🇺🇸', label: '1 USD' },
+                  { code: 'EUR', flag: '🇪🇺', label: '1 EUR' },
+                  { code: 'GBP', flag: '🇬🇧', label: '1 GBP' },
+                  { code: 'AED', flag: '🇦🇪', label: '1 AED' }
+                ].map(c => {
+                  const r = currencyService.getRate(c.code);
+                  const inrVal = r > 0 ? (1 / r).toFixed(2) : '--';
+                  return (
+                    <div
+                      key={c.code}
+                      style={{
+                        padding: '8px 12px',
+                        borderRadius: 8,
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        {c.flag} {c.label}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                        ₹{inrVal}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-          </div>
+          ) : (
+            <div
+              style={{
+                padding: '16px 20px',
+                borderRadius: 14,
+                background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                marginBottom: 20
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600 }}>
+                    {!swapPreview ? '₹1,000.00 INR =' : `100.00 ${currencyCode} =`}
+                  </div>
+                  <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-primary)', marginTop: 4 }}>
+                    {!swapPreview ? (
+                      <>
+                        {activeCfg.symbol} {convertedSample} <span style={{ fontSize: 16, color: 'var(--accent-indigo)' }}>{currencyCode}</span>
+                      </>
+                    ) : (
+                      <>
+                        ₹ {swappedSample} <span style={{ fontSize: 16, color: 'var(--accent-indigo)' }}>INR</span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                    Real-time market rate • 1 {currencyCode} = ₹{inverseRate} INR (1 INR = {currentRate.toFixed(4)} {currencyCode}) • {ratesUpdatedTime}
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setSwapPreview(!swapPreview)}
+                  title="Swap conversion direction"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: 'rgba(99, 102, 241, 0.2)',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-indigo)',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  <ArrowRightLeft size={20} />
+                </button>
+              </div>
+            </div>
+          )}
 
           {configMessage && (
             <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 16 }}>
