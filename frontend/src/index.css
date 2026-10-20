@@ -602,11 +602,125 @@ body {
 .budget-heading > span:last-child { color: var(--text-muted); font-size: 14px; white-space: nowrap; }
 .budget-heading-divider { width: 1px; height: 22px; background: var(--border-color); }
 .budget-toolbar-actions { gap: 12px; }
-.budget-year-selector { border-radius: 15px; padding: 3px; gap: 1px; }
-.budget-year-selector .segmented-btn { min-width: 54px; padding: 6px 11px; border-radius: 11px; }
-.budget-year-control { display: flex; align-items: center; gap: 5px; position: relative; }
-.year-arrow, .year-picker-button { width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--border-color); border-radius: 9px; background: var(--bg-input); color: var(--text-secondary); cursor: pointer; }
-.year-arrow:hover, .year-picker-button:hover { color: #aebcff; border-color: rgba(99, 102, 241, 0.65); }
+.budget-year-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  user-select: none;
+}
+
+.year-arrow, .year-picker-button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.year-arrow:hover:not(:disabled), .year-picker-button:hover {
+  color: #aebcff;
+  border-color: rgba(99, 102, 241, 0.65);
+  background: rgba(99, 102, 241, 0.12);
+  transform: translateY(-1px);
+}
+
+.year-arrow:active:not(:disabled), .year-picker-button:active {
+  transform: scale(0.92);
+}
+
+.year-arrow:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Kinetic Year Carousel & Glider Pill */
+.budget-year-carousel-window {
+  width: 162px;
+  height: 32px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #0b1120;
+  border: 1px solid var(--border-color);
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.35);
+}
+
+[data-theme="light"] .budget-year-carousel-window {
+  background: #F1F5F9;
+  border-color: #CBD5E1;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.budget-year-glider {
+  position: absolute;
+  left: 54px;
+  top: 2px;
+  width: 54px;
+  height: 28px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  box-shadow: 0 2px 10px rgba(99, 102, 241, 0.45), 0 0 14px rgba(99, 102, 241, 0.25);
+  pointer-events: none;
+  z-index: 1;
+  transition: transform 0.24s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.24s ease;
+}
+
+.budget-year-glider.glider-animating {
+  transform: scale(1.06);
+  box-shadow: 0 4px 18px rgba(99, 102, 241, 0.65), 0 0 22px rgba(99, 102, 241, 0.45);
+}
+
+[data-theme="light"] .budget-year-glider {
+  background: #6366F1;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+
+.budget-year-carousel-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  width: 270px;
+  height: 32px;
+  z-index: 10;
+  will-change: transform;
+}
+
+.budget-year-slot-btn {
+  width: 54px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  transition: color 0.2s ease, transform 0.2s ease, font-weight 0.2s ease;
+}
+
+.budget-year-slot-btn:hover:not(.active):not(:disabled) {
+  color: #ffffff;
+  transform: scale(1.05);
+}
+
+.budget-year-slot-btn.active {
+  color: #ffffff !important;
+  font-weight: 800;
+  font-size: 13.5px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
 .year-picker-wrap { position: relative; }
 .year-picker-popover { position: absolute; z-index: 20; top: calc(100% + 8px); right: 0; width: 196px; padding: 12px; border: 1px solid var(--border-color); border-radius: 10px; background: #111a2b; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.42); }
 .year-picker-popover .year-picker-header {
