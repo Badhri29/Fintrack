@@ -770,6 +770,17 @@ body {
   background-color: rgba(99, 102, 241, 0.08) !important;
 }
 
+.transactions-table tbody tr.empty-placeholder-row td {
+  height: 52px;
+  background: transparent !important;
+  border: 1px solid rgba(47, 57, 81, 0.25);
+  pointer-events: none;
+}
+
+.transactions-table tbody tr.empty-placeholder-row:hover td {
+  background: transparent !important;
+}
+
 [data-theme="light"] .transactions-table tbody tr:hover td {
   background-color: rgba(99, 102, 241, 0.05) !important;
 }
@@ -854,14 +865,15 @@ body {
   display: inline-grid;
   place-items: center;
   margin-left: auto;
-  padding: 2px;
+  padding: 3px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #7b8ca7;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.8;
   flex-shrink: 0;
+  transition: all 0.15s ease;
 }
 
 .budget-category-label:hover .budget-delete-button,
@@ -929,9 +941,12 @@ body {
 .budget-transaction-row .budget-row-actions {
   position: absolute;
   right: 2px;
-  background: #080c16;
+  background: transparent;
   padding: 2px 4px;
   border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }
 
 /* Budget Transaction Draft / Edit Row */
@@ -1172,13 +1187,13 @@ body {
 .budget-edit-button {
   display: inline-grid;
   place-items: center;
-  padding: 2px;
+  padding: 3px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: #7b8ca7;
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.8;
   flex-shrink: 0;
   transition: all 0.15s ease;
 }
@@ -1192,6 +1207,58 @@ body {
 .budget-edit-button:hover {
   background: rgba(59, 130, 246, 0.18);
   color: #60a5fa;
+}
+
+/* Category-specific colors and hover backgrounds for action buttons */
+.budget-transaction-row-income .budget-edit-button,
+.budget-transaction-row-income .budget-delete-button,
+.budget-subcategory-row-income .budget-inline-add-btn,
+.budget-subcategory-row-income .budget-delete-button,
+.budget-category-row-income .budget-delete-button {
+  color: #38c69b;
+}
+
+.budget-transaction-row-income .budget-edit-button:hover,
+.budget-transaction-row-income .budget-delete-button:hover,
+.budget-subcategory-row-income .budget-inline-add-btn:hover,
+.budget-subcategory-row-income .budget-delete-button:hover,
+.budget-category-row-income .budget-delete-button:hover {
+  background: rgba(16, 185, 129, 0.2) !important;
+  color: #38c69b !important;
+}
+
+.budget-transaction-row-savings .budget-edit-button,
+.budget-transaction-row-savings .budget-delete-button,
+.budget-subcategory-row-savings .budget-inline-add-btn,
+.budget-subcategory-row-savings .budget-delete-button,
+.budget-category-row-savings .budget-delete-button {
+  color: #60a5fa;
+}
+
+.budget-transaction-row-savings .budget-edit-button:hover,
+.budget-transaction-row-savings .budget-delete-button:hover,
+.budget-subcategory-row-savings .budget-inline-add-btn:hover,
+.budget-subcategory-row-savings .budget-delete-button:hover,
+.budget-category-row-savings .budget-delete-button:hover {
+  background: rgba(59, 130, 246, 0.2) !important;
+  color: #60a5fa !important;
+}
+
+.budget-transaction-row-expense .budget-edit-button,
+.budget-transaction-row-expense .budget-delete-button,
+.budget-subcategory-row-expense .budget-inline-add-btn,
+.budget-subcategory-row-expense .budget-delete-button,
+.budget-category-row-expense .budget-delete-button {
+  color: #fb7185;
+}
+
+.budget-transaction-row-expense .budget-edit-button:hover,
+.budget-transaction-row-expense .budget-delete-button:hover,
+.budget-subcategory-row-expense .budget-inline-add-btn:hover,
+.budget-subcategory-row-expense .budget-delete-button:hover,
+.budget-category-row-expense .budget-delete-button:hover {
+  background: rgba(244, 63, 94, 0.2) !important;
+  color: #fb7185 !important;
 }
 .budget-add-row td { height: 32px; background: #0b1120; border-top-color: transparent; }
 .budget-add-row button {
@@ -1729,7 +1796,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
+  z-index: 2000;
   padding: 16px;
   animation: modalOverlayFade 0.18s ease-out;
 }
@@ -1745,4 +1812,185 @@ body {
   box-shadow: 0 24px 50px rgba(0, 0, 0, 0.65);
   animation: modalCardZoom 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   transition: border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Month Spend Details Drawer */
+.month-transactions-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 1040;
+}
+
+.month-transactions-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 440px;
+  max-width: 92vw;
+  background: #0d1527;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: -14px 0 36px rgba(0, 0, 0, 0.7);
+  z-index: 1041;
+  display: flex;
+  flex-direction: column;
+  animation: slideDrawer 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawer {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.budget-amount-clickable {
+  display: inline-block;
+  padding: 3px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.budget-amount-clickable:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.active-cell-highlight {
+  background: rgba(56, 189, 248, 0.16) !important;
+  box-shadow: 0 0 0 1.5px #38bdf8 !important;
+  border-radius: 6px;
+  color: #38bdf8 !important;
+  font-weight: 700;
+}
+
+/* Delete Confirm Modal */
+.delete-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.delete-confirm-card {
+  width: 100%;
+  max-width: 430px;
+  background: #0d1527;
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  border-radius: 14px;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.75), 0 0 24px rgba(239, 68, 68, 0.12);
+  padding: 24px;
+  animation: popConfirm 0.18s ease-out;
+}
+
+@keyframes popConfirm {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Undo Delete Notification Toast Stack (IntelliJ style stacked notifications) */
+.undo-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 10px;
+  align-items: flex-end;
+  z-index: 2200;
+  pointer-events: none;
+  max-height: calc(100vh - 48px);
+}
+
+.undo-delete-toast {
+  position: relative;
+  pointer-events: auto;
+  background: #0f172a;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  border-radius: 12px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65), 0 0 20px rgba(239, 68, 68, 0.15);
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 320px;
+  max-width: 440px;
+  animation: slideToastIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideToastIn {
+  from {
+    transform: translateY(16px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.undo-countdown-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1.5px solid rgba(239, 68, 68, 0.4);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.undo-button-action {
+  background: #3b82f6;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
+
+.undo-button-action:hover {
+  background: #2563eb;
+  transform: translateY(-1px);
+}
+
+/* Date input calendar picker indicator styling */
+input[type="date"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  cursor: pointer;
+  opacity: 0.85;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  filter: invert(1) brightness(1.6);
 }

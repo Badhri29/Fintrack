@@ -39,6 +39,8 @@ const SECTION_CONFIG: Record<CategorySection, {
   color: string;
   bg: string;
   borderColor: string;
+  cardBorder: string;
+  cardShadow: string;
   icon: React.ReactNode;
 }> = {
   expense: {
@@ -46,6 +48,8 @@ const SECTION_CONFIG: Record<CategorySection, {
     color: '#f87171',
     bg: 'rgba(239, 68, 68, 0.12)',
     borderColor: 'rgba(239, 68, 68, 0.42)',
+    cardBorder: 'rgba(239, 68, 68, 0.32)',
+    cardShadow: '0 24px 50px rgba(0, 0, 0, 0.65), 0 0 28px rgba(239, 68, 68, 0.08)',
     icon: <ArrowDownRight size={16} />,
   },
   income: {
@@ -53,6 +57,8 @@ const SECTION_CONFIG: Record<CategorySection, {
     color: '#34d399',
     bg: 'rgba(16, 185, 129, 0.12)',
     borderColor: 'rgba(16, 185, 129, 0.42)',
+    cardBorder: 'rgba(16, 185, 129, 0.32)',
+    cardShadow: '0 24px 50px rgba(0, 0, 0, 0.65), 0 0 28px rgba(16, 185, 129, 0.08)',
     icon: <ArrowUpRight size={16} />,
   },
   savings: {
@@ -60,6 +66,8 @@ const SECTION_CONFIG: Record<CategorySection, {
     color: '#60a5fa',
     bg: 'rgba(59, 130, 246, 0.12)',
     borderColor: 'rgba(59, 130, 246, 0.42)',
+    cardBorder: 'rgba(59, 130, 246, 0.32)',
+    cardShadow: '0 24px 50px rgba(0, 0, 0, 0.65), 0 0 28px rgba(59, 130, 246, 0.08)',
     icon: <PiggyBank size={16} />,
   },
 };
@@ -250,7 +258,17 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
       role="dialog"
       aria-modal="true"
     >
-      <div className="modal-container" style={{ maxWidth: 480, padding: 24 }}>
+      <div
+        className="modal-container"
+        style={{
+          width: '100%',
+          maxWidth: 480,
+          padding: 24,
+          border: `1px solid ${currentSectionConfig.cardBorder}`,
+          boxShadow: currentSectionConfig.cardShadow,
+          transition: 'border-color 0.25s ease, box-shadow 0.25s ease',
+        }}
+      >
         {/* Header */}
         <div
           style={{
