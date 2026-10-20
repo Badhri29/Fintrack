@@ -21,6 +21,8 @@ interface NotificationItem {
 const TABS = [
   'Dashboard',
   'Budget & Transactions',
+  'Credit Cards',
+  'Loans & EMI',
   'Settings'
 ];
 
