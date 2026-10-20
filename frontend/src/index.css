@@ -669,7 +669,7 @@ body {
 .budget-add-entry:hover { background: rgba(99, 102, 241, 0.24); }
 
 .spreadsheet-container {
-  margin: 0 28px 30px;
+  margin: 20px 28px 30px;
   overflow-x: auto;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -1745,7 +1745,12 @@ body {
   .budget-toolbar { align-items: flex-start; flex-direction: column; padding: 14px 16px; }
   .budget-toolbar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
   .budget-heading > span:last-child, .budget-heading-divider, .budget-add-entry span { display: none; }
-  .spreadsheet-container { margin: 0 16px 28px; }
+  .spreadsheet-container { margin: 16px 16px 28px; }
+  .transactions-filter-toolbar { padding: 16px 16px 12px; }
+}
+
+.transactions-filter-toolbar {
+  padding: 20px 28px 16px;
 }
 
 /* Buttons */
