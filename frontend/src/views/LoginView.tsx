@@ -7,7 +7,7 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  const { login, register, loginDemo } = useAuth();
+  const { login, register } = useAuth();
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
@@ -18,6 +18,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    // Demo account is locked
+    if (email.trim().toLowerCase() === 'demo@fintrack.io' || email.trim().toLowerCase() === 'demo') {
+      return;
+    }
+
     if (!email || !password) {
       setError('Please provide both email and password');
       return;
@@ -38,17 +44,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleDemoLogin = async () => {
-    setError(null);
-    setLoading(true);
-    try {
-      await loginDemo();
-      onLoginSuccess();
-    } catch (err: any) {
-      setError('Demo login failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
+  const handleDemoLogin = () => {
+    // Demo account is locked; does not log in
   };
 
   return (
@@ -113,7 +110,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <Wallet size={28} />
           </div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: '#F8FAFC', marginBottom: 6 }}>
-            Fin Track Intelligence
+            FinTrack Intelligence
           </h1>
           <p style={{ fontSize: 13, color: '#94A3B8' }}>
             Personal Net Worth & Financial Analytics
@@ -202,7 +199,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 />
                 <input
                   type="text"
-                  placeholder="G. Badrinarayanan"
+                  placeholder="Your Name"
                   value={name}
                   onChange={e => setName(e.target.value)}
                   style={{
