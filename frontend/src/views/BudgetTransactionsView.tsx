@@ -31,6 +31,7 @@ import {
   Building2
 } from 'lucide-react';
 import api from '../services/api';
+import { currencyService } from '../services/currencyService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
 
@@ -330,10 +331,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     return 'Date Range';
   };
 
+  const activeCurSym = currencyService.getActiveCurrencyConfig().symbol;
   const getAmountFilterLabel = () => {
-    if (minAmount && maxAmount) return `₹${minAmount} - ₹${maxAmount}`;
-    if (minAmount) return `> ₹${minAmount}`;
-    if (maxAmount) return `< ₹${maxAmount}`;
+    if (minAmount && maxAmount) return `${activeCurSym}${minAmount} - ${activeCurSym}${maxAmount}`;
+    if (minAmount) return `> ${activeCurSym}${minAmount}`;
+    if (maxAmount) return `< ${activeCurSym}${maxAmount}`;
     return 'Amount Range';
   };
 
@@ -999,10 +1001,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   );
 
   const currency = (value: number) => {
-    const sym = localStorage.getItem('fintrack_currency_symbol') || '₹';
-    const numFmt = localStorage.getItem('fintrack_number_format') || 'indian';
-    const locale = numFmt === 'international' ? 'en-US' : 'en-IN';
-    return `${sym}${Math.round(value || 0).toLocaleString(locale)}`;
+    return currencyService.format(value);
   };
 
   const cell = (value: number) => (value ? currency(value) : '—');
@@ -2924,10 +2923,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {[
                       { key: 'all', label: 'All' },
-                      { key: 'under_1k', label: '< ₹1,000' },
-                      { key: '1k_5k', label: '₹1k - ₹5k' },
-                      { key: '5k_20k', label: '₹5k - ₹20k' },
-                      { key: 'above_20k', label: '> ₹20,000' },
+                      { key: 'under_1k', label: `< ${activeCurSym}1,000` },
+                      { key: '1k_5k', label: `${activeCurSym}1k - ${activeCurSym}5k` },
+                      { key: '5k_20k', label: `${activeCurSym}5k - ${activeCurSym}20k` },
+                      { key: 'above_20k', label: `> ${activeCurSym}20,000` },
                     ].map((p) => (
                       <button
                         key={p.key}
@@ -2951,11 +2950,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   <div style={{ height: 1, background: 'rgba(255, 255, 255, 0.08)', margin: '4px 0' }} />
 
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)' }}>
-                    AMOUNT RANGE (₹)
+                    AMOUNT RANGE ({activeCurSym})
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Min ₹</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Min {activeCurSym}</span>
                       <input
                         type="number"
                         placeholder="0"
@@ -2976,7 +2975,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     </div>
                     <span style={{ color: 'var(--text-muted)', paddingTop: 16 }}>—</span>
                     <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max ₹</span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Max {activeCurSym}</span>
                       <input
                         type="number"
                         placeholder="Any"
@@ -3000,7 +2999,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   {/* Min Amount Slider */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)' }}>
-                      <span>Min: ₹{minAmount || '0'}</span>
+                      <span>Min: {activeCurSym}{minAmount || '0'}</span>
                     </div>
                     <input
                       type="range"
@@ -3018,16 +3017,16 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                       style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
-                      <span>₹0</span>
-                      <span>₹25k</span>
-                      <span>₹50k</span>
+                      <span>{activeCurSym}0</span>
+                      <span>{activeCurSym}25k</span>
+                      <span>{activeCurSym}50k</span>
                     </div>
                   </div>
 
                   {/* Max Amount Slider */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)' }}>
-                      <span>Max: {maxAmount ? `₹${maxAmount}` : 'Any (₹50k+)'}</span>
+                      <span>Max: {maxAmount ? `${activeCurSym}${maxAmount}` : `Any (${activeCurSym}50k+)`}</span>
                     </div>
                     <input
                       type="range"
@@ -3047,7 +3046,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
                       <span>₹0</span>
                       <span>₹25k</span>
-                      <span>₹50k+</span>
+                      <span>{activeCurSym}50k+</span>
                     </div>
                   </div>
 

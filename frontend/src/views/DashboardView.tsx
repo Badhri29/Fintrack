@@ -25,6 +25,7 @@ import {
 } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import api from '../services/api';
+import { currencyService } from '../services/currencyService';
 import { useTheme } from '../context/ThemeContext';
 
 ChartJS.register(
@@ -46,6 +47,17 @@ interface DashboardViewProps {
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransaction }) => {
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
+  const [, setCurrencyTick] = useState<number>(0);
+
+  useEffect(() => {
+    const onCurChange = () => setCurrencyTick(t => t + 1);
+    window.addEventListener('fintrack-currency-change', onCurChange);
+    window.addEventListener('fintrack-currency-rates-updated', onCurChange);
+    return () => {
+      window.removeEventListener('fintrack-currency-change', onCurChange);
+      window.removeEventListener('fintrack-currency-rates-updated', onCurChange);
+    };
+  }, []);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [loading, setLoading] = useState<boolean>(true);
   const [summary, setSummary] = useState<any>({
@@ -139,7 +151,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   };
 
   const formatCurrency = (val: number) => {
-    return '₹' + Math.round(val || 0).toLocaleString('en-IN');
+    return currencyService.format(val);
   };
 
   // Chart configurations
@@ -148,19 +160,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     datasets: [
       {
         label: 'Income',
-        data: monthlyData.map(d => d.income),
+        data: monthlyData.map(d => Math.round(currencyService.convertFromBase(d.income) * 100) / 100),
         backgroundColor: '#10B981',
         borderRadius: 6,
       },
       {
         label: 'Expenses',
-        data: monthlyData.map(d => d.expense),
+        data: monthlyData.map(d => Math.round(currencyService.convertFromBase(d.expense) * 100) / 100),
         backgroundColor: '#EF4444',
         borderRadius: 6,
       },
       {
         label: 'Net Savings',
-        data: monthlyData.map(d => d.savings),
+        data: monthlyData.map(d => Math.round(currencyService.convertFromBase(d.savings) * 100) / 100),
         backgroundColor: '#3B82F6',
         borderRadius: 6,
       }
@@ -203,7 +215,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     labels: topCategories.map(c => c.category),
     datasets: [
       {
-        data: topCategories.map(c => c.amount),
+        data: topCategories.map(c => Math.round(currencyService.convertFromBase(c.amount) * 100) / 100),
         backgroundColor: [
           '#6366F1',
           '#10B981',
@@ -309,7 +321,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
         <KpiCard
           label="Cash Flow"
-          value={(summary.cashFlow >= 0 ? '+' : '') + formatCurrency(summary.cashFlow)}
+          value={(summary.cashFlow > 0 ? '+' : '') + formatCurrency(summary.cashFlow)}
           year={String(selectedYear)}
           icon={<Activity size={22} />}
           iconColor="#6366F1"

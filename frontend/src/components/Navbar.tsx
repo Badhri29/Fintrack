@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Wallet, Search, Bell, LogOut, ChevronDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+import { currencyService } from '../services/currencyService';
 
 interface NavbarProps {
   activeTab: string;
@@ -30,6 +31,25 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const notifRef = useRef<HTMLDivElement>(null);
+
+  const [profilePhoto, setProfilePhoto] = useState<string>(() => {
+    return user?.photo || (typeof window !== 'undefined' ? localStorage.getItem('fintrack_user_photo') || '' : '');
+  });
+
+  useEffect(() => {
+    if (user?.photo) {
+      setProfilePhoto(user.photo);
+    }
+  }, [user?.photo]);
+
+  useEffect(() => {
+    const handleProfileUpdate = (e: any) => {
+      const p = e.detail?.photo ?? (localStorage.getItem('fintrack_user_photo') || '');
+      setProfilePhoto(p);
+    };
+    window.addEventListener('fintrack-profile-updated', handleProfileUpdate);
+    return () => window.removeEventListener('fintrack-profile-updated', handleProfileUpdate);
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -82,7 +102,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
           return {
             id: t.id || index,
             color,
-            title: `${prefix}: ${t.category} — ₹${Number(t.amount || 0).toLocaleString('en-IN')}`,
+            title: `${prefix}: ${t.category} — ${currencyService.format(Number(t.amount || 0))}`,
             time: t.date || 'Recent'
           };
         });
@@ -291,8 +311,19 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
           }}
           title="Profile Settings"
         >
-          <div className="user-avatar">
-            {getInitials(user?.name)}
+          <div className="user-avatar" style={{ overflow: "hidden", padding: 0, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {profilePhoto ? (
+              <img
+                src={profilePhoto}
+                alt={user?.name || "Profile"}
+                style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+                onError={() => {
+                  setProfilePhoto('');
+                }}
+              />
+            ) : (
+              getInitials(user?.name)
+            )}
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>

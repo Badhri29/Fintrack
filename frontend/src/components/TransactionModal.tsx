@@ -14,6 +14,7 @@ import {
   Calculator
 } from 'lucide-react';
 import api from '../services/api';
+import { currencyService } from '../services/currencyService';
 
 export type TransactionType = 'expense' | 'income' | 'savings';
 
@@ -229,9 +230,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setType(editType);
 
       setDate(toInputDate(transactionToEdit.date));
-      setAmount(
-        transactionToEdit.amount != null ? String(transactionToEdit.amount) : '',
-      );
+      const displayAmt = transactionToEdit.amount != null
+        ? Math.round(currencyService.convertFromBase(Number(transactionToEdit.amount)) * 100) / 100
+        : '';
+      setAmount(displayAmt !== '' ? String(displayAmt) : '');
 
       const typeMap = CATEGORIES_BY_TYPE[editType] || CATEGORIES_BY_TYPE.expense;
       const defaultCategory = Object.keys(typeMap)[0];
@@ -357,7 +359,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       type,
       category,
       subcategory: finalSubcategory,
-      amount: finalNumericAmount,
+      amount: Math.round(currencyService.convertToBase(finalNumericAmount) * 100) / 100,
       paymentMode,
       card: paymentMode === 'credit' ? card : null,
       description,
@@ -658,7 +660,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     }}
                     title="Calculated total"
                   >
-                    = ₹{evaluatedAmount.toLocaleString('en-IN')}
+                    = {currencySymbol}{evaluatedAmount.toLocaleString()}
                   </div>
                 )}
               </div>
@@ -693,7 +695,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       e.currentTarget.style.color = 'var(--text-secondary, #94a3b8)';
                     }}
                   >
-                    +₹{quick.toLocaleString('en-IN')}
+                    +{currencySymbol}{quick.toLocaleString()}
                   </button>
                 ))}
               </div>

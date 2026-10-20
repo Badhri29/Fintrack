@@ -7,7 +7,7 @@ interface LoginViewProps {
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
-  const { login, register } = useAuth();
+  const { login, register, loginDemo } = useAuth();
   const [isRegistering, setIsRegistering] = useState<boolean>(false);
   const [name, setName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
@@ -18,11 +18,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    // Demo account is locked
-    if (email.trim().toLowerCase() === 'demo@fintrack.io' || email.trim().toLowerCase() === 'demo') {
-      return;
-    }
 
     if (!email || !password) {
       setError('Please provide both email and password');
@@ -44,8 +39,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleDemoLogin = () => {
-    // Demo account is locked; does not log in
+  const handleDemoLogin = async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      await loginDemo();
+      onLoginSuccess();
+    } catch {
+      setError('Demo login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

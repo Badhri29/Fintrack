@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Save, CheckCircle, AlertCircle, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Save, CheckCircle, AlertCircle, LogOut, Upload, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 
@@ -8,6 +8,14 @@ interface ProfileModalProps {
   onClose: () => void;
   onSuccess?: () => void;
 }
+
+const PRESET_AVATARS = [
+  'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150&auto=format&fit=crop&q=80',
+  'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&auto=format&fit=crop&q=80',
+];
 
 export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user, logout, updateUser } = useAuth();
@@ -19,6 +27,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
   const [photo, setPhoto] = useState<string>('');
   const [saving, setSaving] = useState<boolean>(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -36,15 +46,41 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
         setPhone(u.phone || '');
         setAge(u.age ? String(u.age) : '');
         setGender(u.gender || 'Prefer not to say');
-        setPhoto(u.photo || '');
+        const p = u.photo || user?.photo || localStorage.getItem('fintrack_user_photo') || '';
+        setPhoto(p);
       } else if (user) {
         setName(user.name || '');
+        setPhoto(user.photo || localStorage.getItem('fintrack_user_photo') || '');
       }
-    } catch (err) {
+    } catch {
       if (user) {
         setName(user.name || '');
+        setPhoto(user.photo || localStorage.getItem('fintrack_user_photo') || '');
       }
     }
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setMessage({ type: 'error', text: 'Please select a valid image file (PNG, JPG, etc.).' });
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'Image size should be less than 2MB.' });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      setPhoto(result);
+      setMessage(null);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSaveProfile = async (e: React.FormEvent) => {
@@ -60,13 +96,19 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
         photo
       });
       if (res.data && res.data.success) {
-        updateUser({ name });
+        updateUser({ name, photo });
+        if (photo) {
+          localStorage.setItem('fintrack_user_photo', photo);
+        } else {
+          localStorage.removeItem('fintrack_user_photo');
+        }
+        window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo, name } }));
         setMessage({ type: 'success', text: 'Profile updated successfully!' });
         if (onSuccess) onSuccess();
       } else {
         setMessage({ type: 'error', text: 'Failed to update profile.' });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: 'error', text: 'Error saving profile changes.' });
     } finally {
       setSaving(false);
@@ -84,15 +126,41 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
 
   return (
     <div className="modal-overlay">
-      <div className="modal-container" style={{ width: 480 }}>
+      <div className="modal-container" style={{ width: 490, maxHeight: '90vh', overflowY: 'auto' }}>
         {/* Header */}
         <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="user-avatar" style={{ width: 44, height: 44, fontSize: 16 }}>
-              {getInitials(name || user?.name)}
+            <div
+              className="user-avatar"
+              style={{
+                width: 48,
+                height: 48,
+                fontSize: 16,
+                overflow: 'hidden',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '50%',
+                background: 'var(--brand-primary, #6366F1)',
+                color: '#fff',
+                fontWeight: 700,
+                flexShrink: 0
+              }}
+            >
+              {photo ? (
+                <img
+                  src={photo}
+                  alt={name || user?.name || 'Profile'}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }}
+                  onError={() => setPhoto('')}
+                />
+              ) : (
+                getInitials(name || user?.name)
+              )}
             </div>
             <div>
-              <h2 className="modal-title" style={{ margin: 0, fontSize: 18 }}>{user?.name}</h2>
+              <h2 className="modal-title" style={{ margin: 0, fontSize: 18 }}>{name || user?.name || 'User Profile'}</h2>
               <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
                 {user?.email || ''}
               </span>
@@ -119,9 +187,106 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 12 }}>
+        <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 4 }}>
+          {/* Profile Photo Management */}
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+              PROFILE PHOTO
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'var(--bg-secondary, rgba(255, 255, 255, 0.08))',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                <Upload size={14} />
+                Upload Photo
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleFileUpload}
+              />
+              {photo && (
+                <button
+                  type="button"
+                  onClick={() => setPhoto('')}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                    color: '#EF4444',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Trash2 size={14} />
+                  Remove
+                </button>
+              )}
+            </div>
+
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                className="modal-input"
+                value={photo}
+                onChange={e => setPhoto(e.target.value)}
+                placeholder="Or paste an image URL (https://...)"
+                style={{ fontSize: 13 }}
+              />
+            </div>
+
+            {/* Quick Presets */}
+            <div style={{ marginTop: 10 }}>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
+                Or select an avatar:
+              </span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {PRESET_AVATARS.map((url, idx) => (
+                  <img
+                    key={idx}
+                    src={url}
+                    alt={`Preset ${idx + 1}`}
+                    onClick={() => setPhoto(url)}
+                    style={{
+                      width: 34,
+                      height: 34,
+                      borderRadius: '50%',
+                      cursor: 'pointer',
+                      border: photo === url ? '2px solid #6366F1' : '1px solid var(--border-color)',
+                      objectFit: 'cover',
+                      transition: 'transform 0.15s'
+                    }}
+                    onMouseEnter={e => (e.currentTarget.style.transform = 'scale(1.1)')}
+                    onMouseLeave={e => (e.currentTarget.style.transform = 'scale(1)')}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
               FULL NAME
             </label>
             <input
@@ -136,7 +301,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 PHONE NUMBER
               </label>
               <input
@@ -149,7 +314,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
             </div>
 
             <div>
-              <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 AGE
               </label>
               <input
@@ -163,7 +328,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
               GENDER
             </label>
             <select
@@ -176,19 +341,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
               <option value="Other">Other</option>
               <option value="Prefer not to say">Prefer not to say</option>
             </select>
-          </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-              PROFILE PHOTO URL (OPTIONAL)
-            </label>
-            <input
-              type="url"
-              className="modal-input"
-              value={photo}
-              onChange={e => setPhoto(e.target.value)}
-              placeholder="https://example.com/photo.jpg"
-            />
           </div>
 
           {message && (
