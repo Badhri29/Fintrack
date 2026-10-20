@@ -33,6 +33,19 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
       setEffectiveTheme(resolved);
       document.documentElement.setAttribute('data-theme', resolved);
+      document.body.setAttribute('data-theme', resolved);
+      if (resolved === 'light') {
+        document.documentElement.classList.add('light-theme');
+        document.documentElement.classList.remove('dark-theme');
+        document.body.classList.add('light-theme');
+        document.body.classList.remove('dark-theme');
+      } else {
+        document.documentElement.classList.add('dark-theme');
+        document.documentElement.classList.remove('light-theme');
+        document.body.classList.add('dark-theme');
+        document.body.classList.remove('light-theme');
+      }
+      window.dispatchEvent(new CustomEvent('fintrack-theme-change', { detail: { theme: resolved } }));
     };
 
     updateTheme();

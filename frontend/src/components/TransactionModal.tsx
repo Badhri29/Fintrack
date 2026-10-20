@@ -183,6 +183,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const activeConfig = TYPE_CONFIGS[type] || TYPE_CONFIGS.expense;
 
+  const currencySymbol = useMemo(() => {
+    try {
+      return localStorage.getItem('fintrack_currency_symbol') || '₹';
+    } catch {
+      return '₹';
+    }
+  }, [isOpen]);
+
   // Live calculator calculation for amount box
   const evaluatedAmount = useMemo(() => {
     if (/[\+\-\*\/]/.test(amount)) {
@@ -250,16 +258,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setDescription(transactionToEdit.description || '');
       setError(null);
     } else {
+      let defaultTypePref = (localStorage.getItem('fintrack-default-transaction-type') as TransactionType) || 'expense';
+      if (!['expense', 'income', 'savings'].includes(defaultTypePref)) defaultTypePref = 'expense';
       const startingType: TransactionType =
         initialType === 'income'
           ? 'income'
           : initialType === 'savings'
           ? 'savings'
-          : 'expense';
+          : initialType === 'expense'
+          ? 'expense'
+          : defaultTypePref;
       setType(startingType);
 
       const typeMap = CATEGORIES_BY_TYPE[startingType] || CATEGORIES_BY_TYPE.expense;
-      const defaultCategory = Object.keys(typeMap)[0];
+      const savedCategory = localStorage.getItem('fintrack-default-category');
+      const defaultCategory = (savedCategory && typeMap[savedCategory]) ? savedCategory : Object.keys(typeMap)[0];
       const cat = initialCategory || defaultCategory;
       setCategory(cat);
 
@@ -269,10 +282,18 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setIsCustomSubcategory(defaultSub === 'Other');
       setCustomSubcategoryText('');
 
+      const defaultMode = localStorage.getItem('fintrack-default-payment-mode') || 'upi';
+      const validModes = ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer'];
+      setPaymentMode(validModes.includes(defaultMode) ? defaultMode : 'upi');
+
+      const defaultCard = localStorage.getItem('fintrack-default-card') || '';
+      setCard(defaultCard);
+
+      const defaultDesc = localStorage.getItem('fintrack-default-note') || '';
+      setDescription(defaultDesc);
+
       setDate(new Date().toISOString().substring(0, 10));
       setAmount('');
-      setDescription('');
-      setCard('');
       setError(null);
     }
   }, [isOpen, initialCategory, initialSubcategory, initialType, transactionToEdit]);
@@ -376,7 +397,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     width: '100%',
     padding: '10px 14px',
     background: 'var(--bg-input, #161f30)',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
+    border: '1px solid var(--border-color, rgba(255, 255, 255, 0.1))',
     borderRadius: 9,
     color: 'var(--text-primary, #f8fafc)',
     fontSize: 13,
@@ -510,7 +531,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   border: isSelected
                     ? `1px solid ${config.borderColor}`
                     : '1px solid rgba(255, 255, 255, 0.08)',
-                  background: isSelected ? config.bg : 'rgba(15, 23, 42, 0.55)',
+                  background: isSelected ? config.bg : 'var(--bg-secondary, rgba(15, 23, 42, 0.55))',
                   color: isSelected ? config.color : 'var(--text-secondary)',
                   fontWeight: 700,
                   fontSize: 13,
@@ -597,7 +618,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     pointerEvents: 'none',
                   }}
                 >
-                  ₹
+                  {currencySymbol}
                 </span>
                 <input
                   type="text"

@@ -998,8 +998,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     (_, index) => selectedYear - 5 + index,
   );
 
-  const currency = (value: number) =>
-    `₹${Math.round(value || 0).toLocaleString('en-IN')}`;
+  const currency = (value: number) => {
+    const sym = localStorage.getItem('fintrack_currency_symbol') || '₹';
+    const numFmt = localStorage.getItem('fintrack_number_format') || 'indian';
+    const locale = numFmt === 'international' ? 'en-US' : 'en-IN';
+    return `${sym}${Math.round(value || 0).toLocaleString(locale)}`;
+  };
 
   const cell = (value: number) => (value ? currency(value) : '—');
 
@@ -2721,7 +2725,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     top: 'calc(100% + 8px)',
                     left: 0,
                     width: 310,
-                    background: '#0d1527',
+                    background: 'var(--bg-card, #0d1527)',
                     border: '1px solid rgba(255, 255, 255, 0.12)',
                     borderRadius: 14,
                     padding: 16,
@@ -2903,7 +2907,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     top: 'calc(100% + 8px)',
                     left: 0,
                     width: 320,
-                    background: '#0d1527',
+                    background: 'var(--bg-card, #0d1527)',
                     border: '1px solid rgba(255, 255, 255, 0.12)',
                     borderRadius: 14,
                     padding: 16,
@@ -3393,7 +3397,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     gap: 12,
                     padding: '12px 20px',
                     borderTop: '1px solid var(--border-color)',
-                    background: 'rgba(11, 14, 20, 0.45)',
+                    background: 'var(--bg-card, rgba(11, 14, 20, 0.45))',
                     fontSize: 13,
                     color: 'var(--text-secondary)',
                   }}
@@ -3797,7 +3801,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               style={{
                 padding: '16px 20px',
                 borderTop: '1px solid rgba(255, 255, 255, 0.08)',
-                background: '#090e1a',
+                background: 'var(--bg-secondary, #090e1a)',
                 display: 'flex',
                 alignItems: 'center',
                 gap: 10,

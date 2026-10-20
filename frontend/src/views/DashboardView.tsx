@@ -25,6 +25,7 @@ import {
 } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
 import api from '../services/api';
+import { useTheme } from '../context/ThemeContext';
 
 ChartJS.register(
   CategoryScale,
@@ -43,6 +44,8 @@ interface DashboardViewProps {
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransaction }) => {
+  const { effectiveTheme } = useTheme();
+  const isLight = effectiveTheme === 'light';
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [loading, setLoading] = useState<boolean>(true);
   const [summary, setSummary] = useState<any>({
@@ -208,7 +211,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           '#F59E0B',
           '#EC4899'
         ],
-        borderColor: '#151B28',
+        borderColor: isLight ? '#FFFFFF' : '#151B28',
         borderWidth: 2
       }
     ]
