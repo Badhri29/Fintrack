@@ -304,6 +304,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
   useEffect(() => {
     fetchData();
+    const onTxChange = () => {
+      fetchData();
+    };
+    window.addEventListener('fintrack-transactions-changed', onTxChange);
+    return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
   }, [selectedYear]);
 
   // Read budgeted values from localStorage for selected year
@@ -646,7 +651,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   }, [sectionData, transactions, selectedYear, selectedMonths, summaryData]);
 
   // Credit Card Overview Data (Point 3 matching user Image 2)
-  const [creditCards] = useState<any[]>(() => {
+  const [creditCards, setCreditCards] = useState<any[]>(() => {
     try {
       const saved = localStorage.getItem('fintrack_credit_cards');
       if (saved) {
@@ -661,6 +666,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       { id: 'card-4', name: 'Axis Bank Magnus', bank: 'Axis Bank', last4: '7192', limit: 500000, accent: '#8B5CF6', gradient: 'linear-gradient(135deg, #831843 0%, #4C0519 60%, #1E1B4B 100%)' }
     ];
   });
+
+  useEffect(() => {
+    const onCardsUpdated = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setCreditCards(e.detail);
+      } else {
+        try {
+          const saved = localStorage.getItem('fintrack_credit_cards');
+          if (saved) setCreditCards(JSON.parse(saved));
+        } catch {}
+      }
+    };
+    window.addEventListener('fintrack-cards-updated', onCardsUpdated);
+    return () => window.removeEventListener('fintrack-cards-updated', onCardsUpdated);
+  }, []);
 
   const cardStats = useMemo(() => {
     return creditCards.map(c => {

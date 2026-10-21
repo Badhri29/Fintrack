@@ -2298,3 +2298,69 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
   filter: invert(1) brightness(1.6);
 }
+
+
+/* ==========================================================================
+   Credit Cards Fluid GPU-Accelerated Hover Accordion Expansion
+   ========================================================================== */
+.credit-card-container {
+  border-radius: 20px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 0.42s cubic-bezier(0.2, 0.8, 0.2, 1),
+              border-color 0.42s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform, box-shadow;
+}
+
+.credit-card-container:hover,
+.credit-card-container.is-hovered {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(129, 140, 248, 0.7) !important;
+  border-color: #818CF8 !important;
+}
+
+/* Smooth Accordion Drawer */
+.credit-card-drawer {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  background: var(--bg-secondary);
+  border-top: 1px solid transparent;
+  pointer-events: none;
+  transition: max-height 0.48s cubic-bezier(0.2, 0.8, 0.2, 1),
+              opacity 0.28s ease,
+              border-top-color 0.3s ease;
+  will-change: max-height, opacity;
+}
+
+.credit-card-container:hover .credit-card-drawer,
+.credit-card-container.is-hovered .credit-card-drawer {
+  max-height: 420px;
+  opacity: 1;
+  border-top-color: var(--border-color);
+  pointer-events: auto;
+  transition: max-height 0.44s cubic-bezier(0.2, 0.8, 0.2, 1),
+              opacity 0.35s ease 0.04s,
+              border-top-color 0.3s ease;
+}
+
+.credit-card-drawer-inner {
+  transform: translateY(-10px);
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.credit-card-container:hover .credit-card-drawer-inner,
+.credit-card-container.is-hovered .credit-card-drawer-inner {
+  transform: translateY(0);
+}
+
+.credit-card-chevron {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.credit-card-container:hover .credit-card-chevron,
+.credit-card-container.is-hovered .credit-card-chevron {
+  transform: rotate(180deg);
+}
