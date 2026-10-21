@@ -11,7 +11,9 @@ import {
   DollarSign
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
+import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 
 export interface LoanModel {
   id: string;
@@ -75,6 +77,7 @@ export const calculateEMI = (principal: number, annualRate: number, tenureMonths
 };
 
 export const LoansEmiView: React.FC = () => {
+  const { user } = useAuth();
   const [loans, setLoans] = useState<LoanModel[]>(() => {
     try {
       const saved = localStorage.getItem('fintrack_loans_list');
@@ -133,8 +136,18 @@ export const LoansEmiView: React.FC = () => {
   };
 
   useEffect(() => {
+    if (user?.email === 'demo@fintrack.io') {
+      seedDemoBudgetData();
+      try {
+        const saved = localStorage.getItem('fintrack_loans_list');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setLoans(parsed);
+        }
+      } catch {}
+    }
     fetchTransactions();
-  }, []);
+  }, [user]);
 
   // Filter actual transactions related to Loans/EMI
   const emiTransactions = useMemo(() => {
@@ -293,7 +306,7 @@ export const LoansEmiView: React.FC = () => {
   const handleAddFromCalculator = () => {
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
-      name: `New Loan (₹${(calcPrincipal / 100000).toFixed(1)}L @ ${calcRate}%)`,
+      name: `New Loan (${currencyService.format(calcPrincipal)} @ ${calcRate}%)`,
       lender: 'Bank / NBFC',
       type: 'Personal Loan',
       principal: calcPrincipal,
@@ -816,7 +829,7 @@ export const LoansEmiView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    PRINCIPAL AMOUNT (INR ₹)
+                    PRINCIPAL AMOUNT ({currencyService.getActiveCurrencyCode()} {currencyService.getActiveCurrencyConfig().symbol})
                   </label>
                   <input
                     type="number"
