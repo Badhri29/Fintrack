@@ -1028,15 +1028,7 @@ export const CreditCardsView: React.FC = () => {
   };
 
   return (
-    <main
-      style={{
-        padding: '24px 36px 60px',
-        maxWidth: 1480,
-        margin: '0 auto',
-        width: '100%',
-        boxSizing: 'border-box'
-      }}
-    >
+    <main className="fintrack-page-container">
       {/* 1. Page Header with Synchronized Year Carousel */}
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 18, padding: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1442,7 +1434,7 @@ export const CreditCardsView: React.FC = () => {
             </span>
           </div>
 
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div className="no-scrollbar" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: '100%' }}>
             <button
               type="button"
               onClick={() => setSelectedCardId('all')}
@@ -1454,7 +1446,9 @@ export const CreditCardsView: React.FC = () => {
                 cursor: 'pointer',
                 background: selectedCardId === 'all' ? 'var(--accent-indigo)' : 'var(--bg-secondary)',
                 color: selectedCardId === 'all' ? '#FFF' : 'var(--text-secondary)',
-                border: '1px solid var(--border-color)'
+                border: '1px solid var(--border-color)',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
               }}
             >
               All Cards
@@ -1472,7 +1466,9 @@ export const CreditCardsView: React.FC = () => {
                   cursor: 'pointer',
                   background: selectedCardId === c.id ? 'var(--accent-indigo)' : 'var(--bg-secondary)',
                   color: selectedCardId === c.id ? '#FFF' : 'var(--text-secondary)',
-                  border: '1px solid var(--border-color)'
+                  border: '1px solid var(--border-color)',
+                  whiteSpace: 'nowrap',
+                  flexShrink: 0
                 }}
               >
                 {c.name}
@@ -1482,7 +1478,7 @@ export const CreditCardsView: React.FC = () => {
         </div>
 
         {/* Cards Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 20, alignItems: 'start' }}>
+        <div className="credit-cards-grid">
           {cards.map(c => {
             const cardStats = cardBalancesMap[c.name] || { purchases: 0, payments: 0, netOutstanding: 0, avail: c.limit, util: 0 };
             const availOnCard = cardStats.avail;
@@ -1523,7 +1519,10 @@ export const CreditCardsView: React.FC = () => {
               >
                 {/* Physical Card Front Frame */}
                 <div
-                  onClick={() => setSelectedCardId(isSelected ? 'all' : c.id)}
+                  onClick={() => {
+                    setSelectedCardId(isSelected ? 'all' : c.id);
+                    setHoveredCardId(prev => (prev === c.id ? null : c.id));
+                  }}
                   style={{
                     background: c.gradient,
                     padding: '24px 26px 18px',
@@ -2326,7 +2325,7 @@ export const CreditCardsView: React.FC = () => {
       {/* Modal: Add Credit Card Spend */}
       {isAddSpendOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 480 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 480 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}>
@@ -2530,7 +2529,7 @@ export const CreditCardsView: React.FC = () => {
       {/* Modal: Edit Existing Card (Spacious, Well-Organized Layout) */}
       {editingCard && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 520, maxWidth: '95vw', padding: 26, borderRadius: 18 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 520, padding: 26, borderRadius: 18 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
@@ -2793,7 +2792,7 @@ export const CreditCardsView: React.FC = () => {
       {/* Modal: Add New Card */}
       {isAddCardOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 520, maxWidth: '95vw', padding: 26, borderRadius: 18 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 520, padding: 26, borderRadius: 18 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 18 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
@@ -3053,7 +3052,7 @@ export const CreditCardsView: React.FC = () => {
       {/* Modal: Pay Card Bill */}
       {isPayBillOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 440 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 440 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>

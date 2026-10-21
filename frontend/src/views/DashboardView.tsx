@@ -1056,15 +1056,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   };
 
   return (
-    <main
-      style={{
-        padding: '24px 36px 60px',
-        maxWidth: 1480,
-        margin: '0 auto',
-        width: '100%',
-        boxSizing: 'border-box'
-      }}
-    >
+    <main className="fintrack-page-container">
       {/* 1. Page Header matching Image 1 */}
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 18 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -1760,15 +1752,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       </div>
 
       {/* 4. PRIMARY EXPANDABLE COLUMNS: Income, Expenses, Savings in 3 Distinct Columns Side-by-Side */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-          gap: 20,
-          alignItems: 'start',
-          marginBottom: 28
-        }}
-      >
+      <div className="dashboard-columns-grid">
         {(['income', 'expense', 'savings'] as SectionKey[]).map(sec => {
           const isExpanded = expandedSections[sec];
           const secInfo = sectionData[sec];

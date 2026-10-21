@@ -1,5 +1,18 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Wallet, Search, Bell, LogOut, ChevronDown } from 'lucide-react';
+import {
+  Wallet,
+  Search,
+  Bell,
+  LogOut,
+  ChevronDown,
+  Menu,
+  X,
+  LayoutDashboard,
+  PiggyBank,
+  CreditCard,
+  Coins,
+  Settings
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
@@ -26,11 +39,28 @@ const TABS = [
   'Settings'
 ];
 
+const TAB_ICONS: Record<string, React.FC<any>> = {
+  'Dashboard': LayoutDashboard,
+  'Budget & Transactions': PiggyBank,
+  'Credit Cards': CreditCard,
+  'Loans & EMI': Coins,
+  'Settings': Settings
+};
+
+const TAB_SHORT_NAMES: Record<string, string> = {
+  'Dashboard': 'Dashboard',
+  'Budget & Transactions': 'Budget',
+  'Credit Cards': 'Cards',
+  'Loans & EMI': 'Loans',
+  'Settings': 'Settings'
+};
+
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenProfile, onGlobalSearch }) => {
   const { user, logout } = useAuth();
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
 
@@ -162,7 +192,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
   };
 
   return (
-    <header className="navbar">
+    <>
+      <header className="navbar">
       {/* Brand Logo */}
       <div className="brand-logo" onClick={() => onTabChange('Dashboard')} style={{ cursor: 'pointer' }}>
         <div className="brand-icon">
@@ -328,7 +359,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             )}
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+          <div className="user-name-text" style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
             <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
               {user?.name || 'User'}
             </span>
@@ -352,7 +383,153 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         >
           <LogOut size={18} />
         </button>
+
+        {/* Mobile Menu Toggle Button */}
+        <button
+          type="button"
+          className="mobile-menu-toggle-btn"
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          title={isMobileMenuOpen ? 'Close Navigation Menu' : 'Open Navigation Menu'}
+          aria-label="Toggle navigation menu"
+        >
+          {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
       </div>
     </header>
+
+    {/* Mobile Navigation Drawer Backdrop & Panel */}
+    {isMobileMenuOpen && (
+      <div className="mobile-drawer-backdrop" onClick={() => setIsMobileMenuOpen(false)}>
+        <div className="mobile-drawer-panel" onClick={e => e.stopPropagation()}>
+          <div className="mobile-drawer-header">
+            <div className="brand-logo" onClick={() => { onTabChange('Dashboard'); setIsMobileMenuOpen(false); }} style={{ cursor: 'pointer' }}>
+              <div className="brand-icon">
+                <Wallet size={18} />
+              </div>
+              <div>
+                <div className="brand-title" style={{ fontSize: 17 }}>FinTrack</div>
+                <div className="brand-subtitle">PERSONAL FINANCE</div>
+              </div>
+            </div>
+            <button
+              type="button"
+              className="mobile-drawer-close-btn"
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="Close menu"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* User Profile Info Card inside Drawer */}
+          <div
+            className="mobile-drawer-user-card"
+            onClick={() => {
+              setIsMobileMenuOpen(false);
+              onOpenProfile?.();
+            }}
+            title="Click to view & edit profile"
+          >
+            <div className="user-avatar" style={{ width: 40, height: 40, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {profilePhoto ? (
+                <img src={profilePhoto} alt={user?.name || 'Profile'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+              ) : (
+                getInitials(user?.name)
+              )}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.name || 'User'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {user?.email || 'user@fintrack.io'}
+              </div>
+            </div>
+            <ChevronDown size={14} style={{ transform: 'rotate(-90deg)', color: 'var(--text-muted)' }} />
+          </div>
+
+          {/* Mobile Drawer Search Input */}
+          <div className="mobile-drawer-search">
+            <Search size={15} style={{ color: 'var(--text-muted)' }} />
+            <input
+              type="text"
+              placeholder="Search transactions..."
+              value={searchQuery}
+              onChange={e => handleSearchChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  handleSearchKeyDown(e);
+                  setIsMobileMenuOpen(false);
+                }
+              }}
+            />
+          </div>
+
+          {/* Mobile Drawer Navigation Links */}
+          <nav className="mobile-drawer-nav">
+            {TABS.map(tab => {
+              const Icon = TAB_ICONS[tab] || LayoutDashboard;
+              const active = isTabActive(tab);
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  className={`mobile-drawer-nav-item ${active ? 'active' : ''}`}
+                  onClick={() => {
+                    onTabChange(tab);
+                    setIsMobileMenuOpen(false);
+                  }}
+                >
+                  <div className="mobile-drawer-nav-icon">
+                    <Icon size={18} />
+                  </div>
+                  <span className="mobile-drawer-nav-label">{tab}</span>
+                  {active && <span className="mobile-drawer-nav-indicator" />}
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Mobile Drawer Footer: Logout */}
+          <div className="mobile-drawer-footer">
+            <button
+              type="button"
+              className="mobile-drawer-logout-btn"
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                logout();
+              }}
+            >
+              <LogOut size={16} />
+              <span>Sign Out</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* Mobile Bottom Navigation Bar (Thumb-friendly on phones) */}
+    <nav className="mobile-bottom-nav">
+      {TABS.map(tab => {
+        const Icon = TAB_ICONS[tab] || LayoutDashboard;
+        const active = isTabActive(tab);
+        const shortLabel = TAB_SHORT_NAMES[tab] || tab;
+        return (
+          <button
+            key={tab}
+            type="button"
+            className={`mobile-bottom-nav-item ${active ? 'active' : ''}`}
+            onClick={() => onTabChange(tab)}
+            title={tab}
+          >
+            <div className="mobile-bottom-nav-icon">
+              <Icon size={18} />
+            </div>
+            <span className="mobile-bottom-nav-label">{shortLabel}</span>
+          </button>
+        );
+      })}
+    </nav>
+    </>
   );
 };
