@@ -501,7 +501,7 @@ export const SettingsView: React.FC = () => {
   const activeCfg = currencyService.getCurrencyConfig(currencyCode);
 
   return (
-    <main style={{ paddingBottom: 60 }}>
+    <main className="fintrack-page-container">
       {/* Page Header */}
       <div className="page-header">
         <div>
@@ -531,7 +531,7 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(440px, 1fr))', gap: 24, marginTop: 12 }}>
+      <div className="settings-grid">
         
         {/* 1. Profile Information Card with Photo Upload */}
         <div className="summary-card" style={{ padding: 28 }}>
