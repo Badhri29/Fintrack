@@ -35,6 +35,7 @@ import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
+import { cardService } from '../services/cardService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
 
@@ -619,6 +620,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   // Load data from backend
   useEffect(() => {
     loadAllData();
+    const onTxChange = () => {
+      loadAllData();
+    };
+    window.addEventListener('fintrack-transactions-changed', onTxChange);
+    return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
   }, [selectedYear]);
 
   const loadAllData = async () => {
@@ -975,6 +981,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         executeDelete: async () => {
           try {
             await api.delete(`/transactions/${id}`);
+            window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
           } catch (err) {
             console.warn(`Transaction delete note for id ${id}:`, err);
           }
@@ -1256,20 +1263,25 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           const date = `${selectedYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
+          const pm = draft.monthPaymentModes?.[month]?.trim() || defaultPaymentMode;
+          const isCredit = pm.toLowerCase() === 'credit' || pm.toLowerCase() === 'credit card';
+          const assignedCard = isCredit ? (cardService.getActiveCards()[0]?.name || null) : null;
+
           await api.post('/transactions', {
             date,
             type: parent.section,
             category: parent.category.name,
             subcategory: subcategory.name,
             amount,
-            paymentMode: draft.monthPaymentModes?.[month]?.trim() || defaultPaymentMode,
-            card: null,
+            paymentMode: pm,
+            card: assignedCard,
             description: draft.name.trim() || 'Transaction',
           });
         }
 
         cancelBudgetTransactionDraft(subcategory);
         await loadAllData();
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
       } catch (error: any) {
         window.alert(
           error.response?.data?.message ||
