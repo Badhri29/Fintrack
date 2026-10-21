@@ -31,6 +31,9 @@ import {
   Building2
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
+import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
@@ -141,11 +144,23 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   globalSearchQuery,
   initialViewMode = 'combined',
 }) => {
+  const { user } = useAuth();
   const [viewMode, setViewMode] = useState<ViewMode>(
     globalSearchQuery ? 'transactions' : initialViewMode
   );
-  const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [mode, setMode] = useState<Mode>('actual');
+  const [selectedYear, setSelectedYear] = useState<number>(() => yearService.getSelectedYear());
+  const [mode, setMode] = useState<Mode>('budget');
+
+  // Sync year changes across pages
+  useEffect(() => {
+    const onYearChange = (e: any) => {
+      if (e.detail && e.detail !== selectedYear) {
+        setSelectedYear(e.detail);
+      }
+    };
+    window.addEventListener('fintrack-year-changed', onYearChange);
+    return () => window.removeEventListener('fintrack-year-changed', onYearChange);
+  }, [selectedYear]);
 
   // Section references for scroll-to navigation and scroll-spy
   const budgetSectionRef = useRef<HTMLElement>(null);
@@ -586,14 +601,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   // Load stored budgets when year changes
   useEffect(() => {
+    if (user?.email === 'demo@fintrack.io') {
+      seedDemoBudgetData();
+    }
     const stored = localStorage.getItem(`fintrack-budget-${selectedYear}`);
     setBudgetValues(stored ? JSON.parse(stored) : {});
-  }, [selectedYear]);
+  }, [selectedYear, user]);
 
   useEffect(() => {
+    if (user?.email === 'demo@fintrack.io') {
+      seedDemoBudgetData();
+    }
     const stored = localStorage.getItem(`fintrack-budget-transactions-${selectedYear}`);
     setBudgetTransactions(stored ? JSON.parse(stored) : {});
-  }, [selectedYear]);
+  }, [selectedYear, user]);
 
   // Load data from backend
   useEffect(() => {
@@ -976,7 +997,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setIsAnimatingYear(true);
     setTrackOffset(-108);
     setTimeout(() => {
-      setSelectedYear((y) => y + 1);
+      setSelectedYear((y) => {
+        const next = y + 1;
+        yearService.setSelectedYear(next);
+        return next;
+      });
       setTrackOffset(-54);
       setIsAnimatingYear(false);
     }, 280);
@@ -987,7 +1012,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setIsAnimatingYear(true);
     setTrackOffset(0);
     setTimeout(() => {
-      setSelectedYear((y) => y - 1);
+      setSelectedYear((y) => {
+        const prev = y - 1;
+        yearService.setSelectedYear(prev);
+        return prev;
+      });
       setTrackOffset(-54);
       setIsAnimatingYear(false);
     }, 280);
@@ -1008,42 +1037,94 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const total = (values: number[]) =>
     values.reduce((sum, value) => sum + value, 0);
 
-  const budgetTransactionValues = (line: Line) =>
-    MONTHS.map((_, month) =>
-      (budgetTransactions[line.id] || []).reduce(
-        (sum, transaction) => sum + (transaction.values[month] || 0),
-        0,
-      ),
+  const getLineBudgetTxs = (line: Line): TransactionDetail[] => {
+    if (budgetTransactions[line.id]?.length) return budgetTransactions[line.id];
+    if (line.name && budgetTransactions[line.name]?.length) return budgetTransactions[line.name];
+    const matchKey = Object.keys(budgetTransactions).find(
+      (k) =>
+        k.toLowerCase() === line.name.toLowerCase() ||
+        k.toLowerCase().endsWith(':' + line.name.toLowerCase()) ||
+        k.toLowerCase().startsWith(line.name.toLowerCase() + ':')
     );
+    if (matchKey && budgetTransactions[matchKey]?.length) return budgetTransactions[matchKey];
+    return [];
+  };
+
+  const getLineDirectBudget = (line: Line): number[] | undefined => {
+    if (budgetValues[line.id]?.length) return budgetValues[line.id];
+    if (line.name && budgetValues[line.name]?.length) return budgetValues[line.name];
+    const matchKey = Object.keys(budgetValues).find(
+      (k) =>
+        k.toLowerCase() === line.name.toLowerCase() ||
+        k.toLowerCase().endsWith(':' + line.name.toLowerCase()) ||
+        k.toLowerCase().startsWith(line.name.toLowerCase() + ':')
+    );
+    if (matchKey && budgetValues[matchKey]?.length) return budgetValues[matchKey];
+    return undefined;
+  };
 
   const leafValues = (line: Line) => {
     if (mode === 'actual') {
       return line.values;
     }
-    const txs = budgetTransactions[line.id] || [];
+    const txs = getLineBudgetTxs(line);
     const txTotal = txs.reduce((sum, tx) => sum + total(tx.values), 0);
     if (txs.length > 0 && txTotal > 0) {
-      return budgetTransactionValues(line);
+      return MONTHS.map((_, month) =>
+        txs.reduce((sum, transaction) => sum + (transaction.values[month] || 0), 0)
+      );
     }
-    if (txs.length > 0 && txTotal === 0) {
-      const direct = budgetValues[line.id];
-      if (direct && total(direct) > 0) {
-        return direct;
-      }
-      return budgetTransactionValues(line);
+    const direct = getLineDirectBudget(line);
+    if (direct && total(direct) > 0) {
+      return direct;
     }
-    return budgetValues[line.id] || zeros();
+    if (txs.length > 0) {
+      return MONTHS.map((_, month) =>
+        txs.reduce((sum, transaction) => sum + (transaction.values[month] || 0), 0)
+      );
+    }
+    return direct || zeros();
   };
 
-  const categoryValues = (category: Category) =>
-    mode === 'actual'
-      ? category.values
-      : MONTHS.map((_, month) =>
-          category.subcategories.reduce(
-            (sum, subcategory) => sum + leafValues(subcategory)[month],
-            0,
-          ),
+  const categoryValues = (category: Category) => {
+    if (mode === 'actual') {
+      return category.values;
+    }
+    const subTotals = MONTHS.map((_, month) =>
+      category.subcategories.reduce(
+        (sum, subcategory) => sum + leafValues(subcategory)[month],
+        0,
+      ),
+    );
+    if (total(subTotals) === 0) {
+      let directCat = budgetValues[category.id] || budgetValues[category.name];
+      if (!directCat || total(directCat) === 0) {
+        const matchKey = Object.keys(budgetValues).find(
+          (k) =>
+            k.toLowerCase() === category.name.toLowerCase() ||
+            k.toLowerCase().endsWith(':' + category.name.toLowerCase())
         );
+        if (matchKey) directCat = budgetValues[matchKey];
+      }
+      if (directCat && total(directCat) > 0) return directCat;
+
+      let txs = budgetTransactions[category.id] || budgetTransactions[category.name] || [];
+      if (txs.length === 0) {
+        const matchKey = Object.keys(budgetTransactions).find(
+          (k) =>
+            k.toLowerCase() === category.name.toLowerCase() ||
+            k.toLowerCase().endsWith(':' + category.name.toLowerCase())
+        );
+        if (matchKey) txs = budgetTransactions[matchKey] || [];
+      }
+      if (txs.length > 0 && txs.reduce((s, tx) => s + total(tx.values), 0) > 0) {
+        return MONTHS.map((_, month) =>
+          txs.reduce((sum, tx) => sum + (tx.values[month] || 0), 0)
+        );
+      }
+    }
+    return subTotals;
+  };
 
   const sectionTotals = (section: Section) =>
     MONTHS.map((_, month) =>
@@ -1338,14 +1419,14 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               <input
                 className="budget-transaction-amount-input"
                 aria-label={`${subcategory.name} ${MONTHS[month]} ${
-                  mode === 'actual' ? 'actual transaction' : 'planned amount'
+                  mode === 'actual' ? 'actual transaction' : 'estimate amount'
                 }`}
                 value={draft.values[month] || ''}
                 onChange={(event) =>
                   editBudgetTransactionDraftAmount(subcategory, month, event.target.value)
                 }
                 onKeyDown={(event) => handleBudgetTransactionDraftKeyDown(event, subcategory)}
-                placeholder="₹"
+                placeholder={activeCurSym || currencyService.getActiveCurrencyConfig().symbol}
                 inputMode="decimal"
               />
             </td>
@@ -2201,6 +2282,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   const incomeTotals = sectionTotals('income');
   const expenseTotals = sectionTotals('expense');
+  const savingsTotals = sectionTotals('savings');
 
   return (
     <main className="budget-planning-page" style={{ paddingBottom: 60 }}>
@@ -2224,7 +2306,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     title="Move to Budget Planner"
                   >
                     <TableIcon size={13} />
-                    <span>Budget Planner</span>
+                    <span>Estimate & Budget Planner</span>
                   </button>
                   <button
                     type="button"
@@ -2268,7 +2350,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   <TableIcon size={16} />
                 </div>
                 <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  Annual Budget Planner
+                  Annual Estimate & Budget Planner
                 </span>
                 <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                   ({selectedYear})
@@ -2360,7 +2442,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                           type="button"
                           className="year-picker-current-btn"
                           onClick={() => {
-                            setSelectedYear(new Date().getFullYear());
+                            const current = new Date().getFullYear();
+                            setSelectedYear(current);
+                            yearService.setSelectedYear(current);
                             setShowYearPicker(false);
                           }}
                           title={`Go to current year (${new Date().getFullYear()})`}
@@ -2376,6 +2460,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             className={year === selectedYear ? 'active' : ''}
                             onClick={() => {
                               setSelectedYear(year);
+                              yearService.setSelectedYear(year);
                               setShowYearPicker(false);
                             }}
                           >
@@ -2388,21 +2473,21 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 </div>
               </div>
 
-              {/* Mode Toggle: Actual vs Budget */}
+              {/* Mode Toggle: Estimate Budget vs Actual */}
               <div className="budget-mode-toggle">
+                <button
+                  type="button"
+                  className={mode === 'budget' ? 'active' : ''}
+                  onClick={() => setMode('budget')}
+                >
+                  Estimate Budget
+                </button>
                 <button
                   type="button"
                   className={mode === 'actual' ? 'active' : ''}
                   onClick={() => setMode('actual')}
                 >
                   Actual
-                </button>
-                <button
-                  type="button"
-                  className={mode === 'budget' ? 'active' : ''}
-                  onClick={() => setMode('budget')}
-                >
-                  Budget
                 </button>
               </div>
 
@@ -2444,21 +2529,41 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
               <tbody>
                 {drawSection('income', 'INCOME', <TrendingUp size={15} />)}
-                {drawSection('savings', 'SAVINGS & INVESTMENTS', <PiggyBank size={15} />)}
                 {drawSection('expense', 'EXPENSES', <TrendingDown size={15} />)}
 
-                <tr className="net-cashflow-row">
-                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle' }}>NET CASH FLOW</td>
+                <tr className="net-cashflow-row" style={{ background: 'rgba(16, 185, 129, 0.08)', borderTop: '2px solid rgba(16, 185, 129, 0.3)' }}>
+                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: 700, color: 'var(--text-primary)' }}>
+                    NET SAVINGS (INCOME – EXPENSES)
+                  </td>
                   {MONTHS.map((_, month) => {
                     const value = incomeTotals[month] - expenseTotals[month];
+                    return (
+                      <td key={month} className={value >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 700 }}>
+                        {cell(value)}
+                      </td>
+                    );
+                  })}
+                  <td className="col-year-total" style={{ fontWeight: 800 }}>
+                    {currency(total(incomeTotals) - total(expenseTotals))}
+                  </td>
+                </tr>
+
+                {drawSection('savings', 'SAVINGS & INVESTMENTS ALLOCATION', <PiggyBank size={15} />)}
+
+                <tr className="net-cashflow-row" style={{ background: 'rgba(99, 102, 241, 0.05)' }}>
+                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: 600 }}>
+                    REMAINING CASH SURPLUS
+                  </td>
+                  {MONTHS.map((_, month) => {
+                    const value = incomeTotals[month] - expenseTotals[month] - savingsTotals[month];
                     return (
                       <td key={month} className={value >= 0 ? 'positive' : 'negative'}>
                         {cell(value)}
                       </td>
                     );
                   })}
-                  <td className="col-year-total">
-                    {currency(total(incomeTotals) - total(expenseTotals))}
+                  <td className="col-year-total" style={{ fontWeight: 700 }}>
+                    {currency(total(incomeTotals) - total(expenseTotals) - total(savingsTotals))}
                   </td>
                 </tr>
               </tbody>
@@ -2486,7 +2591,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     title="Move to Budget Planner"
                   >
                     <TableIcon size={13} />
-                    <span>Budget Planner</span>
+                    <span>Estimate & Budget Planner</span>
                   </button>
                   <button
                     type="button"
@@ -3043,8 +3148,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                       style={{ width: '100%', cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
                     />
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)' }}>
-                      <span>₹0</span>
-                      <span>₹25k</span>
+                      <span>{activeCurSym}0</span>
+                      <span>{activeCurSym}25k</span>
                       <span>{activeCurSym}50k+</span>
                     </div>
                   </div>

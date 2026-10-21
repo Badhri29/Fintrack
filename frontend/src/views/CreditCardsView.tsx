@@ -13,6 +13,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
+import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 
 export interface CardModel {
   id: string;
@@ -147,8 +148,18 @@ export const CreditCardsView: React.FC = () => {
   };
 
   useEffect(() => {
+    if (user?.email === 'demo@fintrack.io') {
+      seedDemoBudgetData();
+      try {
+        const saved = localStorage.getItem('fintrack_credit_cards');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setCards(parsed);
+        }
+      } catch {}
+    }
     fetchActualTransactions();
-  }, []);
+  }, [user]);
 
   // Filter ONLY transactions where paymentMode is creditcard / credit / card
   const creditTransactions = useMemo(() => {
@@ -1136,7 +1147,7 @@ export const CreditCardsView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    CREDIT LIMIT (INR ₹)
+                    CREDIT LIMIT ({currencyService.getActiveCurrencyCode()} {currencyService.getActiveCurrencyConfig().symbol})
                   </label>
                   <input
                     type="number"
