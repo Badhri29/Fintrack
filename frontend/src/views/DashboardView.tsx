@@ -165,8 +165,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   // Dashboard Mode Toggle (Point 7): 'combined' | 'estimate' | 'actual'
   const [dashboardMode, setDashboardMode] = useState<DashboardMode>('combined');
 
-  // Percentage Basis for Combined & Actual Modes: 'estimate' | 'income' (Point 2)
-  const [pctBasis, setPctBasis] = useState<'estimate' | 'income'>('estimate');
+  // Percentage Basis for Combined & Actual Modes: default to 'income' as requested
+  const [pctBasis, setPctBasis] = useState<'estimate' | 'income'>('income');
 
   // Smooth Trend Chart Metric: 'savings' | 'income' | 'expense' | 'net' (Point 5)
   const [trendMetric, setTrendMetric] = useState<'savings' | 'income' | 'expense' | 'net'>('savings');
