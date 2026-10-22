@@ -33,6 +33,7 @@ import {
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
 import { cardService } from '../services/cardService';
@@ -605,7 +606,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
     }
-    const stored = localStorage.getItem(`fintrack-budget-${selectedYear}`);
+    const budgetKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
+    const stored = localStorage.getItem(budgetKey);
     setBudgetValues(stored ? JSON.parse(stored) : {});
   }, [selectedYear, user]);
 
@@ -613,7 +615,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
     }
-    const stored = localStorage.getItem(`fintrack-budget-transactions-${selectedYear}`);
+    const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+    const stored = localStorage.getItem(txKey);
     setBudgetTransactions(stored ? JSON.parse(stored) : {});
   }, [selectedYear, user]);
 
@@ -1317,7 +1320,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
     setBudgetTransactions(next);
     localStorage.setItem(
-      `fintrack-budget-transactions-${selectedYear}`,
+      getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
       JSON.stringify(next),
     );
 
@@ -1361,7 +1364,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             const nextList = (curr[subcategory.id] || []).filter((t) => t.id !== transactionId);
             const next = { ...curr, [subcategory.id]: nextList };
             localStorage.setItem(
-              `fintrack-budget-transactions-${selectedYear}`,
+      getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
               JSON.stringify(next),
             );
             return next;

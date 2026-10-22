@@ -93,6 +93,10 @@ public class CategoryController {
 
         Long categoryId = Long.valueOf(catIdObj.toString());
 
+        if (subCategoryRepository.existsByUserIdAndCategoryIdAndName(principal.getId(), categoryId, name.trim())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("success", false, "message", "SubCategory already exists"));
+        }
+
         SubCategory sub = subCategoryRepository.save(SubCategory.builder()
                 .userId(principal.getId())
                 .categoryId(categoryId)

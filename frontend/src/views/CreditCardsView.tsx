@@ -124,7 +124,7 @@ export const CreditCardsView: React.FC = () => {
   const [dragStartMonth, setDragStartMonth] = useState<number | null>(null);
 
   // Cards state loaded through cardService
-  const [cards, setCards] = useState<CardModel[]>(() => cardService.getCards());
+  const [cards, setCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
   const [selectedCardId, setSelectedCardId] = useState<string>('all');
   const [actualTransactions, setActualTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -344,7 +344,9 @@ export const CreditCardsView: React.FC = () => {
   useEffect(() => {
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
-      setCards(cardService.getCards());
+      setCards(cardService.getCards('demo@fintrack.io'));
+    } else {
+      setCards(cardService.getCards(user?.email));
     }
     fetchActualTransactions();
 
@@ -729,9 +731,9 @@ export const CreditCardsView: React.FC = () => {
       accent: editAccent
     };
 
-    const updated = cardService.updateCard(editingCard.id, updates);
+    const updated = cardService.updateCard(editingCard.id, updates, user?.email);
     if (updated) {
-      setCards(cardService.getCards());
+      setCards(cardService.getCards(user?.email));
       setBannerMsg({ type: 'success', text: `Card ${updated.name} updated successfully!` });
       setTimeout(() => setBannerMsg(null), 3500);
     }
@@ -832,9 +834,9 @@ export const CreditCardsView: React.FC = () => {
       dueDay: Number(newCardDueDay) || 5,
       gradient: selectedGrad.gradient,
       accent: selectedGrad.accent
-    });
+    }, user?.email);
 
-    setCards(cardService.getCards());
+    setCards(cardService.getCards(user?.email));
     setIsAddCardOpen(false);
     setNewCardName('');
     setNewCardFullNumber('');
@@ -846,12 +848,8 @@ export const CreditCardsView: React.FC = () => {
 
   // Execute Card Deletion from custom modal
   const confirmDeleteCard = (cardId: string, cardName: string) => {
-    if (cards.length <= 1) {
-      alert('You must have at least one active credit card.');
-      return;
-    }
-    cardService.deleteCard(cardId);
-    setCards(cardService.getCards());
+    cardService.deleteCard(cardId, user?.email);
+    setCards(cardService.getCards(user?.email));
     if (selectedCardId === cardId) setSelectedCardId('all');
     setBannerMsg({ type: 'success', text: `Card ${cardName} removed. Past transactions remain in your ledger.` });
     setTimeout(() => setBannerMsg(null), 3500);
@@ -1149,6 +1147,12 @@ export const CreditCardsView: React.FC = () => {
             type="button"
             className="btn-primary"
             onClick={() => {
+              if (cards.length === 0) {
+                setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
+                setTimeout(() => setBannerMsg(null), 3500);
+                setIsAddCardOpen(true);
+                return;
+              }
               setSpendCard(cards[0]?.name || '');
               setIsAddSpendOpen(true);
             }}
@@ -1434,6 +1438,7 @@ export const CreditCardsView: React.FC = () => {
             </span>
           </div>
 
+          {cards.length > 0 && (
           <div className="no-scrollbar" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: '100%' }}>
             <button
               type="button"
@@ -1475,10 +1480,55 @@ export const CreditCardsView: React.FC = () => {
               </button>
             ))}
           </div>
+          )}
         </div>
 
         {/* Cards Grid */}
-        <div className="credit-cards-grid">
+        {cards.length === 0 ? (
+          <div
+            className="summary-card"
+            style={{
+              padding: '48px 24px',
+              textAlign: 'center',
+              borderRadius: 16,
+              border: '1px dashed var(--border-color)',
+              background: 'var(--card-bg)',
+              marginBottom: 30
+            }}
+          >
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <CreditCard size={28} style={{ color: 'var(--accent-indigo)' }} />
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              No Credit Cards Added Yet
+            </h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto 20px', lineHeight: 1.5 }}>
+              Add your first credit card to monitor credit limits, billing statements, payment due dates, and track card transactions in real time.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsAddCardOpen(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 22px',
+                background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+                color: '#FFF',
+                border: 'none',
+                borderRadius: 10,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
+              }}
+            >
+              <Plus size={16} />
+              Add Your First Credit Card
+            </button>
+          </div>
+        ) : (
+          <div className="credit-cards-grid">
           {cards.map(c => {
             const cardStats = cardBalancesMap[c.name] || { purchases: 0, payments: 0, netOutstanding: 0, avail: c.limit, util: 0 };
             const availOnCard = cardStats.avail;
@@ -1825,6 +1875,7 @@ export const CreditCardsView: React.FC = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* 5. Monthly Spending Graph (TradeChart Flow like Dashboard) */}
@@ -2055,9 +2106,15 @@ export const CreditCardsView: React.FC = () => {
               className="btn-primary"
               style={{ padding: '7px 14px', fontSize: 12 }}
               onClick={() => {
-                setSpendCard(cards[0]?.name || '');
-                setIsAddSpendOpen(true);
-              }}
+              if (cards.length === 0) {
+                setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
+                setTimeout(() => setBannerMsg(null), 3500);
+                setIsAddCardOpen(true);
+                return;
+              }
+              setSpendCard(cards[0]?.name || '');
+              setIsAddSpendOpen(true);
+            }}
             >
               <Plus size={14} />
               <span>Add Spend</span>
@@ -2087,9 +2144,15 @@ export const CreditCardsView: React.FC = () => {
               type="button"
               className="btn-primary"
               onClick={() => {
-                setSpendCard(cards[0]?.name || '');
-                setIsAddSpendOpen(true);
-              }}
+              if (cards.length === 0) {
+                setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
+                setTimeout(() => setBannerMsg(null), 3500);
+                setIsAddCardOpen(true);
+                return;
+              }
+              setSpendCard(cards[0]?.name || '');
+              setIsAddSpendOpen(true);
+            }}
             >
               <Plus size={16} />
               <span>Record First Credit Card Expense</span>

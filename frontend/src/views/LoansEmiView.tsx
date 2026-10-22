@@ -14,6 +14,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { getUserStorageKey } from '../services/storageHelper';
 
 export interface LoanModel {
   id: string;
@@ -80,13 +81,17 @@ export const LoansEmiView: React.FC = () => {
   const { user } = useAuth();
   const [loans, setLoans] = useState<LoanModel[]>(() => {
     try {
-      const saved = localStorage.getItem('fintrack_loans_list');
+      const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
-    return DEFAULT_LOANS;
+    if (user?.email === 'demo@fintrack.io') {
+      return DEFAULT_LOANS;
+    }
+    return [];
   });
 
   const [actualTransactions, setActualTransactions] = useState<any[]>([]);
@@ -118,7 +123,8 @@ export const LoansEmiView: React.FC = () => {
 
   const saveLoans = (newLoans: LoanModel[]) => {
     setLoans(newLoans);
-    localStorage.setItem('fintrack_loans_list', JSON.stringify(newLoans));
+    const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
+    localStorage.setItem(storageKey, JSON.stringify(newLoans));
   };
 
   const fetchTransactions = async () => {
@@ -136,15 +142,23 @@ export const LoansEmiView: React.FC = () => {
   };
 
   useEffect(() => {
+    try {
+      const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
+      const saved = localStorage.getItem(storageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setLoans(parsed);
+          fetchTransactions();
+          return;
+        }
+      }
+    } catch {}
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
-      try {
-        const saved = localStorage.getItem('fintrack_loans_list');
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) setLoans(parsed);
-        }
-      } catch {}
+      setLoans(DEFAULT_LOANS);
+    } else {
+      setLoans([]);
     }
     fetchTransactions();
   }, [user]);
@@ -449,7 +463,50 @@ export const LoansEmiView: React.FC = () => {
           Active Loans & Schedules ({loans.length})
         </h2>
 
-        <div className="loans-grid">
+        {loans.length === 0 ? (
+          <div
+            className="summary-card"
+            style={{
+              padding: '48px 24px',
+              textAlign: 'center',
+              borderRadius: 16,
+              border: '1px dashed var(--border-color)',
+              background: 'var(--card-bg)'
+            }}
+          >
+            <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.12)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+              <Landmark size={28} style={{ color: 'var(--accent-indigo)' }} />
+            </div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 8 }}>
+              No Active Loans or EMIs
+            </h3>
+            <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto 20px', lineHeight: 1.5 }}>
+              Track home loans, car loans, personal loans, and consumer EMIs with live amortization schedules, outstanding balances, and monthly dues.
+            </p>
+            <button
+              type="button"
+              onClick={() => setIsAddLoanOpen(true)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '10px 22px',
+                background: 'linear-gradient(135deg, #6366F1 0%, #4F46E5 100%)',
+                color: '#FFF',
+                border: 'none',
+                borderRadius: 10,
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)'
+              }}
+            >
+              <Plus size={16} />
+              Add Your First Loan
+            </button>
+          </div>
+        ) : (
+          <div className="loans-grid">
           {loans.map(loan => {
             const emi = calculateEMI(loan.principal, loan.interestRate, loan.tenureMonths);
             const remainingMonths = Math.max(0, loan.tenureMonths - loan.paidMonths);
@@ -552,6 +609,7 @@ export const LoansEmiView: React.FC = () => {
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Interactive EMI Calculator Tool */}

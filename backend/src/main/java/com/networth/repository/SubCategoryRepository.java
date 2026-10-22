@@ -11,6 +11,7 @@ import java.util.Optional;
 public interface SubCategoryRepository extends JpaRepository<SubCategory, Long> {
     List<SubCategory> findByUserId(Long userId);
     List<SubCategory> findByUserIdAndCategoryId(Long userId, Long categoryId);
+    boolean existsByUserIdAndCategoryIdAndName(Long userId, Long categoryId, String name);
     Optional<SubCategory> findByUserIdAndCategoryIdAndName(Long userId, Long categoryId, String name);
     Optional<SubCategory> findByIdAndUserId(Long id, Long userId);
 }

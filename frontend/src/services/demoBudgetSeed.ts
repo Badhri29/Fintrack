@@ -1,12 +1,22 @@
 // Demo Budget & Sample Data Initializer for 5 Years (2022 - 2026)
+import { getUserStorageKey } from './storageHelper';
 
 export const seedDemoBudgetData = (force: boolean = false) => {
   if (typeof window === 'undefined') return;
 
-  const SEED_VERSION = 'v6';
+  const DEMO_EMAIL = 'demo@fintrack.io';
+  const SEED_VERSION = 'v7';
   const alreadySeeded = localStorage.getItem('fintrack_demo_budget_seed_version') === SEED_VERSION;
 
   if (alreadySeeded && !force) return;
+
+  // Purge any legacy global un-scoped demo keys so new accounts stay 100% empty
+  localStorage.removeItem('fintrack_credit_cards');
+  localStorage.removeItem('fintrack_loans_list');
+  [2022, 2023, 2024, 2025, 2026].forEach(y => {
+    localStorage.removeItem(`fintrack-budget-${y}`);
+    localStorage.removeItem(`fintrack-budget-transactions-${y}`);
+  });
 
   const years = [2022, 2023, 2024, 2025, 2026];
 
@@ -61,7 +71,7 @@ export const seedDemoBudgetData = (force: boolean = false) => {
       accent: '#F43F5E'
     }
   ];
-  localStorage.setItem('fintrack_credit_cards', JSON.stringify(DEMO_CARDS));
+  localStorage.setItem(getUserStorageKey('fintrack_credit_cards', DEMO_EMAIL), JSON.stringify(DEMO_CARDS));
 
   // 2. Pre-populate Realistic Loans & EMIs
   const DEMO_LOANS = [
@@ -114,7 +124,7 @@ export const seedDemoBudgetData = (force: boolean = false) => {
       dueDay: 20
     }
   ];
-  localStorage.setItem('fintrack_loans_list', JSON.stringify(DEMO_LOANS));
+  localStorage.setItem(getUserStorageKey('fintrack_loans_list', DEMO_EMAIL), JSON.stringify(DEMO_LOANS));
 
   // 3. Populate 5 Full Years (2022 - 2026) of Budget Values and Budget Planner Transactions
   years.forEach(year => {
@@ -255,8 +265,8 @@ export const seedDemoBudgetData = (force: boolean = false) => {
       ];
     });
 
-    localStorage.setItem(`fintrack-budget-${year}`, JSON.stringify(budgetMap));
-    localStorage.setItem(`fintrack-budget-transactions-${year}`, JSON.stringify(budgetTxMap));
+    localStorage.setItem(getUserStorageKey(`fintrack-budget-${year}`, DEMO_EMAIL), JSON.stringify(budgetMap));
+    localStorage.setItem(getUserStorageKey(`fintrack-budget-transactions-${year}`, DEMO_EMAIL), JSON.stringify(budgetTxMap));
   });
 
   localStorage.setItem('fintrack_demo_budget_seed_version', SEED_VERSION);

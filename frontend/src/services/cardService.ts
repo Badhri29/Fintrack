@@ -1,15 +1,15 @@
-// Centralized Credit Card Service with Cross-View Event Synchronization
+// Centralized Credit Card Service with User Scoping and Event Synchronization
 
 export interface CardModel {
   id: string;
   name: string;
   bank: string;
   network: 'Visa' | 'Mastercard' | 'RuPay' | 'Amex';
-  cardNumber?: string; // Optional full 16-digit card number
-  last4: string;       // 4 digits
-  expiryMonth?: number; // 1-12
-  expiryYear?: number;  // 2-digit or 4-digit year, e.g. 28
-  cvv?: string;         // 3 or 4 digits
+  cardNumber?: string;
+  last4: string;
+  expiryMonth?: number;
+  expiryYear?: number;
+  cvv?: string;
   limit: number;
   billingDay: number;
   dueDay: number;
@@ -17,8 +17,6 @@ export interface CardModel {
   accent: string;
   isActive?: boolean;
 }
-
-const CARDS_STORAGE_KEY = 'fintrack_credit_cards';
 
 export const DEFAULT_CARDS: CardModel[] = [
   {
@@ -74,13 +72,33 @@ export const DEFAULT_CARDS: CardModel[] = [
   }
 ];
 
+export const getActiveUserEmail = (providedEmail?: string): string => {
+  if (providedEmail && providedEmail.trim()) {
+    return providedEmail.trim().toLowerCase();
+  }
+  try {
+    const token = localStorage.getItem('token');
+    if (token) {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return (payload.email || payload.sub || 'anonymous').toLowerCase();
+    }
+  } catch {}
+  return 'anonymous';
+};
+
+const getStorageKey = (email?: string): string => {
+  const userEmail = getActiveUserEmail(email);
+  return `fintrack_credit_cards_${userEmail}`;
+};
+
 export const cardService = {
-  getCards(): CardModel[] {
+  getCards(email?: string): CardModel[] {
+    const userEmail = getActiveUserEmail(email);
     try {
-      const stored = localStorage.getItem(CARDS_STORAGE_KEY);
+      const stored = localStorage.getItem(getStorageKey(userEmail));
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed.map((c: any) => ({
             ...c,
             isActive: c.isActive !== false,
@@ -91,24 +109,32 @@ export const cardService = {
     } catch (err) {
       console.error('Error loading cards from storage:', err);
     }
-    return DEFAULT_CARDS;
+
+    // Only demo user gets sample default cards
+    if (userEmail === 'demo@fintrack.io') {
+      return DEFAULT_CARDS;
+    }
+
+    // Every other user starts with an empty cards list
+    return [];
   },
 
-  getActiveCards(): CardModel[] {
-    return this.getCards().filter(c => c.isActive !== false);
+  getActiveCards(email?: string): CardModel[] {
+    return this.getCards(email).filter(c => c.isActive !== false);
   },
 
-  saveCards(cards: CardModel[]): void {
+  saveCards(cards: CardModel[], email?: string): void {
+    const userEmail = getActiveUserEmail(email);
     try {
-      localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(cards));
+      localStorage.setItem(getStorageKey(userEmail), JSON.stringify(cards));
       window.dispatchEvent(new CustomEvent('fintrack-cards-updated', { detail: cards }));
     } catch (err) {
       console.error('Error saving cards to storage:', err);
     }
   },
 
-  addCard(cardData: Omit<CardModel, 'id'>): CardModel {
-    const cards = this.getCards();
+  addCard(cardData: Omit<CardModel, 'id'>, email?: string): CardModel {
+    const cards = this.getCards(email);
     const id = `card-${Date.now()}`;
     const newCard: CardModel = {
       ...cardData,
@@ -117,12 +143,12 @@ export const cardService = {
       last4: cardData.last4 || (cardData.cardNumber ? cardData.cardNumber.slice(-4) : '9999')
     };
     const updated = [...cards, newCard];
-    this.saveCards(updated);
+    this.saveCards(updated, email);
     return newCard;
   },
 
-  updateCard(id: string, updates: Partial<CardModel>): CardModel | null {
-    const cards = this.getCards();
+  updateCard(id: string, updates: Partial<CardModel>, email?: string): CardModel | null {
+    const cards = this.getCards(email);
     const idx = cards.findIndex(c => c.id === id);
     if (idx === -1) return null;
 
@@ -133,14 +159,14 @@ export const cardService = {
       last4: updates.last4 || (updates.cardNumber ? updates.cardNumber.slice(-4) : current.last4)
     };
     cards[idx] = updatedCard;
-    this.saveCards(cards);
+    this.saveCards(cards, email);
     return updatedCard;
   },
 
-  deleteCard(id: string): boolean {
-    const cards = this.getCards();
+  deleteCard(id: string, email?: string): boolean {
+    const cards = this.getCards(email);
     const filtered = cards.filter(c => c.id !== id);
-    this.saveCards(filtered);
+    this.saveCards(filtered, email);
     return true;
   }
 };

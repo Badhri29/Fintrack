@@ -79,6 +79,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     };
   }, [resendCooldown]);
 
+  // Keep all text input boxes (name, email, password, otp) completely empty initially & on mode change
+  useEffect(() => {
+    setName('');
+    setEmail('');
+    setPassword('');
+    setOtp('');
+    setError(null);
+    setInfoMessage(null);
+
+    // Defeat aggressive browser password manager autofill on page load and tab toggle
+    const t = setTimeout(() => {
+      setName('');
+      setEmail('');
+      setPassword('');
+      setOtp('');
+    }, 100);
+
+    return () => clearTimeout(t);
+  }, [authMode]);
+
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -352,6 +372,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 type="button"
                 onClick={() => {
                   setAuthMode('signin');
+                  setName('');
+                  setEmail('');
+                  setPassword('');
+                  setOtp('');
                   setError(null);
                   setInfoMessage(null);
                 }}
@@ -374,6 +398,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 type="button"
                 onClick={() => {
                   setAuthMode('register');
+                  setName('');
+                  setEmail('');
+                  setPassword('');
+                  setOtp('');
                   setError(null);
                   setInfoMessage(null);
                 }}
@@ -394,7 +422,10 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </button>
             </div>
 
-            <form onSubmit={handleInitialSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <form key={authMode} onSubmit={handleInitialSubmit} autoComplete="off" noValidate style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {/* Browser autofill traps */}
+              <input type="text" name="fake_username_trap" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
+              <input type="password" name="fake_password_trap" style={{ display: 'none' }} tabIndex={-1} autoComplete="off" />
               {/* Full Name (Only for Registration) */}
               {authMode === 'register' && (
                 <div>
@@ -408,6 +439,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     />
                     <input
                       type="text"
+                      name="fintrack_fullname"
+                      id="fintrack_fullname"
+                      autoComplete="off"
                       placeholder="e.g. John Doe"
                       value={name}
                       onChange={e => setName(e.target.value)}
@@ -438,6 +472,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   />
                   <input
                     type="email"
+                    name="fintrack_email"
+                    id="fintrack_email"
+                    autoComplete="new-password"
                     placeholder="name@gmail.com"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
@@ -473,6 +510,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   />
                   <input
                     type="password"
+                    name="fintrack_password"
+                    id="fintrack_password"
+                    autoComplete="new-password"
                     placeholder="••••••••"
                     value={password}
                     onChange={e => setPassword(e.target.value)}

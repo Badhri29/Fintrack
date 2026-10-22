@@ -31,6 +31,8 @@ import { Line } from 'react-chartjs-2';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { cardService } from '../services/cardService';
+import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
 import { useTheme } from '../context/ThemeContext';
@@ -317,8 +319,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       if (user?.email === 'demo@fintrack.io') {
         seedDemoBudgetData();
       }
-      const rawTx = localStorage.getItem(`fintrack-budget-transactions-${selectedYear}`);
-      const rawDirect = localStorage.getItem(`fintrack-budget-${selectedYear}`);
+      const rawTxKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+      const rawDirectKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
+      const rawTx = localStorage.getItem(rawTxKey);
+      const rawDirect = localStorage.getItem(rawDirectKey);
       return {
         tx: rawTx ? JSON.parse(rawTx) : {},
         direct: rawDirect ? JSON.parse(rawDirect) : {}
@@ -586,7 +590,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     let physicalAssets = 0;
 
     try {
-      const savedLoans = localStorage.getItem('fintrack_loans_list');
+      const savedLoans = localStorage.getItem(getUserStorageKey('fintrack_loans_list', user?.email));
       if (savedLoans) {
         const parsed = JSON.parse(savedLoans);
         if (Array.isArray(parsed)) {
@@ -652,35 +656,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
   // Credit Card Overview Data (Point 3 matching user Image 2)
   const [creditCards, setCreditCards] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem('fintrack_credit_cards');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return [
-      { id: 'card-1', name: 'HDFC Regalia Gold', bank: 'HDFC Bank', last4: '4281', limit: 400000, accent: '#3B82F6', gradient: 'linear-gradient(135deg, #1E293B 0%, #0F172A 60%, #334155 100%)' },
-      { id: 'card-2', name: 'ICICI Amazon Pay', bank: 'ICICI Bank', last4: '8819', limit: 250000, accent: '#10B981', gradient: 'linear-gradient(135deg, #0369A1 0%, #075985 60%, #0C4A6E 100%)' },
-      { id: 'card-3', name: 'SBI Cashback', bank: 'SBI Card', last4: '3014', limit: 150000, accent: '#10B981', gradient: 'linear-gradient(135deg, #047857 0%, #065F46 60%, #064E3B 100%)' },
-      { id: 'card-4', name: 'Axis Bank Magnus', bank: 'Axis Bank', last4: '7192', limit: 500000, accent: '#8B5CF6', gradient: 'linear-gradient(135deg, #831843 0%, #4C0519 60%, #1E1B4B 100%)' }
-    ];
+    return cardService.getCards(user?.email);
   });
+
+  useEffect(() => {
+    setCreditCards(cardService.getCards(user?.email));
+  }, [user]);
 
   useEffect(() => {
     const onCardsUpdated = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
         setCreditCards(e.detail);
       } else {
-        try {
-          const saved = localStorage.getItem('fintrack_credit_cards');
-          if (saved) setCreditCards(JSON.parse(saved));
-        } catch {}
+        setCreditCards(cardService.getCards(user?.email));
       }
     };
     window.addEventListener('fintrack-cards-updated', onCardsUpdated);
     return () => window.removeEventListener('fintrack-cards-updated', onCardsUpdated);
-  }, []);
+  }, [user]);
 
   const cardStats = useMemo(() => {
     return creditCards.map(c => {
@@ -2315,6 +2308,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         </div>
 
         {/* Horizontal Card Grid matching Image 2 */}
+        {creditCards.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '28px 16px', color: 'var(--text-secondary)', background: 'var(--card-bg)', borderRadius: 12, border: '1px dashed var(--border-color)' }}>
+            <p style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 600, color: 'var(--text-primary)' }}>No credit cards added yet</p>
+            <p style={{ margin: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+              Visit the Credit Cards tab to add your cards and track limits and expenditures.
+            </p>
+          </div>
+        ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
           {cardStats.map(card => {
             const accent = card.accent || '#3B82F6';
@@ -2378,6 +2379,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             );
           })}
         </div>
+        )}
       </div>
 
       {/* 7. Bottom Full-Width Growth Trend & Trade Performance Panel (Point 4) */}

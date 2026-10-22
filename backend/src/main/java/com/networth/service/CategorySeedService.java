@@ -8,6 +8,8 @@ import com.networth.repository.CategoryRepository;
 import com.networth.repository.DefaultCategoryRepository;
 import com.networth.repository.DefaultSubCategoryRepository;
 import com.networth.repository.SubCategoryRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +18,8 @@ import java.util.List;
 
 @Service
 public class CategorySeedService {
+
+    private static final Logger logger = LoggerFactory.getLogger(CategorySeedService.class);
 
     @Autowired
     private DefaultCategoryRepository defaultCategoryRepository;
@@ -31,30 +35,48 @@ public class CategorySeedService {
 
     @Transactional
     public void seedUserCategories(Long userId) {
+        if (userId == null) return;
+
+        // Prevent duplicate category seeding if user already has categories
+        if (categoryRepository.existsByUserId(userId)) {
+            logger.info("Categories already initialized for user ID: {}", userId);
+            return;
+        }
+
         List<DefaultCategory> defaultCategories = defaultCategoryRepository.findAll();
 
         if (defaultCategories.isEmpty()) {
-            // Seed standard fallback categories if default table is empty
             seedFallbackDefaults(userId);
             return;
         }
 
         for (DefaultCategory defaultCat : defaultCategories) {
+            String catType = defaultCat.getType() != null ? defaultCat.getType().trim().toLowerCase() : "expense";
+            String catName = defaultCat.getName() != null ? defaultCat.getName().trim() : "General";
+
+            if (categoryRepository.existsByUserIdAndTypeAndName(userId, catType, catName)) {
+                continue;
+            }
+
             Category cat = categoryRepository.save(Category.builder()
                     .userId(userId)
-                    .type(defaultCat.getType())
-                    .name(defaultCat.getName())
+                    .type(catType)
+                    .name(catName)
                     .build());
 
             List<DefaultSubCategory> defaultSubs = defaultSubCategoryRepository.findByCategoryId(defaultCat.getId());
             for (DefaultSubCategory defaultSub : defaultSubs) {
-                subCategoryRepository.save(SubCategory.builder()
-                        .userId(userId)
-                        .categoryId(cat.getId())
-                        .name(defaultSub.getName())
-                        .build());
+                String subName = defaultSub.getName() != null ? defaultSub.getName().trim() : "General";
+                if (!subCategoryRepository.existsByUserIdAndCategoryIdAndName(userId, cat.getId(), subName)) {
+                    subCategoryRepository.save(SubCategory.builder()
+                            .userId(userId)
+                            .categoryId(cat.getId())
+                            .name(subName)
+                            .build());
+                }
             }
         }
+        logger.info("Successfully seeded default categories and subcategories for new user ID: {}", userId);
     }
 
     private void seedFallbackDefaults(Long userId) {
