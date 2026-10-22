@@ -1,3 +1,9 @@
 node_modules/
 .env
 .prisma/
+target/
+backend/target/
+frontend/dist/
+dist/
+.idea/
+*.log

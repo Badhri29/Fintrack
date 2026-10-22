@@ -14,4 +14,9 @@ public class AuthResponse {
     private UserDto user;
     private String token;
     private String error;
+    private String message;
+    private Boolean requiresVerification;
+    private String identifier;
+    private String devOtp;
+    private Integer expiresInSeconds;
 }

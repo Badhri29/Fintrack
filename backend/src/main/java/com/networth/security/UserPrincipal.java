@@ -36,7 +36,7 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public String getUsername() {
-        return email;
+        return email != null ? email : (user.getPhone() != null ? user.getPhone() : String.valueOf(id));
     }
 
     @Override

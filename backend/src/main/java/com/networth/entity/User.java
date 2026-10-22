@@ -21,7 +21,7 @@ public class User {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(unique = true, nullable = false)
+    @Column(unique = true, nullable = true)
     private String email;
 
     @JsonIgnore
@@ -34,7 +34,12 @@ public class User {
 
     private String gender;
 
+    @Column(unique = true, nullable = true)
     private String phone;
+
+    @Column(name = "isVerified")
+    @Builder.Default
+    private Boolean isVerified = false;
 
     @Column(columnDefinition = "TEXT")
     private String photo;
