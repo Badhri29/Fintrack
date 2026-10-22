@@ -13,6 +13,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\ent
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\DefaultCategory.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\DefaultSubCategory.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Liability.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\OtpVerification.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\SubCategory.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Transaction.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\User.java
@@ -23,6 +24,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\rep
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\DefaultCategoryRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\DefaultSubCategoryRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\LiabilityRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\OtpVerificationRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\SubCategoryRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\TransactionRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserRepository.java
@@ -31,3 +33,6 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\sec
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\SecurityConfig.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\UserPrincipal.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\service\CategorySeedService.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\service\EmailService.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\service\OtpService.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\service\ValidationService.java
