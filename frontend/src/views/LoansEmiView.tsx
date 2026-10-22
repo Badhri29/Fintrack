@@ -11,7 +11,9 @@ import {
   DollarSign
 } from 'lucide-react';
 import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
+import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 
 export interface LoanModel {
   id: string;
@@ -75,6 +77,7 @@ export const calculateEMI = (principal: number, annualRate: number, tenureMonths
 };
 
 export const LoansEmiView: React.FC = () => {
+  const { user } = useAuth();
   const [loans, setLoans] = useState<LoanModel[]>(() => {
     try {
       const saved = localStorage.getItem('fintrack_loans_list');
@@ -133,8 +136,18 @@ export const LoansEmiView: React.FC = () => {
   };
 
   useEffect(() => {
+    if (user?.email === 'demo@fintrack.io') {
+      seedDemoBudgetData();
+      try {
+        const saved = localStorage.getItem('fintrack_loans_list');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) setLoans(parsed);
+        }
+      } catch {}
+    }
     fetchTransactions();
-  }, []);
+  }, [user]);
 
   // Filter actual transactions related to Loans/EMI
   const emiTransactions = useMemo(() => {
@@ -293,7 +306,7 @@ export const LoansEmiView: React.FC = () => {
   const handleAddFromCalculator = () => {
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
-      name: `New Loan (₹${(calcPrincipal / 100000).toFixed(1)}L @ ${calcRate}%)`,
+      name: `New Loan (${currencyService.format(calcPrincipal)} @ ${calcRate}%)`,
       lender: 'Bank / NBFC',
       type: 'Personal Loan',
       principal: calcPrincipal,
@@ -310,7 +323,7 @@ export const LoansEmiView: React.FC = () => {
   };
 
   return (
-    <main style={{ paddingBottom: 60 }}>
+    <main className="fintrack-page-container">
       {/* Page Header */}
       <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
         <div>
@@ -436,7 +449,7 @@ export const LoansEmiView: React.FC = () => {
           Active Loans & Schedules ({loans.length})
         </h2>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 18 }}>
+        <div className="loans-grid">
           {loans.map(loan => {
             const emi = calculateEMI(loan.principal, loan.interestRate, loan.tenureMonths);
             const remainingMonths = Math.max(0, loan.tenureMonths - loan.paidMonths);
@@ -745,7 +758,7 @@ export const LoansEmiView: React.FC = () => {
       {/* Modal: Add New Loan */}
       {isAddLoanOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 480 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 480 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
@@ -816,7 +829,7 @@ export const LoansEmiView: React.FC = () => {
               <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    PRINCIPAL AMOUNT (INR ₹)
+                    PRINCIPAL AMOUNT ({currencyService.getActiveCurrencyCode()} {currencyService.getActiveCurrencyConfig().symbol})
                   </label>
                   <input
                     type="number"
@@ -909,7 +922,7 @@ export const LoansEmiView: React.FC = () => {
       {/* Modal: Pay Monthly EMI */}
       {isPayEmiOpen && payingLoan && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: 440 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 440 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
+import { cardService, type CardModel } from '../services/cardService';
 
 export type TransactionType = 'expense' | 'income' | 'savings';
 
@@ -182,6 +183,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [customSubcategoryText, setCustomSubcategoryText] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<string>('upi');
   const [card, setCard] = useState<string>('');
+  const [activeCards, setActiveCards] = useState<CardModel[]>(() => cardService.getActiveCards());
+
+  useEffect(() => {
+    const handleCardsUpdated = () => {
+      setActiveCards(cardService.getActiveCards());
+    };
+    window.addEventListener('fintrack-cards-updated', handleCardsUpdated);
+    return () => window.removeEventListener('fintrack-cards-updated', handleCardsUpdated);
+  }, []);
   const [description, setDescription] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -292,7 +302,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const validModes = ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer'];
       setPaymentMode(validModes.includes(defaultMode) ? defaultMode : 'upi');
 
-      const defCard = initialCard || localStorage.getItem('fintrack-default-card') || '';
+      const currentActiveCards = cardService.getActiveCards();
+      const defCard = initialCard || localStorage.getItem('fintrack-default-card') || currentActiveCards[0]?.name || '';
       setCard(defCard);
 
       const defaultDesc = localStorage.getItem('fintrack-default-note') || '';
@@ -365,7 +376,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       subcategory: finalSubcategory,
       amount: Math.round(currencyService.convertToBase(finalNumericAmount) * 100) / 100,
       paymentMode,
-      card: paymentMode === 'credit' ? card : null,
+      card: paymentMode === 'credit' ? (card || activeCards[0]?.name || null) : null,
       description,
     };
 
@@ -381,6 +392,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       } else {
         await api.post('/transactions', payload);
       }
+      window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -844,7 +856,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </label>
               <select
                 value={paymentMode}
-                onChange={(e) => setPaymentMode(e.target.value)}
+                onChange={(e) => {
+                  const newMode = e.target.value;
+                  setPaymentMode(newMode);
+                  if (newMode === 'credit' && (!card || !activeCards.some(c => c.name === card))) {
+                    setCard(activeCards[0]?.name || '');
+                  }
+                }}
                 style={{
                   ...inputStyle,
                   cursor: 'pointer',
@@ -878,7 +896,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     marginBottom: 6,
                   }}
                 >
-                  Select Card
+                  Select Active Card
                 </label>
                 <select
                   value={card}
@@ -895,12 +913,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)';
                     e.currentTarget.style.boxShadow = 'none';
                   }}
+                  required
                 >
                   <option value="">Select Card</option>
-                  <option value="HDFC Millennia">HDFC Millennia</option>
-                  <option value="ICICI Sapphiro">ICICI Sapphiro</option>
-                  <option value="SBI Cashback">SBI Cashback</option>
-                  <option value="Axis Flipkart">Axis Flipkart</option>
+                  {activeCards.length > 0 ? (
+                    activeCards.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} (•••• {c.last4})
+                      </option>
+                    ))
+                  ) : (
+                    <option value="" disabled>
+                      No active cards configured
+                    </option>
+                  )}
                 </select>
               </div>
             )}

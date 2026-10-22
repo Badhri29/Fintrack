@@ -126,7 +126,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
 
   return (
     <div className="modal-overlay">
-      <div className="modal-container" style={{ width: 490, maxHeight: '90vh', overflowY: 'auto' }}>
+      <div className="modal-container" style={{ width: '100%', maxWidth: 490, maxHeight: '90vh', overflowY: 'auto' }}>
         {/* Header */}
         <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 16, marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

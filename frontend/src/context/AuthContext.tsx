@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import api from '../services/api';
+import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { yearService } from '../services/yearService';
 
 export interface User {
   id: number;
@@ -61,6 +63,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const cachedPhoto = localStorage.getItem('fintrack_user_photo');
           if (cachedPhoto) currentUser.photo = cachedPhoto;
         }
+        if (currentUser.email === 'demo@fintrack.io') {
+          seedDemoBudgetData();
+        }
         setUser(currentUser);
       } else {
         setUser(null);
@@ -91,6 +96,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const cachedPhoto = localStorage.getItem('fintrack_user_photo');
           if (cachedPhoto) userData.photo = cachedPhoto;
         }
+        seedDemoBudgetData(true);
+        yearService.resetToCurrentYear();
         setUser(userData);
       }
     } finally {
@@ -134,6 +141,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         const cachedPhoto = localStorage.getItem('fintrack_user_photo');
         if (cachedPhoto) userData.photo = cachedPhoto;
       }
+      yearService.resetToCurrentYear();
       setUser(userData);
       return { success: true };
     } else {
@@ -176,6 +184,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         await api.put('/profile', { name: params.name }).catch(() => null);
         userData.name = params.name;
       }
+      yearService.resetToCurrentYear();
       setUser(userData);
     } else {
       throw new Error(res.data?.error || 'Verification failed');
@@ -215,6 +224,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const logout = async () => {
     localStorage.removeItem('token');
     localStorage.removeItem('fintrack_user_photo');
+    yearService.resetToCurrentYear();
     setUser(null);
   };
 
