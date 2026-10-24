@@ -597,11 +597,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         const parsed = JSON.parse(savedLoans);
         if (Array.isArray(parsed)) {
           parsed.forEach((l: any) => {
+            // Exclude loan if unchecked for Net Worth calculation
+            if (l.includeInNetWorth === false) return;
+
             const p = Number(l.principal) || 0;
-            const tenure = Number(l.tenureMonths) || 1;
-            const paid = Number(l.paidMonths) || 0;
-            // Total Outstanding Principal remaining on this loan (Point 6)
-            const remaining = Math.max(0, p * ((tenure - paid) / tenure));
+            let remaining = 0;
+            if (typeof l.remainingAmount === 'number' && !isNaN(l.remainingAmount)) {
+              remaining = l.remainingAmount;
+            } else {
+              const tenure = Number(l.tenureMonths) || 1;
+              const paid = Number(l.paidMonths) || 0;
+              remaining = Math.max(0, p * ((tenure - paid) / tenure));
+            }
             totalLoanDebt += remaining;
 
             if (l.type === 'Home Loan') {

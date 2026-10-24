@@ -429,6 +429,66 @@ select option {
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2) !important;
 }
 
+/* Auth Page Inputs: Lock dark theme with 100% visibility under all states (click, focus, active, autofill, light/dark mode) */
+.auth-page input,
+.auth-page .auth-input,
+input.auth-input,
+[data-theme="light"] .auth-page input,
+[data-theme="light"] input.auth-input,
+[data-theme="light"] .auth-page .auth-input {
+  background: #090C13 !important;
+  background-color: #090C13 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #1E2638 !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  caret-color: #FFFFFF !important;
+}
+
+.auth-page input:focus,
+.auth-page input:active,
+.auth-page .auth-input:focus,
+.auth-page .auth-input:active,
+input.auth-input:focus,
+input.auth-input:active,
+[data-theme="light"] .auth-page input:focus,
+[data-theme="light"] .auth-page input:active,
+[data-theme="light"] input.auth-input:focus,
+[data-theme="light"] input.auth-input:active,
+[data-theme="light"] .auth-page .auth-input:focus {
+  background: #090C13 !important;
+  background-color: #090C13 !important;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  border-color: #6366F1 !important;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25) !important;
+}
+
+.auth-page input:-webkit-autofill,
+.auth-page input:-webkit-autofill:hover,
+.auth-page input:-webkit-autofill:focus,
+.auth-page input:-webkit-autofill:active,
+input.auth-input:-webkit-autofill,
+input.auth-input:-webkit-autofill:hover,
+input.auth-input:-webkit-autofill:focus,
+input.auth-input:-webkit-autofill:active,
+[data-theme="light"] .auth-page input:-webkit-autofill,
+[data-theme="light"] input.auth-input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #090C13 inset !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  caret-color: #FFFFFF !important;
+  background-color: #090C13 !important;
+  color: #FFFFFF !important;
+  border: 1px solid #1E2638 !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+.auth-page input::placeholder,
+.auth-page .auth-input::placeholder,
+input.auth-input::placeholder {
+  color: #64748B !important;
+  -webkit-text-fill-color: #64748B !important;
+}
+
 /* Navbar */
 .navbar {
   position: sticky;
@@ -3245,5 +3305,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
   .mobile-bottom-nav {
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+}
+
+
+@media (max-width: 900px) {
+  .subscription-plans-grid {
+    grid-template-columns: 1fr !important;
   }
 }

@@ -24,7 +24,7 @@ import {
   Volume2,
   Clock
 } from 'lucide-react';
-import { playNotificationChime } from '../services/soundService';
+import { playNotificationChime, NOTIFICATION_SOUNDS, getActiveSoundTone, setActiveSoundTone } from '../services/soundService';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, type ThemeMode } from '../context/ThemeContext';
 import { currencyService, SUPPORTED_CURRENCIES } from '../services/currencyService';
@@ -155,6 +155,7 @@ export const SettingsView: React.FC = () => {
   const [soundEffects, setSoundEffects] = useState<boolean>(() => {
     return localStorage.getItem('fintrack_notif_sound') === 'true';
   });
+  const [soundTone, setSoundTone] = useState<string>(() => getActiveSoundTone());
 
   // Export states
   const [exporting, setExporting] = useState<boolean>(false);
@@ -1985,64 +1986,139 @@ export const SettingsView: React.FC = () => {
           {/* Software Notification Sound ("Ding" Bell Tone) */}
           <div
             style={{
-              padding: 16,
-              borderRadius: 10,
+              padding: 18,
+              borderRadius: 12,
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
+              marginTop: 14,
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              flexWrap: 'wrap',
-              gap: 12,
-              marginTop: 14
+              flexDirection: 'column',
+              gap: 16
             }}
           >
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Volume2 size={16} style={{ color: '#6366F1' }} />
-                <span>Software Notification Audio Chime ("Ding" Bell)</span>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Volume2 size={16} style={{ color: '#6366F1' }} />
+                  <span>Software Notification Audio Chimes</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                  Synthesized audio feedback on transactions, card entries, saves, and alert banners
+                </div>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
-                Synthesized crystal-clear chime for instant audio feedback on new transactions, saves, and alerts
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button
+                  type="button"
+                  onClick={() => playNotificationChime(soundTone, true)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 12px',
+                    borderRadius: 6,
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    color: '#818CF8',
+                    border: '1px solid rgba(99, 102, 241, 0.3)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <Volume2 size={13} />
+                  Test Selected Sound
+                </button>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+                  <input
+                    type="checkbox"
+                    checked={soundEffects}
+                    onChange={e => {
+                      const checked = e.target.checked;
+                      setSoundEffects(checked);
+                      localStorage.setItem('fintrack_notif_sound', checked ? 'true' : 'false');
+                      if (checked) playNotificationChime(soundTone, true);
+                    }}
+                    style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                  />
+                  <span>Enable Sound</span>
+                </label>
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <button
-                type="button"
-                onClick={() => playNotificationChime()}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 12px',
-                  borderRadius: 6,
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  color: '#818CF8',
-                  border: '1px solid rgba(99, 102, 241, 0.3)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                <Volume2 size={13} />
-                Test Chime
-              </button>
-
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
-                <input
-                  type="checkbox"
-                  checked={soundEffects}
-                  onChange={e => {
-                    const checked = e.target.checked;
-                    setSoundEffects(checked);
-                    localStorage.setItem('fintrack_notif_sound', checked ? 'true' : 'false');
-                    if (checked) playNotificationChime();
-                  }}
-                  style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
-                />
-                <span>Enable Sound</span>
+            {/* Multiple Sound Tones Selector */}
+            <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, letterSpacing: '0.03em' }}>
+                CHOOSE NOTIFICATION TONE ({NOTIFICATION_SOUNDS.length} SYNTHESIZED SOUNDS):
               </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+                {NOTIFICATION_SOUNDS.map(s => {
+                  const isSelected = soundTone === s.id;
+                  return (
+                    <div
+                      key={s.id}
+                      onClick={() => {
+                        setSoundTone(s.id);
+                        setActiveSoundTone(s.id);
+                        playNotificationChime(s.id, true);
+                      }}
+                      style={{
+                        padding: '10px 14px',
+                        borderRadius: 10,
+                        background: isSelected ? 'rgba(99, 102, 241, 0.12)' : 'var(--bg-card)',
+                        border: isSelected ? '2px solid #6366F1' : '1px solid var(--border-color)',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'space-between',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 4px 12px rgba(99, 102, 241, 0.2)' : 'none'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: isSelected ? 700 : 600, color: isSelected ? '#818CF8' : 'var(--text-primary)' }}>
+                          {s.name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSoundTone(s.id);
+                            setActiveSoundTone(s.id);
+                            playNotificationChime(s.id, true);
+                          }}
+                          style={{
+                            background: isSelected ? '#6366F1' : 'rgba(99, 102, 241, 0.15)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: 24,
+                            height: 24,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: isSelected ? '#FFF' : '#818CF8',
+                            cursor: 'pointer'
+                          }}
+                          title={`Preview ${s.name}`}
+                        >
+                          <Volume2 size={12} />
+                        </button>
+                      </div>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.3 }}>
+                        {s.description}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
@@ -2485,8 +2561,10 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 9. Subscription & Upgrade Packages */}
-        <div className="summary-card" style={{ padding: 28 }}>
+        </div>
+
+      {/* 9. Subscription & Upgrade Packages */}
+      <div className="summary-card" style={{ marginTop: 24, padding: 28, width: '100%', boxSizing: 'border-box' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <div
@@ -2543,7 +2621,14 @@ export const SettingsView: React.FC = () => {
           )}
 
           {/* Dynamic Plans Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+          <div
+            className="subscription-plans-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+              gap: 20
+            }}
+          >
             {plansLoading && plans.length === 0 && (
               <div style={{ gridColumn: '1 / -1', padding: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
                 Syncing latest subscription packages from server...
@@ -2830,8 +2915,6 @@ export const SettingsView: React.FC = () => {
             })()}
           </div>
         </div>
-
-      </div>
     </main>
   );
 };

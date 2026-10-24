@@ -15,6 +15,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
+import { useAuth } from '../context/AuthContext';
+import { getDeletedCategorySet } from '../views/BudgetTransactionsView';
 import { cardService, type CardModel } from '../services/cardService';
 import { playNotificationChime } from '../services/soundService';
 import { showToast } from './ToastNotification';
@@ -175,6 +177,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   transactionToEdit,
 }) => {
   const isEditing = Boolean(transactionToEdit && transactionToEdit.id);
+  const { user } = useAuth();
 
   const [type, setType] = useState<TransactionType>('expense');
   const [date, setDate] = useState<string>(new Date().toISOString().substring(0, 10));
@@ -290,7 +293,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
       const typeMap = CATEGORIES_BY_TYPE[startingType] || CATEGORIES_BY_TYPE.expense;
       const savedCategory = localStorage.getItem('fintrack-default-category');
-      const defaultCategory = (savedCategory && typeMap[savedCategory]) ? savedCategory : Object.keys(typeMap)[0];
+      const deletedSet = getDeletedCategorySet(user?.email);
+      const availableCategories = Object.keys(typeMap).filter(c => !deletedSet.has(c.toLowerCase()));
+      const fallbackCat = availableCategories[0] || Object.keys(typeMap)[0];
+      const defaultCategory = (savedCategory && typeMap[savedCategory] && !deletedSet.has(savedCategory.toLowerCase())) ? savedCategory : fallbackCat;
       const cat = initialCategory || defaultCategory;
       setCategory(cat);
 
@@ -418,7 +424,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   };
 
   const currentTypeCategories = CATEGORIES_BY_TYPE[type] || {};
-  const categoryList = Array.from(new Set([...Object.keys(currentTypeCategories), category]));
+  const deletedSet = getDeletedCategorySet(user?.email);
+  const rawList = Array.from(new Set([...Object.keys(currentTypeCategories), category]));
+  const categoryList = rawList.filter(c => !deletedSet.has(c.toLowerCase()) || c === category);
   const subcategoryList = Array.from(
     new Set([...(currentTypeCategories[category] || []), subcategory, 'Other']),
   );

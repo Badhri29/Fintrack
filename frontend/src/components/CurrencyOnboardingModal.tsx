@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Coins, Check, ArrowRight } from 'lucide-react';
 import { currencyService } from '../services/currencyService';
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 
 interface CurrencyOption {
   code: string;
@@ -30,17 +31,28 @@ export const CurrencyOnboardingModal: React.FC = () => {
     if (!user) return;
     const key = `fintrack_currency_configured_${user.id}`;
     const configured = localStorage.getItem(key);
-    if (!configured) {
-      // First login or not yet configured: prompt selection modal
+    const isNewRegistration = sessionStorage.getItem('fintrack_is_new_registration') === 'true';
+
+    // Only prompt currency selection upon account creation (new registration)
+    if (isNewRegistration) {
       setSelectedCurrency(currencyService.getActiveCurrencyCode() || 'INR');
       setIsOpen(true);
+    } else {
+      // Normal login: do not prompt, ensure preference is stored so it never asks
+      if (!configured) {
+        localStorage.setItem(key, 'true');
+      }
     }
   }, [user]);
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!user) return;
     currencyService.setActiveCurrency(selectedCurrency);
     localStorage.setItem(`fintrack_currency_configured_${user.id}`, 'true');
+    sessionStorage.removeItem('fintrack_is_new_registration');
+    try {
+      await api.put('/profile', { currency: selectedCurrency });
+    } catch {}
     setIsOpen(false);
   };
 

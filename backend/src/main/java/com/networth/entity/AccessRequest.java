@@ -41,6 +41,9 @@ public class AccessRequest {
     @Column(name = "adminNote", columnDefinition = "TEXT")
     private String adminNote;
 
+    @Column(name = "actionToken")
+    private String actionToken;
+
     @CreationTimestamp
     @Column(name = "createdAt", updatable = false)
     private LocalDateTime createdAt;

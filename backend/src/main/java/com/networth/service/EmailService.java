@@ -21,7 +21,6 @@ public class EmailService {
     private static final Logger logger = LoggerFactory.getLogger(EmailService.class);
     private static final String DEFAULT_MAIL_FROM = "fintracktool@gmail.com";
     private static final Set<String> EXCLUDED_RECIPIENTS = Set.of(
-            "admin@fintrack.app",
             "demo@fintrack.io"
     );
 
@@ -44,14 +43,25 @@ public class EmailService {
     }
 
     private boolean sendHtmlEmail(String toEmail, String subject, String htmlContent, boolean allowUnverified) {
-        return sendHtmlEmailWithAttachment(toEmail, subject, htmlContent, null, null, null, allowUnverified);
+        return sendHtmlEmailWithAttachment(toEmail, null, subject, htmlContent, null, null, null, allowUnverified);
     }
 
     private boolean sendHtmlEmail(String toEmail, String subject, String htmlContent) {
-        return sendHtmlEmailWithAttachment(toEmail, subject, htmlContent, null, null, null, false);
+        return sendHtmlEmailWithAttachment(toEmail, null, subject, htmlContent, null, null, null, false);
     }
 
     public boolean sendHtmlEmailWithAttachment(String toEmail,
+                                               String subject,
+                                               String htmlContent,
+                                               String attachmentFilename,
+                                               byte[] attachmentBytes,
+                                               String mimeType,
+                                               boolean allowUnverified) {
+        return sendHtmlEmailWithAttachment(toEmail, null, subject, htmlContent, attachmentFilename, attachmentBytes, mimeType, allowUnverified);
+    }
+
+    public boolean sendHtmlEmailWithAttachment(String toEmail,
+                                               String replyToEmail,
                                                String subject,
                                                String htmlContent,
                                                String attachmentFilename,
@@ -87,6 +97,9 @@ public class EmailService {
                 MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
                 helper.setFrom(fromAddress, "FinTrack Intelligence");
                 helper.setTo(normalizedEmail);
+                if (replyToEmail != null && !replyToEmail.trim().isEmpty()) {
+                    helper.setReplyTo(replyToEmail.trim());
+                }
                 helper.setSubject(subject);
                 helper.setText(htmlContent, true);
 
@@ -95,7 +108,7 @@ public class EmailService {
                 }
 
                 mailSender.send(message);
-                logger.info("Successfully delivered email from {} to {} (Attachment: {})", fromAddress, normalizedEmail, attachmentFilename != null ? attachmentFilename : "None");
+                logger.info("Successfully delivered email from {} to {} (Reply-To: {}, Attachment: {})", fromAddress, normalizedEmail, replyToEmail, attachmentFilename != null ? attachmentFilename : "None");
                 return true;
             } catch (Exception e) {
                 logger.warn("Could not deliver email to {} via SMTP ({}).", normalizedEmail, e.getMessage());
@@ -167,6 +180,49 @@ public class EmailService {
                 + "  </div>"
                 + "</div></body></html>";
         return sendHtmlEmail(toEmail, subject, html);
+    }
+
+        public boolean sendAdminAccessRequestNotificationEmail(String toEmail,
+                                                           String requesterName,
+                                                           String requesterEmail,
+                                                           String requestType,
+                                                           String details,
+                                                           String actionToken,
+                                                           String baseUrl) {
+        String effectiveBaseUrl = (baseUrl != null && !baseUrl.isBlank()) ? baseUrl : "http://localhost:8081";
+        if (effectiveBaseUrl.endsWith("/")) effectiveBaseUrl = effectiveBaseUrl.substring(0, effectiveBaseUrl.length() - 1);
+
+        String approveUrl = effectiveBaseUrl + "/api/public/access-requests/action?token=" + actionToken + "&action=APPROVE";
+        String rejectUrl = effectiveBaseUrl + "/api/public/access-requests/action?token=" + actionToken + "&action=REJECT";
+
+        String subject = "[FinTrack Request] New Access Request from " + (requesterName != null ? requesterName : requesterEmail);
+
+        String html = "<!DOCTYPE html><html><body style='margin:0;padding:24px;background-color:#0A0D14;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#F8FAFC;'>"
+                + "<div style='max-width:540px;margin:0 auto;background:#0F131D;border-radius:16px;border:1px solid #1E2638;box-shadow:0 12px 36px rgba(0,0,0,0.6);overflow:hidden;'>"
+                + "  <div style='background:linear-gradient(135deg, #4338CA 0%, #6366F1 100%);padding:24px 28px;color:#FFFFFF;'>"
+                + "    <div style='font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#C7D2FE;'>Administrative Action Required</div>"
+                + "    <h2 style='margin:8px 0 0;font-size:22px;font-weight:800;color:#FFFFFF;'>New Access Request</h2>"
+                + "  </div>"
+                + "  <div style='padding:28px;'>"
+                + "    <p style='font-size:14px;color:#94A3B8;margin:0 0 16px;'>A user has submitted an access / upgrade request that requires your administrative review:</p>"
+                + "    <div style='background:#131824;border:1px solid #232D42;border-radius:12px;padding:18px;margin-bottom:24px;'>"
+                + "      <div style='margin-bottom:10px;'><span style='color:#64748B;font-size:12px;font-weight:600;'>USER:</span> <strong style='color:#FFFFFF;font-size:14px;margin-left:6px;'>" + (requesterName != null ? requesterName : "User") + "</strong> <span style='color:#818CF8;'>(" + requesterEmail + ")</span></div>"
+                + "      <div style='margin-bottom:10px;'><span style='color:#64748B;font-size:12px;font-weight:600;'>REQUEST TYPE:</span> <span style='background:rgba(99,102,241,0.2);color:#A5B4FC;padding:3px 10px;border-radius:6px;font-size:12px;font-weight:700;margin-left:6px;border:1px solid rgba(99,102,241,0.4);'>" + requestType + "</span></div>"
+                + "      <div><span style='color:#64748B;font-size:12px;font-weight:600;'>DETAILS:</span> <div style='color:#CBD5E1;font-size:13px;margin-top:4px;background:#0A0D14;padding:10px 12px;border-radius:8px;border:1px solid #1E2638;line-height:1.5;'>" + (details != null ? details : "Requested upgrade / access") + "</div></div>"
+                + "    </div>"
+                + "    <div style='text-align:center;margin-bottom:24px;'>"
+                + "      <div style='font-size:13px;font-weight:700;color:#E2E8F0;margin-bottom:14px;'>Direct 1-Click Action from this Email:</div>"
+                + "      <div style='display:inline-flex;gap:16px;'>"
+                + "        <a href='" + approveUrl + "' style='display:inline-block;padding:12px 26px;border-radius:10px;background:#10B981;color:#FFFFFF;font-weight:700;font-size:14px;text-decoration:none;box-shadow:0 4px 14px rgba(16,185,129,0.35);'>Approve Request</a>"
+                + "        <a href='" + rejectUrl + "' style='display:inline-block;padding:12px 26px;border-radius:10px;background:#EF4444;color:#FFFFFF;font-weight:700;font-size:14px;text-decoration:none;box-shadow:0 4px 14px rgba(239,68,68,0.35);margin-left:12px;'>Reject Request</a>"
+                + "      </div>"
+                + "    </div>"
+                + "    <p style='font-size:12px;color:#64748B;text-align:center;line-height:1.5;margin:0;'>Clicking either button above instantly applies your decision and notifies the user automatically without requiring login.</p>"
+                + "    <div style='border-top:1px solid #1E2638;padding-top:16px;margin-top:20px;font-size:11px;color:#64748B;text-align:center;'>FinTrack Technologies Inc. • Automated Governance Desk</div>"
+                + "  </div>"
+                + "</div></body></html>";
+
+        return sendHtmlEmailWithAttachment(toEmail, requesterEmail, subject, html, null, null, null, true);
     }
 
     public boolean sendAccessRequestStatusEmail(String toEmail, String name, String requestType, String status, String adminNote) {

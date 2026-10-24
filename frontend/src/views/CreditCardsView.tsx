@@ -121,6 +121,7 @@ export const CreditCardsView: React.FC = () => {
     return localStorage.getItem(`fintrack_pending_cc_limit_${user?.email}`) === 'true';
   });
   const cardLimit = user?.cardLimit || 2;
+  const isEnterprise = (user?.subscriptionTier || '').toUpperCase() === 'ENTERPRISE' || (user?.cardLimit || 0) >= 99;
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
 
@@ -1173,17 +1174,17 @@ export const CreditCardsView: React.FC = () => {
             type="button"
             className="btn-secondary"
             onClick={() => {
-              if (cards.length >= cardLimit) {
+              if (!isEnterprise && cards.length >= cardLimit) {
                 setIsCardLimitModalOpen(true);
               } else {
                 setIsAddCardOpen(true);
               }
             }}
             style={{ padding: '6px 14px', fontSize: 13, display: isViewOnly ? 'none' : 'flex', alignItems: 'center', gap: 6 }}
-            title={cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
+            title={!isEnterprise && cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
           >
             <Plus size={15} />
-            <span>Add Card ({cards.length}/{cardLimit})</span>
+            <span>{isEnterprise ? 'Add Card' : `Add Card (${cards.length}/${cardLimit})`}</span>
           </button>
 
           <button
@@ -1573,7 +1574,7 @@ export const CreditCardsView: React.FC = () => {
         ) : (
           <div className="credit-cards-grid">
           {cards.map((c, idx) => {
-            const isCardLocked = idx >= cardLimit;
+            const isCardLocked = !isEnterprise && idx >= cardLimit;
             const cardStats = cardBalancesMap[c.name] || { purchases: 0, payments: 0, netOutstanding: 0, avail: c.limit, util: 0 };
             const availOnCard = cardStats.avail;
             const cardUtil = cardStats.util;

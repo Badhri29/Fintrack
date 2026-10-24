@@ -59,6 +59,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
     }
   };
 
+  const applyPhotoChange = (newPhoto: string) => {
+    setPhoto(newPhoto);
+    if (newPhoto) {
+      localStorage.setItem('fintrack_user_photo', newPhoto);
+    } else {
+      localStorage.removeItem('fintrack_user_photo');
+    }
+    updateUser({ photo: newPhoto });
+    window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo: newPhoto, name: name.trim() } }));
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -68,16 +79,41 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
       return;
     }
 
-    if (file.size > 2 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'Image size should be less than 2MB.' });
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: 'error', text: 'Image size should be less than 5MB.' });
       return;
     }
 
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      setPhoto(result);
-      setMessage(null);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const MAX_SIZE = 200;
+        let width = img.width;
+        let height = img.height;
+        if (width > height) {
+          if (width > MAX_SIZE) {
+            height = Math.round((height * MAX_SIZE) / width);
+            width = MAX_SIZE;
+          }
+        } else {
+          if (height > MAX_SIZE) {
+            width = Math.round((width * MAX_SIZE) / height);
+            height = MAX_SIZE;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressed = canvas.toDataURL('image/jpeg', 0.85);
+          applyPhotoChange(compressed);
+          setMessage(null);
+        }
+      };
+      img.src = event.target?.result as string;
     };
     reader.readAsDataURL(file);
   };
@@ -89,22 +125,25 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
     try {
       const res = await api.put('/profile', {
         name: name.trim(),
-        phone: phone.trim(),
+        phone: phone.trim() ? phone.trim() : null,
         age: age ? Number(age) : null,
         gender,
-        photo
+        photo: photo || null
       });
-      if (res.data && res.data.success) {
-        // Single source of truth update in memory & database
-        updateUser({ name: name.trim(), photo });
-        window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo, name: name.trim() } }));
-        setMessage({ type: 'success', text: 'Profile & Photo saved successfully!' });
+      if (res.data && (res.data.success || res.data.data)) {
+        const finalPhoto = photo || '';
+        if (finalPhoto) localStorage.setItem('fintrack_user_photo', finalPhoto);
+        else localStorage.removeItem('fintrack_user_photo');
+        updateUser({ name: name.trim(), photo: finalPhoto });
+        window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo: finalPhoto, name: name.trim() } }));
+        setMessage({ type: 'success', text: 'Profile & photo saved successfully!' });
         if (onSuccess) onSuccess();
       } else {
-        setMessage({ type: 'error', text: 'Failed to update profile.' });
+        setMessage({ type: 'error', text: res.data?.message || 'Failed to update profile.' });
       }
-    } catch {
-      setMessage({ type: 'error', text: 'Error saving profile changes.' });
+    } catch (err: any) {
+      const errMsg = err?.response?.data?.message || err?.message || 'Error saving profile changes.';
+      setMessage({ type: 'error', text: errMsg });
     } finally {
       setSaving(false);
     }
@@ -233,7 +272,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
               {photo && (
                 <button
                   type="button"
-                  onClick={() => setPhoto('')}
+                  onClick={() => applyPhotoChange('')}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -265,7 +304,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ isOpen, onClose, onS
                     key={idx}
                     src={url}
                     alt={`Preset ${idx + 1}`}
-                    onClick={() => setPhoto(url)}
+                    onClick={() => applyPhotoChange(url)}
                     style={{
                       width: 36,
                       height: 36,

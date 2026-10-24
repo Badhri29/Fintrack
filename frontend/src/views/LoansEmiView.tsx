@@ -18,15 +18,19 @@ import { getUserStorageKey } from '../services/storageHelper';
 
 export interface LoanModel {
   id: string;
-  name: string;
-  lender: string;
-  type: 'Home Loan' | 'Auto Loan' | 'Personal Loan' | 'Education Loan' | 'Consumer Durable' | 'Other';
-  principal: number;
-  interestRate: number; // Annual %
-  tenureMonths: number;
-  paidMonths: number;
-  startDate: string;
-  dueDay: number;
+  name: string; // Loan/Account Name
+  lender: string; // Lender / Bank Name
+  principal: number; // Loan Amount
+  emiAmount: number; // EMI Amount
+  remainingAmount: number; // Remaining Amount
+  startDate: string; // Start date
+  endDate: string; // End date
+  includeInNetWorth?: boolean; // Calculate to net worth or not (default: true)
+  type?: 'Home Loan' | 'Auto Loan' | 'Personal Loan' | 'Education Loan' | 'Consumer Durable' | 'Other';
+  interestRate?: number; // Optional Annual %
+  tenureMonths?: number;
+  paidMonths?: number;
+  dueDay?: number;
 }
 
 const DEFAULT_LOANS: LoanModel[] = [
@@ -34,36 +38,48 @@ const DEFAULT_LOANS: LoanModel[] = [
     id: 'loan-1',
     name: 'HDFC Home Loan',
     lender: 'HDFC Bank',
-    type: 'Home Loan',
     principal: 3500000,
+    emiAmount: 30375,
+    remainingAmount: 2650000,
+    startDate: '2021-08-01',
+    endDate: '2041-08-01',
+    includeInNetWorth: true,
+    type: 'Home Loan',
     interestRate: 8.5,
     tenureMonths: 240,
     paidMonths: 58,
-    startDate: '2021-08-01',
     dueDay: 5
   },
   {
     id: 'loan-2',
     name: 'SBI Car Loan',
     lender: 'State Bank of India',
-    type: 'Auto Loan',
     principal: 800000,
+    emiAmount: 16568,
+    remainingAmount: 373333,
+    startDate: '2023-11-01',
+    endDate: '2028-11-01',
+    includeInNetWorth: true,
+    type: 'Auto Loan',
     interestRate: 8.9,
     tenureMonths: 60,
     paidMonths: 32,
-    startDate: '2023-11-01',
     dueDay: 10
   },
   {
     id: 'loan-3',
     name: 'Apple iPhone 16 Pro EMI',
     lender: 'HDFC SmartEMI',
-    type: 'Consumer Durable',
     principal: 119900,
+    emiAmount: 19983,
+    remainingAmount: 39967,
+    startDate: '2024-06-15',
+    endDate: '2024-12-15',
+    includeInNetWorth: true,
+    type: 'Consumer Durable',
     interestRate: 0,
     tenureMonths: 6,
     paidMonths: 4,
-    startDate: '2024-06-15',
     dueDay: 15
   }
 ];
@@ -99,16 +115,22 @@ export const LoansEmiView: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [bannerMsg, setBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Add Loan Modal
+  // Add Loan Modal (Customized to user's exact required fields)
   const [isAddLoanOpen, setIsAddLoanOpen] = useState<boolean>(false);
   const [loanName, setLoanName] = useState<string>('');
-  const [loanLender, setLoanLender] = useState<string>('HDFC Bank');
-  const [loanType, setLoanType] = useState<LoanModel['type']>('Personal Loan');
-  const [loanPrincipal, setLoanPrincipal] = useState<string>('500000');
-  const [loanInterest, setLoanInterest] = useState<string>('9.5');
-  const [loanTenure, setLoanTenure] = useState<string>('36');
-  const [loanDueDay, setLoanDueDay] = useState<number>(5);
+  const [loanLender, setLoanLender] = useState<string>('');
+  const [loanAmount, setLoanAmount] = useState<string>('');
+  const [loanEmi, setLoanEmi] = useState<string>('');
+  const [loanRemaining, setLoanRemaining] = useState<string>('');
   const [loanStartDate, setLoanStartDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [loanEndDate, setLoanEndDate] = useState<string>('');
+  const [loanIncludeNetWorth, setLoanIncludeNetWorth] = useState<boolean>(true);
+
+  // Toggle net worth calculation on any loan card
+  const handleToggleNetWorth = (loanId: string, checked: boolean) => {
+    const updated = loans.map(l => (l.id === loanId ? { ...l, includeInNetWorth: checked } : l));
+    saveLoans(updated);
+  };
 
   // Pay EMI Modal
   const [isPayEmiOpen, setIsPayEmiOpen] = useState<boolean>(false);
@@ -189,16 +211,32 @@ export const LoansEmiView: React.FC = () => {
     let totalPrincipal = 0;
     let totalOutstanding = 0;
     let totalMonthlyEmi = 0;
+    let netWorthLiabilities = 0;
 
     loans.forEach(loan => {
-      totalPrincipal += loan.principal;
-      const emi = calculateEMI(loan.principal, loan.interestRate, loan.tenureMonths);
+      const p = Number(loan.principal) || 0;
+      totalPrincipal += p;
+
+      const emi = typeof loan.emiAmount === 'number' && !isNaN(loan.emiAmount)
+        ? loan.emiAmount
+        : calculateEMI(p, loan.interestRate || 0, loan.tenureMonths || 1);
       totalMonthlyEmi += emi;
 
-      // Approximate remaining principal
-      const remainingMonths = Math.max(0, loan.tenureMonths - loan.paidMonths);
-      const principalFractionRemaining = loan.tenureMonths > 0 ? remainingMonths / loan.tenureMonths : 0;
-      totalOutstanding += Math.round(loan.principal * principalFractionRemaining);
+      let remaining = 0;
+      if (typeof loan.remainingAmount === 'number' && !isNaN(loan.remainingAmount)) {
+        remaining = loan.remainingAmount;
+      } else {
+        const tenure = loan.tenureMonths || 1;
+        const paid = loan.paidMonths || 0;
+        const remainingMonths = Math.max(0, tenure - paid);
+        const principalFractionRemaining = tenure > 0 ? remainingMonths / tenure : 0;
+        remaining = Math.round(p * principalFractionRemaining);
+      }
+      totalOutstanding += remaining;
+
+      if (loan.includeInNetWorth !== false) {
+        netWorthLiabilities += remaining;
+      }
     });
 
     const payoffProgress = totalPrincipal > 0 ? Math.min(100, Math.round(((totalPrincipal - totalOutstanding) / totalPrincipal) * 100)) : 100;
@@ -207,7 +245,8 @@ export const LoansEmiView: React.FC = () => {
       totalPrincipal,
       totalOutstanding,
       totalMonthlyEmi,
-      payoffProgress
+      payoffProgress,
+      netWorthLiabilities
     };
   }, [loans]);
 
@@ -229,32 +268,53 @@ export const LoansEmiView: React.FC = () => {
     };
   }, [calcPrincipal, calcRate, calcTenureYears]);
 
-  // Add Loan Submission
+  // Add Loan Submission (Exact 7 user fields + net worth checkbox)
   const handleAddLoanSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const p = parseFloat(loanPrincipal);
-    const r = parseFloat(loanInterest);
-    const t = parseInt(loanTenure, 10);
+    const principal = parseFloat(loanAmount);
+    const emi = parseFloat(loanEmi);
+    const remaining = parseFloat(loanRemaining);
 
-    if (!p || p <= 0 || !t || t <= 0) return;
+    if (!loanName.trim()) return;
+    if (isNaN(principal) || principal <= 0) return;
+
+    // Estimate tenure months from start and end dates if provided
+    let tenureMonths = 12;
+    if (loanStartDate && loanEndDate) {
+      const s = new Date(loanStartDate);
+      const ed = new Date(loanEndDate);
+      const diffMonths = (ed.getFullYear() - s.getFullYear()) * 12 + (ed.getMonth() - s.getMonth());
+      if (diffMonths > 0) tenureMonths = diffMonths;
+    }
 
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
-      name: loanName.trim() || `${loanLender} ${loanType}`,
-      lender: loanLender.trim(),
-      type: loanType,
-      principal: p,
-      interestRate: r >= 0 ? r : 0,
-      tenureMonths: t,
-      paidMonths: 0,
+      name: loanName.trim(),
+      lender: loanLender.trim() || 'Bank / Lender',
+      principal: principal,
+      emiAmount: !isNaN(emi) && emi >= 0 ? emi : 0,
+      remainingAmount: !isNaN(remaining) && remaining >= 0 ? remaining : principal,
       startDate: loanStartDate,
-      dueDay: loanDueDay
+      endDate: loanEndDate,
+      includeInNetWorth: loanIncludeNetWorth,
+      type: 'Other',
+      interestRate: 0,
+      tenureMonths: tenureMonths,
+      paidMonths: 0,
+      dueDay: 5
     };
 
     const updated = [...loans, newLoan];
     saveLoans(updated);
     setIsAddLoanOpen(false);
     setLoanName('');
+    setLoanLender('');
+    setLoanAmount('');
+    setLoanEmi('');
+    setLoanRemaining('');
+    setLoanStartDate(new Date().toISOString().substring(0, 10));
+    setLoanEndDate('');
+    setLoanIncludeNetWorth(true);
     setBannerMsg({ type: 'success', text: `Loan "${newLoan.name}" added to tracker successfully!` });
     setTimeout(() => setBannerMsg(null), 3500);
   };
@@ -292,10 +352,18 @@ export const LoansEmiView: React.FC = () => {
 
       const res = await api.post('/transactions', payload);
       if (res.data && res.data.success) {
-        // Increment paidMonths for this loan
+        // Increment paidMonths and decrement remainingAmount for this loan
         const updated = loans.map(l => {
           if (l.id === payingLoan.id) {
-            return { ...l, paidMonths: Math.min(l.tenureMonths, l.paidMonths + 1) };
+            const currentRem = typeof l.remainingAmount === 'number' && !isNaN(l.remainingAmount)
+              ? l.remainingAmount
+              : l.principal;
+            const newRemaining = Math.max(0, currentRem - amt);
+            return {
+              ...l,
+              paidMonths: (l.paidMonths || 0) + 1,
+              remainingAmount: newRemaining
+            };
           }
           return l;
         });
@@ -319,16 +387,26 @@ export const LoansEmiView: React.FC = () => {
 
   // Add from Calculator to Active Loans
   const handleAddFromCalculator = () => {
+    const tenureMonths = calcTenureYears * 12;
+    const emi = calculateEMI(calcPrincipal, calcRate, tenureMonths);
+    const sDate = new Date();
+    const eDate = new Date();
+    eDate.setMonth(eDate.getMonth() + tenureMonths);
+
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
-      name: `New Loan (${currencyService.format(calcPrincipal)} @ ${calcRate}%)`,
+      name: `Loan (${currencyService.format(calcPrincipal)})`,
       lender: 'Bank / NBFC',
-      type: 'Personal Loan',
       principal: calcPrincipal,
+      emiAmount: emi,
+      remainingAmount: calcPrincipal,
+      startDate: sDate.toISOString().substring(0, 10),
+      endDate: eDate.toISOString().substring(0, 10),
+      includeInNetWorth: true,
+      type: 'Personal Loan',
       interestRate: calcRate,
-      tenureMonths: calcTenureYears * 12,
+      tenureMonths: tenureMonths,
       paidMonths: 0,
-      startDate: new Date().toISOString().substring(0, 10),
       dueDay: 5
     };
     const updated = [...loans, newLoan];
@@ -424,7 +502,9 @@ export const LoansEmiView: React.FC = () => {
             {currencyService.format(metrics.totalOutstanding)}
           </div>
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-            Remaining principal to be repaid
+            {metrics.netWorthLiabilities !== metrics.totalOutstanding
+              ? `${currencyService.format(metrics.netWorthLiabilities)} included in Net Worth`
+              : 'Remaining principal to be repaid'}
           </div>
         </div>
 
@@ -517,10 +597,17 @@ export const LoansEmiView: React.FC = () => {
         ) : (
           <div className="loans-grid">
           {loans.map(loan => {
-            const emi = calculateEMI(loan.principal, loan.interestRate, loan.tenureMonths);
-            const remainingMonths = Math.max(0, loan.tenureMonths - loan.paidMonths);
-            const paidPct = loan.tenureMonths > 0 ? Math.round((loan.paidMonths / loan.tenureMonths) * 100) : 100;
-            const remainingPrincipal = Math.round(loan.principal * (remainingMonths / loan.tenureMonths));
+            const emi = typeof loan.emiAmount === 'number' && !isNaN(loan.emiAmount)
+              ? loan.emiAmount
+              : calculateEMI(loan.principal, loan.interestRate || 0, loan.tenureMonths || 1);
+
+            const remainingPrincipal = typeof loan.remainingAmount === 'number' && !isNaN(loan.remainingAmount)
+              ? loan.remainingAmount
+              : Math.round(loan.principal * (Math.max(0, (loan.tenureMonths || 1) - (loan.paidMonths || 0)) / (loan.tenureMonths || 1)));
+
+            const paidAmount = Math.max(0, loan.principal - remainingPrincipal);
+            const paidPct = loan.principal > 0 ? Math.min(100, Math.max(0, Math.round((paidAmount / loan.principal) * 100))) : 100;
+            const isIncludedInNetWorth = loan.includeInNetWorth !== false;
 
             return (
               <div
@@ -531,23 +618,32 @@ export const LoansEmiView: React.FC = () => {
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
-                  minHeight: 240
+                  minHeight: 250,
+                  border: isIncludedInNetWorth ? '1px solid var(--border-color)' : '1px dashed rgba(239, 68, 68, 0.45)'
                 }}
               >
                 <div>
                   {/* Top Bar */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                         <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
                           {loan.name}
                         </h3>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-indigo)' }}>
-                          {loan.type}
-                        </span>
+                        {isIncludedInNetWorth ? (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.25)' }}>
+                            ✓ In Net Worth
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
+                            ✕ Excluded from Net Worth
+                          </span>
+                        )}
                       </div>
-                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 2 }}>
-                        {loan.lender} • {loan.interestRate}% p.a.
+                      <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', marginTop: 3 }}>
+                        Lender: <strong style={{ color: 'var(--text-primary)' }}>{loan.lender}</strong>
+                        {loan.startDate && ` • Start: ${loan.startDate}`}
+                        {loan.endDate && ` • End: ${loan.endDate}`}
                       </span>
                     </div>
 
@@ -560,36 +656,44 @@ export const LoansEmiView: React.FC = () => {
                         onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
                         onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={16} />
                       </button>
                     )}
                   </div>
 
-                  {/* Loan Amount & EMI Numbers */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16, padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
+                  {/* Loan Amount, EMI & Remaining Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10, marginTop: 16, padding: '12px 14px', background: 'var(--bg-secondary)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
                     <div>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block' }}>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, display: 'block', letterSpacing: '0.04em' }}>
+                        LOAN AMOUNT
+                      </span>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>
+                        {currencyService.format(loan.principal)}
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, display: 'block', letterSpacing: '0.04em' }}>
                         MONTHLY EMI
                       </span>
-                      <span style={{ fontSize: 17, fontWeight: 800, color: '#6366F1' }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#6366F1' }}>
                         {currencyService.format(emi)}
                       </span>
                     </div>
                     <div>
-                      <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block' }}>
-                        OUTSTANDING
+                      <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600, display: 'block', letterSpacing: '0.04em' }}>
+                        REMAINING
                       </span>
-                      <span style={{ fontSize: 17, fontWeight: 800, color: '#EF4444' }}>
+                      <span style={{ fontSize: 15, fontWeight: 800, color: '#EF4444' }}>
                         {currencyService.format(remainingPrincipal)}
                       </span>
                     </div>
                   </div>
 
-                  {/* Progress & Tenure */}
+                  {/* Progress Bar */}
                   <div style={{ marginTop: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                      <span>Progress: <strong>{loan.paidMonths} of {loan.tenureMonths} EMIs</strong> ({paidPct}%)</span>
-                      <span><strong>{remainingMonths}</strong> left</span>
+                      <span>Paid: <strong>{currencyService.format(paidAmount)}</strong> ({paidPct}%)</span>
+                      <span>Remaining: <strong>{currencyService.format(remainingPrincipal)}</strong></span>
                     </div>
                     <div style={{ width: '100%', height: 6, background: 'var(--bg-secondary)', borderRadius: 999, overflow: 'hidden' }}>
                       <div style={{ width: `${paidPct}%`, height: '100%', background: 'linear-gradient(90deg, #6366F1, #10B981)', borderRadius: 999 }} />
@@ -597,11 +701,21 @@ export const LoansEmiView: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Footer Due Date & Pay Button */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-color)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    Due Day: <strong style={{ color: 'var(--text-primary)' }}>{loan.dueDay}th</strong> of month
-                  </div>
+                {/* Footer: Net Worth Checkbox & Pay Button */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-color)', flexWrap: 'wrap', gap: 10 }}>
+                  {/* Interactive Net Worth Checkbox */}
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: isViewOnly ? 'default' : 'pointer', userSelect: 'none', margin: 0 }}>
+                    <input
+                      type="checkbox"
+                      disabled={isViewOnly}
+                      checked={isIncludedInNetWorth}
+                      onChange={e => handleToggleNetWorth(loan.id, e.target.checked)}
+                      style={{ width: 16, height: 16, cursor: isViewOnly ? 'default' : 'pointer', accentColor: '#6366F1' }}
+                    />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: isIncludedInNetWorth ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                      Calculate to Net Worth
+                    </span>
+                  </label>
 
                   {!isViewOnly ? (
                     <button
@@ -830,18 +944,18 @@ export const LoansEmiView: React.FC = () => {
         )}
       </div>
 
-      {/* Modal: Add New Loan */}
+      {/* Modal: Add New Loan (Loan/Account Name, Lender/Bank Name, Loan Amount, EMI Amount, Remaining Amount, Start Date, End Date, Net Worth Checkbox) */}
       {isAddLoanOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 480 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 500 }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
                   <Plus size={18} />
                 </div>
                 <div>
-                  <h3 className="modal-title" style={{ margin: 0, fontSize: 17 }}>Add New Loan / EMI</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Track principal, interest rate & monthly EMI schedule</span>
+                  <h3 className="modal-title" style={{ margin: 0, fontSize: 17 }}>Add New Loan / Account</h3>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Enter loan details, EMI commitments & balances</span>
                 </div>
               </div>
               <button
@@ -856,7 +970,7 @@ export const LoansEmiView: React.FC = () => {
             <form onSubmit={handleAddLoanSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  LOAN / ACCOUNT NAME
+                  LOAN / ACCOUNT NAME *
                 </label>
                 <input
                   type="text"
@@ -868,103 +982,73 @@ export const LoansEmiView: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  LENDER / BANK NAME *
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. SBI, HDFC, ICICI, Bajaj Finserv"
+                  value={loanLender}
+                  onChange={e => setLoanLender(e.target.value)}
+                  className="modal-input"
+                  required
+                />
+              </div>
+
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    LENDER / BANK
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. SBI, HDFC, ICICI, Bajaj"
-                    value={loanLender}
-                    onChange={e => setLoanLender(e.target.value)}
-                    className="modal-input"
-                    required
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    LOAN TYPE
-                  </label>
-                  <select
-                    value={loanType}
-                    onChange={e => setLoanType(e.target.value as any)}
-                    className="modal-select"
-                  >
-                    <option value="Home Loan">Home Loan</option>
-                    <option value="Auto Loan">Auto Loan</option>
-                    <option value="Personal Loan">Personal Loan</option>
-                    <option value="Education Loan">Education Loan</option>
-                    <option value="Consumer Durable">Consumer Durable / No Cost</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    PRINCIPAL AMOUNT ({currencyService.getActiveCurrencyCode()} {currencyService.getActiveCurrencyConfig().symbol})
+                    LOAN AMOUNT ({currencyService.getActiveCurrencyCode()}) *
                   </label>
                   <input
                     type="number"
                     step="any"
+                    min="0"
                     placeholder="e.g. 500000"
-                    value={loanPrincipal}
-                    onChange={e => setLoanPrincipal(e.target.value)}
+                    value={loanAmount}
+                    onChange={e => setLoanAmount(e.target.value)}
                     className="modal-input"
                     required
                   />
                 </div>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    INTEREST RATE (% P.A.)
+                    EMI AMOUNT ({currencyService.getActiveCurrencyCode()}) *
                   </label>
                   <input
                     type="number"
-                    step="0.01"
-                    placeholder="e.g. 8.5"
-                    value={loanInterest}
-                    onChange={e => setLoanInterest(e.target.value)}
+                    step="any"
+                    min="0"
+                    placeholder="e.g. 15000"
+                    value={loanEmi}
+                    onChange={e => setLoanEmi(e.target.value)}
                     className="modal-input"
                     required
                   />
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  REMAINING AMOUNT ({currencyService.getActiveCurrencyCode()}) *
+                </label>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  placeholder="e.g. 350000"
+                  value={loanRemaining}
+                  onChange={e => setLoanRemaining(e.target.value)}
+                  className="modal-input"
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div>
                   <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    TENURE (MONTHS)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={480}
-                    placeholder="e.g. 60"
-                    value={loanTenure}
-                    onChange={e => setLoanTenure(e.target.value)}
-                    className="modal-input"
-                    required
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    DUE DAY
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={loanDueDay}
-                    onChange={e => setLoanDueDay(Number(e.target.value))}
-                    className="modal-input"
-                    required
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    START DATE
+                    START DATE *
                   </label>
                   <input
                     type="date"
@@ -974,6 +1058,46 @@ export const LoansEmiView: React.FC = () => {
                     required
                   />
                 </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    END DATE *
+                  </label>
+                  <input
+                    type="date"
+                    value={loanEndDate}
+                    onChange={e => setLoanEndDate(e.target.value)}
+                    className="modal-input"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Checkbox: Calculate this loan towards Net Worth */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '12px 14px',
+                  background: 'var(--bg-secondary)',
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)',
+                  marginTop: 4
+                }}
+              >
+                <input
+                  type="checkbox"
+                  id="addLoanNetWorth"
+                  checked={loanIncludeNetWorth}
+                  onChange={e => setLoanIncludeNetWorth(e.target.checked)}
+                  style={{ width: 18, height: 18, cursor: 'pointer', accentColor: '#6366F1' }}
+                />
+                <label
+                  htmlFor="addLoanNetWorth"
+                  style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', cursor: 'pointer', margin: 0, userSelect: 'none' }}
+                >
+                  Calculate this loan towards Net Worth
+                </label>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
