@@ -8,6 +8,7 @@ com\networth\repository\TransactionRepository.class
 com\networth\dto\ApiResponse.class
 com\networth\controller\HoldingsController.class
 com\networth\exception\GlobalExceptionHandler.class
+com\networth\service\PdfStatementService.class
 com\networth\entity\SubCategory$SubCategoryBuilder.class
 com\networth\security\UserPrincipal.class
 com\networth\entity\Category$CategoryBuilder.class

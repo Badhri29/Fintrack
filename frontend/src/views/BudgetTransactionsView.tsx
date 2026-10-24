@@ -151,7 +151,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     globalSearchQuery ? 'transactions' : initialViewMode
   );
   const [selectedYear, setSelectedYear] = useState<number>(() => yearService.getSelectedYear());
-  const [mode, setMode] = useState<Mode>('budget');
+  const [mode, setMode] = useState<Mode>('actual');
 
   // Sync year changes across pages
   useEffect(() => {
