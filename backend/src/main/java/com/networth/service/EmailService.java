@@ -34,8 +34,13 @@ public class EmailService {
     @Value("${spring.mail.username:fintracktool@gmail.com}")
     private String mailFrom;
 
+    @Value("${spring.mail.password:}")
+    private String mailPassword;
+
     public boolean isConfigured() {
-        return mailSender != null && mailFrom != null && !mailFrom.trim().isEmpty();
+        return mailSender != null
+                && mailFrom != null && !mailFrom.trim().isEmpty()
+                && mailPassword != null && !mailPassword.trim().isEmpty();
     }
 
     private boolean sendHtmlEmail(String toEmail, String subject, String htmlContent, boolean allowUnverified) {
@@ -94,6 +99,7 @@ public class EmailService {
                 return true;
             } catch (Exception e) {
                 logger.warn("Could not deliver email to {} via SMTP ({}).", normalizedEmail, e.getMessage());
+                return false;
             }
         }
         logger.info("\n>>> FINTRACK EMAIL SIMULATION (From: {}) TO {}: {}\nSubject: {}\nAttachment: {}\n", fromAddress, normalizedEmail, subject, attachmentFilename != null ? attachmentFilename : "None");
