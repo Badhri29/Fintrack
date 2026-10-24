@@ -19,4 +19,18 @@ public class AuthResponse {
     private String identifier;
     private String devOtp;
     private Integer expiresInSeconds;
+
+    // Advanced admin control & security flags
+    private Boolean unregistered;
+    private Boolean isLocked;
+    private String lockType;
+    private String lockUntil;
+    private String lockReason;
+    private Boolean isMaintenance;
+    private String maintenanceMessage;
+    private String maintenanceEnd;
+
+    // Temporary password & mandatory reset
+    private Boolean mustChangePassword;
+    private Boolean isTemporaryPassword;
 }

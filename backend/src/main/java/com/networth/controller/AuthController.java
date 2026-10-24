@@ -3,14 +3,22 @@ package com.networth.controller;
 import com.networth.dto.AuthRequest;
 import com.networth.dto.AuthResponse;
 import com.networth.dto.UserDto;
+import com.networth.entity.SystemSetting;
 import com.networth.entity.User;
+import com.networth.entity.UserActivityLog;
+import com.networth.entity.UserNotificationSetting;
+import com.networth.repository.SystemSettingRepository;
+import com.networth.repository.UserActivityLogRepository;
+import com.networth.repository.UserNotificationSettingRepository;
 import com.networth.repository.UserRepository;
 import com.networth.security.JwtUtil;
 import com.networth.security.UserPrincipal;
 import com.networth.service.CategorySeedService;
+import com.networth.service.EmailService;
 import com.networth.service.OtpService;
 import com.networth.service.ValidationService;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +29,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
 
@@ -48,9 +57,23 @@ public class AuthController {
     @Autowired
     private OtpService otpService;
 
+    @Autowired
+    private EmailService emailService;
+
+    @Autowired
+    private UserActivityLogRepository userActivityLogRepository;
+
+    @Autowired
+    private UserNotificationSettingRepository userNotificationSettingRepository;
+
+    @Autowired
+    private SystemSettingRepository systemSettingRepository;
+
+    @Autowired
+    private com.networth.repository.SubscriptionPlanRepository subscriptionPlanRepository;
+
     /**
      * Step 1 of Registration: Send OTP to Email after strict domain and disposable checks.
-     * Prevents duplicate and fake accounts.
      */
     @PostMapping("/send-registration-otp")
     public ResponseEntity<AuthResponse> sendRegistrationOtp(@RequestBody AuthRequest request) {
@@ -91,8 +114,7 @@ public class AuthController {
     }
 
     /**
-     * Step 2 of Registration: Verify Email OTP and create the account.
-     * Account is ONLY created in database after OTP validation succeeds.
+     * Step 2 of Registration: Verify OTP and Create New User.
      */
     @PostMapping("/verify-registration-otp")
     public ResponseEntity<AuthResponse> verifyRegistrationOtp(@RequestBody AuthRequest request, HttpServletResponse response) {
@@ -130,27 +152,36 @@ public class AuthController {
                     .password(passwordEncoder.encode(request.getPassword()))
                     .name(name.trim())
                     .isVerified(true)
+                    .role("USER")
+                    .status("ACTIVE")
+                    .subscriptionTier("FREE")
+                    .cardLimit(2)
+                    .canAccessDashboard(true)
+                    .canAccessReports(true)
+                    .canEditSettings(true)
+                    .lastLoginAt(LocalDateTime.now())
+                    .loginCount(1)
                     .build();
 
             user = userRepository.save(user);
             categorySeedService.seedUserCategories(user.getId());
 
+            // Default notification settings
+            userNotificationSettingRepository.save(UserNotificationSetting.builder().userId(user.getId()).build());
+
+            userActivityLogRepository.save(UserActivityLog.builder()
+                    .userId(user.getId())
+                    .userEmail(user.getEmail())
+                    .action("REGISTER")
+                    .details("New user account created and verified")
+                    .build());
+
             String token = jwtUtil.generateToken(user.getId(), user.getEmail());
             setAuthCookie(response, token);
 
-            UserDto userDto = UserDto.builder()
-                    .id(user.getId())
-                    .email(user.getEmail())
-                    .name(user.getName())
-                    .photo(user.getPhoto())
-                    .isVerified(user.getIsVerified())
-                    .build();
-
-            logger.info("New verified user created with email: {}", email);
-
             return ResponseEntity.ok(AuthResponse.builder()
                     .success(true)
-                    .user(userDto)
+                    .user(UserDto.fromEntity(user))
                     .token(token)
                     .message("Account created and verified successfully!")
                     .build());
@@ -158,15 +189,11 @@ public class AuthController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(AuthResponse.builder().success(false).error(e.getMessage()).build());
-        } catch (Exception e) {
-            logger.error("Registration error for {}: {}", email, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(AuthResponse.builder().success(false).error("Failed to complete registration: " + e.getMessage()).build());
         }
     }
 
     /**
-     * Resend OTP for email verification.
+     * Resend OTP.
      */
     @PostMapping("/resend-otp")
     public ResponseEntity<AuthResponse> resendOtp(@RequestBody AuthRequest request) {
@@ -196,10 +223,14 @@ public class AuthController {
 
     /**
      * Login: Sign in with Email and Password.
-     * If account is not verified, sends verification OTP to email and returns requiresVerification: true.
+     * Checks:
+     * 1. Unregistered -> returns 404 + unregistered: true (auto redirect to signup)
+     * 2. Scheduled maintenance -> regular users blocked with maintenance details
+     * 3. Account locks (TEMP, FULL, PERMANENT) -> blocked with specific warning message
+     * 4. Session tracking -> increments loginCount, records lastLoginAt, logs activity, sends mail alert
      */
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request, HttpServletResponse response) {
+    public ResponseEntity<AuthResponse> login(@RequestBody AuthRequest request, HttpServletRequest httpRequest, HttpServletResponse response) {
         String email = request.getEffectiveEmail();
 
         if (email == null || email.trim().isEmpty() || request.getPassword() == null) {
@@ -207,17 +238,99 @@ public class AuthController {
                     .body(AuthResponse.builder().success(false).error("Please provide email and password.").build());
         }
 
-        Optional<User> userOpt = userRepository.findByEmail(email);
+        String cleanEmail = email.trim().toLowerCase();
+        Optional<User> userOpt = userRepository.findByEmail(cleanEmail);
 
+        // 1. Unregistered account check
         if (userOpt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .unregistered(true)
+                            .error("Account not found with this email. We're redirecting you to Create an Account.")
+                            .build());
+        }
+
+        User user = userOpt.get();
+
+        // Check password first
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            userActivityLogRepository.save(UserActivityLog.builder()
+                    .userId(user.getId())
+                    .userEmail(user.getEmail())
+                    .action("FAILED_LOGIN")
+                    .details("Failed login attempt (invalid password)")
+                    .ipAddress(httpRequest.getRemoteAddr())
+                    .userAgent(httpRequest.getHeader("User-Agent"))
+                    .build());
+
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(AuthResponse.builder().success(false).error("Invalid email or password.").build());
         }
 
-        User user = userOpt.get();
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(AuthResponse.builder().success(false).error("Invalid email or password.").build());
+        boolean isAdminUser = user.getRole() != null &&
+                (user.getRole().equalsIgnoreCase("ADMIN") || user.getRole().equalsIgnoreCase("SUPER_ADMIN"));
+
+        // 2. Scheduled Maintenance Check
+        Optional<SystemSetting> maintSetting = systemSettingRepository.findBySettingKey("MAINTENANCE_ACTIVE");
+        if (maintSetting.isPresent() && "true".equalsIgnoreCase(maintSetting.get().getSettingValue()) && !isAdminUser) {
+            String maintMsg = systemSettingRepository.findBySettingKey("MAINTENANCE_MESSAGE")
+                    .map(SystemSetting::getSettingValue)
+                    .orElse("System maintenance is underway. Regular logins are temporarily paused.");
+            String maintEnd = systemSettingRepository.findBySettingKey("MAINTENANCE_END")
+                    .map(SystemSetting::getSettingValue)
+                    .orElse("Shortly");
+
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .isMaintenance(true)
+                            .maintenanceMessage(maintMsg)
+                            .maintenanceEnd(maintEnd)
+                            .error("Scheduled Maintenance Underway: " + maintMsg)
+                            .build());
+        }
+
+        // 3. Account Lock Checks
+        String lockType = user.getLockType() != null ? user.getLockType().toUpperCase() : "NONE";
+        String lockReason = user.getLockReason() != null ? user.getLockReason() : "Account restricted by administrator.";
+
+        if ("TEMP".equals(lockType) && user.getLockUntil() != null) {
+            if (LocalDateTime.now().isBefore(user.getLockUntil())) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .isLocked(true)
+                                .lockType("TEMP")
+                                .lockUntil(user.getLockUntil().toString())
+                                .lockReason(lockReason)
+                                .error("Your account has been temporarily locked until " + user.getLockUntil() + ". Reason: " + lockReason)
+                                .build());
+            } else {
+                // Auto-expired temp lock -> unlock account automatically
+                user.setLockType("NONE");
+                user.setStatus("ACTIVE");
+                user.setLockReason(null);
+                user.setLockUntil(null);
+            }
+        } else if ("FULL".equals(lockType)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .isLocked(true)
+                            .lockType("FULL")
+                            .lockReason(lockReason)
+                            .error("Your account is currently locked. Reason: " + lockReason + ". Please contact administrator.")
+                            .build());
+        } else if ("PERMANENT".equals(lockType)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .isLocked(true)
+                            .lockType("PERMANENT")
+                            .lockReason(lockReason)
+                            .error("Your account has been permanently locked by administrator. Reason: " + lockReason + ". Please contact administrator to request manual unlock.")
+                            .build());
         }
 
         // Check if account has been verified
@@ -234,18 +347,52 @@ public class AuthController {
                     .build());
         }
 
+        // Update login stats
+        user.setLastLoginAt(LocalDateTime.now());
+        user.setLastActivityAt(LocalDateTime.now());
+        user.setLoginCount((user.getLoginCount() != null ? user.getLoginCount() : 0) + 1);
+        user = userRepository.save(user);
+
+        // Record Activity Log
+        userActivityLogRepository.save(UserActivityLog.builder()
+                .userId(user.getId())
+                .userEmail(user.getEmail())
+                .action("LOGIN")
+                .details("Signed in successfully (" + (user.getRole() != null ? user.getRole() : "USER") + ")")
+                .ipAddress(httpRequest.getRemoteAddr())
+                .userAgent(httpRequest.getHeader("User-Agent"))
+                .build());
+
+        // Check temporary password expiry
+        boolean isTempPwd = Boolean.TRUE.equals(user.getIsTemporaryPassword());
+        boolean mustChangePwd = Boolean.TRUE.equals(user.getMustChangePassword()) || isTempPwd;
+
+        if (isTempPwd && user.getTemporaryPasswordExpiresAt() != null) {
+            if (user.getTemporaryPasswordExpiresAt().isBefore(LocalDateTime.now())) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .error("Your temporary password has expired. Please ask your administrator to generate a new one.")
+                                .build());
+            }
+        }
+
+        // Dispatch Login Alert Email if enabled
+        Optional<UserNotificationSetting> notifOpt = userNotificationSettingRepository.findByUserId(user.getId());
+        if (notifOpt.isPresent() && Boolean.TRUE.equals(notifOpt.get().getLoginMail())) {
+            emailService.sendLoginAlertEmail(user.getEmail(), user.getName(), httpRequest.getRemoteAddr(), LocalDateTime.now().toString());
+        }
+
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
         setAuthCookie(response, token);
 
-        UserDto userDto = UserDto.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .name(user.getName())
-                .photo(user.getPhoto())
-                .isVerified(user.getIsVerified())
-                .build();
-
-        return ResponseEntity.ok(AuthResponse.builder().success(true).user(userDto).token(token).build());
+        return ResponseEntity.ok(AuthResponse.builder()
+                .success(true)
+                .user(UserDto.fromEntity(user))
+                .token(token)
+                .isTemporaryPassword(isTempPwd)
+                .mustChangePassword(mustChangePwd)
+                .build());
     }
 
     /**
@@ -273,22 +420,17 @@ public class AuthController {
             otpService.verifyOtp(user.getEmail(), "Account Verification", request.getOtp());
 
             user.setIsVerified(true);
+            user.setLastLoginAt(LocalDateTime.now());
+        user.setLastActivityAt(LocalDateTime.now());
+            user.setLoginCount((user.getLoginCount() != null ? user.getLoginCount() : 0) + 1);
             user = userRepository.save(user);
 
             String token = jwtUtil.generateToken(user.getId(), user.getEmail());
             setAuthCookie(response, token);
 
-            UserDto userDto = UserDto.builder()
-                    .id(user.getId())
-                    .email(user.getEmail())
-                    .name(user.getName())
-                    .photo(user.getPhoto())
-                    .isVerified(user.getIsVerified())
-                    .build();
-
             return ResponseEntity.ok(AuthResponse.builder()
                     .success(true)
-                    .user(userDto)
+                    .user(UserDto.fromEntity(user))
                     .token(token)
                     .message("Account verified successfully! Welcome to FinTrack.")
                     .build());
@@ -316,11 +458,37 @@ public class AuthController {
         }
 
         boolean isDemo = "demo@fintrack.io".equalsIgnoreCase(email);
+        String defaultTier = systemSettingRepository.findBySettingKey("DEFAULT_SUBSCRIPTION_PLAN")
+                .map(SystemSetting::getSettingValue)
+                .orElse("FREE")
+                .toUpperCase();
+
+        int cardLimit = isDemo ? 5 : 2;
+        boolean canDash = true;
+        boolean canRep = true;
+
+        var planOpt = subscriptionPlanRepository.findByPlanCode(defaultTier);
+        if (planOpt.isPresent()) {
+            var plan = planOpt.get();
+            cardLimit = isDemo ? 5 : plan.getMaxCreditCards();
+            canDash = plan.getCanAccessDashboard();
+            canRep = plan.getCanAccessReports();
+        }
+
         User user = User.builder()
                 .email(email)
                 .password(passwordEncoder.encode(request.getPassword()))
                 .name(request.getName() != null ? request.getName() : email.split("@")[0])
                 .isVerified(isDemo)
+                .role("USER")
+                .status("ACTIVE")
+                .subscriptionTier(defaultTier)
+                .cardLimit(cardLimit)
+                .canAccessDashboard(canDash)
+                .canAccessReports(canRep)
+                .canEditSettings(true)
+                .lastLoginAt(LocalDateTime.now())
+                .loginCount(1)
                 .build();
 
         user = userRepository.save(user);
@@ -329,15 +497,7 @@ public class AuthController {
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
         setAuthCookie(response, token);
 
-        UserDto userDto = UserDto.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .name(user.getName())
-                .photo(user.getPhoto())
-                .isVerified(user.getIsVerified())
-                .build();
-
-        return ResponseEntity.ok(AuthResponse.builder().success(true).user(userDto).token(token).build());
+        return ResponseEntity.ok(AuthResponse.builder().success(true).user(UserDto.fromEntity(user)).token(token).build());
     }
 
     @PostMapping("/check-email")
@@ -359,24 +519,132 @@ public class AuthController {
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(AuthResponse.builder().success(false).error("User not found").build());
         }
-        UserDto userDto = UserDto.builder()
-                .id(user.getId())
-                .email(user.getEmail())
-                .name(user.getName())
-                .photo(user.getPhoto())
-                .isVerified(user.getIsVerified())
-                .build();
-        return ResponseEntity.ok(AuthResponse.builder().success(true).user(userDto).build());
+
+        user.setLastActivityAt(LocalDateTime.now());
+        user = userRepository.save(user);
+
+        // Attach system maintenance status
+        Optional<SystemSetting> maintSetting = systemSettingRepository.findBySettingKey("MAINTENANCE_ACTIVE");
+        boolean isMaint = maintSetting.isPresent() && "true".equalsIgnoreCase(maintSetting.get().getSettingValue());
+        String maintMsg = systemSettingRepository.findBySettingKey("MAINTENANCE_MESSAGE").map(SystemSetting::getSettingValue).orElse(null);
+        String maintEnd = systemSettingRepository.findBySettingKey("MAINTENANCE_END").map(SystemSetting::getSettingValue).orElse(null);
+
+        return ResponseEntity.ok(AuthResponse.builder()
+                .success(true)
+                .user(UserDto.fromEntity(user))
+                .isMaintenance(isMaint)
+                .maintenanceMessage(maintMsg)
+                .maintenanceEnd(maintEnd)
+                .build());
     }
 
     @PostMapping("/logout")
-    public ResponseEntity<Map<String, Object>> logout(HttpServletResponse response) {
+    public ResponseEntity<Map<String, Object>> logout(@AuthenticationPrincipal UserPrincipal principal, HttpServletResponse response) {
+        if (principal != null) {
+            User user = userRepository.findById(principal.getId()).orElse(null);
+            if (user != null) {
+                user.setLastLogoutAt(LocalDateTime.now());
+                user.setLastActivityAt(null);
+                userRepository.save(user);
+
+                userActivityLogRepository.save(UserActivityLog.builder()
+                        .userId(user.getId())
+                        .userEmail(user.getEmail())
+                        .action("LOGOUT")
+                        .details("User signed out")
+                        .build());
+            }
+        }
+
         Cookie cookie = new Cookie("token", "");
         cookie.setHttpOnly(true);
         cookie.setPath("/");
         cookie.setMaxAge(0);
         response.addCookie(cookie);
         return ResponseEntity.ok(Map.of("success", true, "message", "Logged out successfully"));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(@AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, String> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "error", "Unauthorized"));
+        }
+
+        String currentPassword = body.get("currentPassword");
+        String newPassword = body.get("newPassword");
+
+        if (currentPassword == null || newPassword == null || newPassword.trim().length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Valid current password and new password (min 6 chars) required."));
+        }
+
+        User user = userRepository.findById(principal.getId()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "error", "User not found."));
+        }
+
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("success", false, "error", "Current password does not match."));
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        userActivityLogRepository.save(UserActivityLog.builder()
+                .userId(user.getId())
+                .userEmail(user.getEmail())
+                .action("PASSWORD_RESET")
+                .details("Password changed by user")
+                .build());
+
+        // Send confirmation email
+        Optional<UserNotificationSetting> notifOpt = userNotificationSettingRepository.findByUserId(user.getId());
+        if (notifOpt.isEmpty() || Boolean.TRUE.equals(notifOpt.get().getPwdResetMail())) {
+            emailService.sendPasswordResetEmail(user.getEmail(), user.getName());
+        }
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "Password changed successfully."));
+    }
+
+    @PostMapping("/change-temp-password")
+    public ResponseEntity<?> changeTempPassword(@AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, String> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "error", "Unauthorized"));
+        }
+
+        String newPassword = body.get("newPassword");
+        if (newPassword == null || newPassword.trim().length() < 6) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Password must be at least 6 characters long."));
+        }
+
+        User user = userRepository.findById(principal.getId()).orElse(null);
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "error", "User not found."));
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword.trim()));
+        user.setIsTemporaryPassword(false);
+        user.setTemporaryPasswordExpiresAt(null);
+        user.setMustChangePassword(false);
+        user = userRepository.save(user);
+
+        userActivityLogRepository.save(UserActivityLog.builder()
+                .userId(user.getId())
+                .userEmail(user.getEmail())
+                .action("TEMP_PASSWORD_RESET")
+                .details("User successfully configured new permanent password from temporary password session.")
+                .build());
+
+        // Send confirmation email
+        Optional<UserNotificationSetting> notifOpt = userNotificationSettingRepository.findByUserId(user.getId());
+        if (notifOpt.isEmpty() || Boolean.TRUE.equals(notifOpt.get().getPwdResetMail())) {
+            emailService.sendPasswordResetEmail(user.getEmail(), user.getName());
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", "New password configured successfully! Welcome to FinTrack.",
+                "user", UserDto.fromEntity(user)
+        ));
     }
 
     private void setAuthCookie(HttpServletResponse response, String token) {

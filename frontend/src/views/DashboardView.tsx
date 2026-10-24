@@ -617,9 +617,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     try {
       const ccTxs = transactions.filter(t => {
         const p = parseDate(t.date);
-        return String(t.paymentMode || '').toLowerCase() === 'credit' && p && p.year === selectedYear;
+        return String(t.paymentMode || '').toLowerCase() === 'credit' && p && p.year === selectedYear && selectedMonths.includes(p.month);
       });
-      ccOutstanding = ccTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0) / (selectedMonths.length === 12 ? 12 : Math.max(1, selectedMonths.length));
+      ccOutstanding = ccTxs.reduce((s, t) => s + (Number(t.amount) || 0), 0);
     } catch {}
 
     const totalAssets = totalCashAssets + totalInvestments + physicalAssets;
@@ -650,7 +650,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       totalLoanDebt,
       ccOutstanding,
       peerDebts,
-      netWorth: netWorth > 0 ? netWorth : (summaryData.netWorth || 0)
+      netWorth: !isNaN(netWorth) ? netWorth : (summaryData.netWorth || 0)
     };
   }, [sectionData, transactions, selectedYear, selectedMonths, summaryData]);
 
@@ -2386,7 +2386,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       <div
         className="glass-card full-width-trend-panel"
         style={{
-          background: 'linear-gradient(180deg, var(--bg-secondary) 0%, rgba(15, 23, 42, 0.75) 100%)',
+          background: isLight ? 'linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 100%)' : 'linear-gradient(180deg, var(--bg-secondary) 0%, rgba(15, 23, 42, 0.75) 100%)',
           borderRadius: 16,
           border: '1px solid var(--border-color)',
           padding: '24px 28px',
@@ -2433,7 +2433,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               display: 'flex',
               alignItems: 'center',
               gap: 6,
-              background: 'rgba(0, 0, 0, 0.25)',
+              background: isLight ? 'rgba(0, 0, 0, 0.05)' : 'rgba(0, 0, 0, 0.25)',
               padding: '4px 6px',
               borderRadius: 10,
               border: '1px solid var(--border-color)',
@@ -2483,7 +2483,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         >
           <div
             style={{
-              background: 'rgba(255, 255, 255, 0.03)',
+              background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)',
               border: '1px solid var(--border-color)',
               borderRadius: 12,
               padding: '12px 16px',
@@ -2502,7 +2502,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
           <div
             style={{
-              background: 'rgba(255, 255, 255, 0.03)',
+              background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)',
               border: '1px solid var(--border-color)',
               borderRadius: 12,
               padding: '12px 16px',
@@ -2521,7 +2521,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
           <div
             style={{
-              background: 'rgba(255, 255, 255, 0.03)',
+              background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)',
               border: '1px solid var(--border-color)',
               borderRadius: 12,
               padding: '12px 16px',
@@ -2540,7 +2540,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
           <div
             style={{
-              background: 'rgba(255, 255, 255, 0.03)',
+              background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)',
               border: '1px solid var(--border-color)',
               borderRadius: 12,
               padding: '12px 16px',

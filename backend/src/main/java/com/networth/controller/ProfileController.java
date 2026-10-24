@@ -19,6 +19,9 @@ public class ProfileController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.networth.repository.UserActivityLogRepository userActivityLogRepository;
+
     @GetMapping
     public ResponseEntity<Map<String, Object>> getProfile(@AuthenticationPrincipal UserPrincipal principal) {
         if (principal == null) {
@@ -36,16 +39,42 @@ public class ProfileController {
         }
         User user = userRepository.findById(principal.getId()).orElseThrow();
 
-        if (body.containsKey("name") && body.get("name") != null) user.setName((String) body.get("name"));
-        if (body.containsKey("age") && body.get("age") != null) {
-            try { user.setAge(Integer.valueOf(body.get("age").toString())); } catch (NumberFormatException ignored) {}
+        if (body.containsKey("name") && body.get("name") != null) {
+            user.setName(((String) body.get("name")).trim());
         }
-        if (body.containsKey("gender") && body.get("gender") != null) user.setGender((String) body.get("gender"));
-        if (body.containsKey("phone") && body.get("phone") != null) user.setPhone((String) body.get("phone"));
-        if (body.containsKey("photo") && body.get("photo") != null) user.setPhoto((String) body.get("photo"));
+        if (body.containsKey("age")) {
+            Object a = body.get("age");
+            if (a != null && !a.toString().trim().isEmpty()) {
+                try { user.setAge(Integer.valueOf(a.toString().trim())); } catch (NumberFormatException ignored) {}
+            } else {
+                user.setAge(null);
+            }
+        }
+        if (body.containsKey("gender")) {
+            String g = (String) body.get("gender");
+            user.setGender(g != null && !g.trim().isEmpty() ? g.trim() : null);
+        }
+        if (body.containsKey("phone")) {
+            String p = (String) body.get("phone");
+            user.setPhone(p != null && !p.trim().isEmpty() ? p.trim() : null);
+        }
+        if (body.containsKey("photo")) {
+            String ph = (String) body.get("photo");
+            user.setPhoto(ph != null && !ph.trim().isEmpty() ? ph.trim() : null);
+        }
 
+        user.setLastActivityAt(java.time.LocalDateTime.now());
         user = userRepository.save(user);
 
-        return ResponseEntity.ok(Map.of("success", true, "data", user, "message", "Profile updated successfully"));
+        try {
+            userActivityLogRepository.save(com.networth.entity.UserActivityLog.builder()
+                    .userId(user.getId())
+                    .userEmail(user.getEmail())
+                    .action("PROFILE_UPDATE")
+                    .details(body.containsKey("photo") ? "Updated profile photo & info" : "Updated profile information")
+                    .build());
+        } catch (Exception ignored) {}
+
+        return ResponseEntity.ok(Map.of("success", true, "data", UserDto.fromEntity(user), "message", "Profile updated successfully"));
     }
 }

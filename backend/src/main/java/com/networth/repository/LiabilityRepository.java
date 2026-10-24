@@ -12,4 +12,5 @@ public interface LiabilityRepository extends JpaRepository<Liability, Long> {
     List<Liability> findByUserId(Long userId);
     Optional<Liability> findByIdAndUserId(Long id, Long userId);
     void deleteByIdAndUserId(Long id, Long userId);
+    void deleteByUserId(Long userId);
 }

@@ -19,8 +19,10 @@ import {
   PieChart,
   Activity,
   BarChart2,
-  Check
+  Check,
+  Lock
 } from 'lucide-react';
+import { playNotificationChime } from '../services/soundService';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -112,8 +114,38 @@ export const isBillPaymentTx = (t: any): boolean => {
 
 export const CreditCardsView: React.FC = () => {
   const { user } = useAuth();
+  const [isCardLimitModalOpen, setIsCardLimitModalOpen] = useState<boolean>(false);
+  const [requestingLimit, setRequestingLimit] = useState<boolean>(false);
+  const [limitRequestSuccess, setLimitRequestSuccess] = useState<boolean>(() => {
+    return localStorage.getItem(`fintrack_pending_cc_limit_${user?.email}`) === 'true';
+  });
+  const cardLimit = user?.cardLimit || 2;
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
+
+  useEffect(() => {
+    const checkPendingQuotaRequest = async () => {
+      const cached = localStorage.getItem(`fintrack_pending_cc_limit_${user?.email}`);
+      if (cached === 'true') {
+        setLimitRequestSuccess(true);
+      }
+      try {
+        const res = await api.get('/access-requests/my');
+        if (res.data?.success && Array.isArray(res.data.data)) {
+          const hasPending = res.data.data.some((r: any) =>
+            (r.requestType?.includes('CARD') || r.requestType?.includes('PLAN') || r.requestType?.includes('PRO') || r.requestType?.includes('ENTERPRISE')) && r.status === 'PENDING'
+          );
+          setLimitRequestSuccess(hasPending);
+          if (hasPending) {
+            localStorage.setItem(`fintrack_pending_cc_limit_${user?.email}`, 'true');
+          } else {
+            localStorage.removeItem(`fintrack_pending_cc_limit_${user?.email}`);
+          }
+        }
+      } catch {}
+    };
+    checkPendingQuotaRequest();
+  }, [user]);
 
   // Synchronized Year State (Points 5 & 6)
   const [selectedYear, setSelectedYear] = useState<number>(() => yearService.getSelectedYear());
@@ -837,6 +869,8 @@ export const CreditCardsView: React.FC = () => {
     }, user?.email);
 
     setCards(cardService.getCards(user?.email));
+    playNotificationChime();
+    api.post('/user/log-action', { action: 'ADD_CREDIT_CARD', details: `Added card ${card.name} (${card.bank})` }).catch(() => {});
     setIsAddCardOpen(false);
     setNewCardName('');
     setNewCardFullNumber('');
@@ -849,6 +883,7 @@ export const CreditCardsView: React.FC = () => {
   // Execute Card Deletion from custom modal
   const confirmDeleteCard = (cardId: string, cardName: string) => {
     cardService.deleteCard(cardId, user?.email);
+    api.post('/user/log-action', { action: 'DELETE_CREDIT_CARD', details: `Removed card ${cardName}` }).catch(() => {});
     setCards(cardService.getCards(user?.email));
     if (selectedCardId === cardId) setSelectedCardId('all');
     setBannerMsg({ type: 'success', text: `Card ${cardName} removed. Past transactions remain in your ledger.` });
@@ -1133,14 +1168,21 @@ export const CreditCardsView: React.FC = () => {
             <span>Current Year</span>
           </button>
 
-          <button
+                    <button
             type="button"
             className="btn-secondary"
-            onClick={() => setIsAddCardOpen(true)}
+            onClick={() => {
+              if (cards.length >= cardLimit) {
+                setIsCardLimitModalOpen(true);
+              } else {
+                setIsAddCardOpen(true);
+              }
+            }}
             style={{ padding: '6px 14px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+            title={cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
           >
             <Plus size={15} />
-            <span>Add Card</span>
+            <span>Add Card ({cards.length}/{cardLimit})</span>
           </button>
 
           <button
@@ -1529,7 +1571,8 @@ export const CreditCardsView: React.FC = () => {
           </div>
         ) : (
           <div className="credit-cards-grid">
-          {cards.map(c => {
+          {cards.map((c, idx) => {
+            const isCardLocked = idx >= cardLimit;
             const cardStats = cardBalancesMap[c.name] || { purchases: 0, payments: 0, netOutstanding: 0, avail: c.limit, util: 0 };
             const availOnCard = cardStats.avail;
             const cardUtil = cardStats.util;
@@ -1563,10 +1606,74 @@ export const CreditCardsView: React.FC = () => {
                 onMouseEnter={() => handleCardMouseEnter(c.id)}
                 onMouseLeave={() => handleCardMouseLeave(c.id)}
                 style={{
+                  position: 'relative',
+                  overflow: 'hidden',
                   boxShadow: isSelected ? '0 14px 34px rgba(99, 102, 241, 0.45)' : '0 8px 24px rgba(0, 0, 0, 0.35)',
                   border: isSelected ? '2px solid #818CF8' : '1px solid rgba(255, 255, 255, 0.14)'
                 }}
               >
+                {isCardLocked && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsCardLimitModalOpen(true);
+                    }}
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      backdropFilter: 'blur(8px)',
+                      borderRadius: 'inherit',
+                      zIndex: 30,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: 24,
+                      textAlign: 'center',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: '50%',
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        border: '1px solid #EF4444',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#EF4444',
+                        marginBottom: 10
+                      }}
+                    >
+                      <Lock size={20} />
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#FFF', marginBottom: 4 }}>
+                      Card Locked (Quota Limit)
+                    </div>
+                    <p style={{ fontSize: 12, color: '#94A3B8', lineHeight: 1.5, maxWidth: 260, margin: '0 0 14px' }}>
+                      Your plan quota allows {cardLimit} active card{cardLimit > 1 ? 's' : ''}. Upgrade or request quota increase.
+                    </p>
+                    <button
+                      type="button"
+                      style={{
+                        background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                        color: '#FFF',
+                        border: 'none',
+                        borderRadius: 8,
+                        padding: '8px 16px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.4)'
+                      }}
+                    >
+                      Request Quota Increase
+                    </button>
+                  </div>
+                )}
                 {/* Physical Card Front Frame */}
                 <div
                   onClick={() => {
@@ -3339,6 +3446,155 @@ export const CreditCardsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Card Limit Exceeded & Request Access Modal */}
+      {isCardLimitModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.75)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 1100
+          }}
+        >
+          <div
+            style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 16,
+              padding: 28,
+              maxWidth: 460,
+              width: '100%',
+              textAlign: 'center',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.6)'
+            }}
+          >
+            <div
+              style={{
+                width: 52,
+                height: 52,
+                borderRadius: '50%',
+                background: 'rgba(59, 130, 246, 0.15)',
+                color: '#3B82F6',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}
+            >
+              <CreditCard size={26} />
+            </div>
+
+            <h3 style={{ margin: '0 0 8px', fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
+              Credit Card Limit Reached
+            </h3>
+
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
+              Your account ({user?.subscriptionTier || 'FREE'} Tier) is limited to <strong>{cardLimit} credit cards</strong>. You currently have {cards.length} active cards. To add more cards, request an upgrade to {user?.subscriptionTier === 'FREE' ? 'PRO Plan (5 Cards)' : 'ENTERPRISE Plan (Unlimited Cards)'}.
+            </p>
+
+            {limitRequestSuccess ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+                <div
+                  style={{
+                    background: 'rgba(16, 185, 129, 0.15)',
+                    border: '1px solid rgba(16, 185, 129, 0.3)',
+                    color: '#10B981',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    fontSize: 13,
+                    fontWeight: 700,
+                    lineHeight: 1.5
+                  }}
+                >
+                  <div>✓ Plan Upgrade Request Pending Approval</div>
+                  <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    Your subscription upgrade request is pending administrator review. You will receive an in-app and email notification once approved.
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    borderRadius: 10,
+                    border: '1px solid rgba(100, 116, 139, 0.3)',
+                    background: 'rgba(100, 116, 139, 0.15)',
+                    color: 'var(--text-secondary)',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'not-allowed',
+                    marginBottom: 6
+                  }}
+                >
+                  Pending Administrator Approval
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                disabled={requestingLimit}
+                onClick={async () => {
+                  setRequestingLimit(true);
+                  try {
+                    const targetTier = user?.subscriptionTier === 'FREE' ? 'PRO' : 'ENTERPRISE';
+                    await api.post('/access-requests', {
+                      requestType: `PLAN_UPGRADE_${targetTier}`,
+                      details: `User on ${user?.subscriptionTier || 'FREE'} requesting upgrade to ${targetTier} for card capacity increase (Current cards: ${cards.length}/${cardLimit})`
+                    });
+                    setLimitRequestSuccess(true);
+                    localStorage.setItem(`fintrack_pending_cc_limit_${user?.email}`, 'true');
+                  } catch {
+                    alert('Could not submit upgrade request. Please try again.');
+                  } finally {
+                    setRequestingLimit(false);
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)',
+                  color: '#FFF',
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  marginBottom: 10,
+                  boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)'
+                }}
+              >
+                {requestingLimit ? 'Submitting Upgrade Request...' : `Request Upgrade to ${user?.subscriptionTier === 'FREE' ? 'PRO Plan' : 'ENTERPRISE Plan'}`}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsCardLimitModalOpen(false)}
+              style={{
+                width: '100%',
+                padding: '10px',
+                borderRadius: 8,
+                border: '1px solid var(--border-color)',
+                background: 'transparent',
+                color: 'var(--text-secondary)',
+                fontSize: 13,
+                cursor: 'pointer'
+              }}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </main>
+
   );
 };

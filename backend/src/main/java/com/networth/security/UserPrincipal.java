@@ -6,8 +6,10 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
 
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
+import java.util.List;
 
 @Getter
 public class UserPrincipal implements UserDetails {
@@ -26,7 +28,24 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
-        return Collections.singletonList(new SimpleGrantedAuthority("ROLE_USER"));
+        List<GrantedAuthority> authorities = new ArrayList<>();
+        authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+        String r = user.getRole();
+        if (r != null) {
+            String roleUpper = r.trim().toUpperCase();
+            if ("ADMIN".equals(roleUpper) || "SUPER_ADMIN".equals(roleUpper)) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
+                if ("SUPER_ADMIN".equals(roleUpper)) {
+                    authorities.add(new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"));
+                }
+            }
+        }
+        return authorities;
+    }
+
+    public boolean isAdmin() {
+        String r = user.getRole();
+        return r != null && (r.equalsIgnoreCase("ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
     }
 
     @Override
@@ -46,6 +65,12 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonLocked() {
+        if ("FULL".equalsIgnoreCase(user.getLockType()) || "PERMANENT".equalsIgnoreCase(user.getLockType())) {
+            return false;
+        }
+        if ("TEMP".equalsIgnoreCase(user.getLockType()) && user.getLockUntil() != null) {
+            return LocalDateTime.now().isAfter(user.getLockUntil());
+        }
         return true;
     }
 
@@ -56,6 +81,6 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return !"INACTIVE".equalsIgnoreCase(user.getStatus());
     }
 }

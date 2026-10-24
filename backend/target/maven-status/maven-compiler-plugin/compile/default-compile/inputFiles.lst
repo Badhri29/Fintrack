@@ -1,3 +1,4 @@
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\AdminController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\AuthController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\CategoryController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\DashboardController.java
@@ -8,6 +9,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\AuthRequest.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\AuthResponse.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\UserDto.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\AccessRequest.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Asset.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Category.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\DefaultCategory.java
@@ -15,10 +17,15 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\ent
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Liability.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\OtpVerification.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\SubCategory.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\SubscriptionPlan.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\SystemSetting.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\Transaction.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\User.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\UserActivityLog.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\UserNotificationSetting.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\exception\GlobalExceptionHandler.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\NetworthApplication.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\AccessRequestRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\AssetRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\CategoryRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\DefaultCategoryRepository.java
@@ -26,7 +33,11 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\rep
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\LiabilityRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\OtpVerificationRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\SubCategoryRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\SubscriptionPlanRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\SystemSettingRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\TransactionRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserActivityLogRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserNotificationSettingRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\JwtAuthenticationFilter.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\JwtUtil.java

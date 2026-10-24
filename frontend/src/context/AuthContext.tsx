@@ -7,8 +7,37 @@ export interface User {
   id: number;
   email: string;
   name: string;
+  phone?: string;
   photo?: string;
+  age?: number;
+  gender?: string;
   isVerified?: boolean;
+  role?: string; // 'USER' | 'ADMIN' | 'SUPER_ADMIN'
+  status?: string;
+  lockType?: string;
+  lockUntil?: string;
+  lockReason?: string;
+  subscriptionTier?: string; // 'FREE' | 'PRO' | 'ENTERPRISE'
+  cardLimit?: number;
+  canAccessDashboard?: boolean;
+  canAccessReports?: boolean;
+  canEditSettings?: boolean;
+  isReadOnly?: boolean;
+  lastLoginAt?: string;
+  lastLogoutAt?: string;
+  lastActivityAt?: string;
+  isOnline?: boolean;
+  loginCount?: number;
+  mustChangePassword?: boolean;
+  isTemporaryPassword?: boolean;
+  temporaryPasswordExpiresAt?: string;
+}
+
+export interface MaintenanceInfo {
+  active: boolean;
+  message: string;
+  startTime?: string;
+  endTime?: string;
 }
 
 export interface LoginResult {
@@ -17,11 +46,24 @@ export interface LoginResult {
   identifier?: string;
   devOtp?: string;
   message?: string;
+  unregistered?: boolean;
+  isLocked?: boolean;
+  lockType?: string;
+  lockUntil?: string;
+  lockReason?: string;
+  isMaintenance?: boolean;
+  maintenanceMessage?: string;
+  maintenanceEnd?: string;
+  mustChangePassword?: boolean;
+  isTemporaryPassword?: boolean;
 }
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  maintenanceInfo: MaintenanceInfo | null;
+  demoTimeRemaining: number | null; // seconds remaining in demo session
+  isAdmin: boolean;
   login: (email: string, pass: string) => Promise<LoginResult>;
   sendRegistrationOtp: (email: string) => Promise<{ success: boolean; devOtp?: string; message?: string }>;
   verifyRegistrationOtp: (params: { email: string; otp: string; password: string; name?: string }) => Promise<void>;
@@ -30,6 +72,7 @@ interface AuthContextType {
   loginDemo: () => Promise<void>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => void;
+  refreshUserData: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -37,10 +80,72 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [maintenanceInfo, setMaintenanceInfo] = useState<MaintenanceInfo | null>(null);
+  const [demoTimeRemaining, setDemoTimeRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     checkUser();
+    checkMaintenance();
+    const interval = setInterval(checkMaintenance, 30000); // Check maintenance every 30s
+    return () => clearInterval(interval);
   }, []);
+
+  // Demo auto-logout session timer (5 minutes = 300 seconds)
+  useEffect(() => {
+    if (user && user.email === 'demo@fintrack.io') {
+      const storedStartTime = sessionStorage.getItem('fintrack_demo_start');
+      let startTime = storedStartTime ? parseInt(storedStartTime, 10) : Date.now();
+      if (!storedStartTime) {
+        sessionStorage.setItem('fintrack_demo_start', String(startTime));
+      }
+
+      const DEMO_DURATION = 300; // 5 minutes in seconds
+
+      const timer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const remaining = DEMO_DURATION - elapsed;
+
+        if (remaining <= 0) {
+          clearInterval(timer);
+          setDemoTimeRemaining(0);
+          sessionStorage.removeItem('fintrack_demo_start');
+          logout();
+          window.dispatchEvent(new CustomEvent('fintrack-demo-expired'));
+        } else {
+          setDemoTimeRemaining(remaining);
+        }
+      }, 1000);
+
+      return () => clearInterval(timer);
+    } else {
+      setDemoTimeRemaining(null);
+      sessionStorage.removeItem('fintrack_demo_start');
+    }
+  }, [user?.email]);
+
+  const checkMaintenance = async () => {
+    try {
+      const res = await api.get('/system/maintenance');
+      if (res.data?.success && res.data.data) {
+        setMaintenanceInfo(res.data.data);
+      }
+    } catch {}
+  };
+
+  const refreshUserData = async () => {
+    try {
+      const res = await api.get('/auth/me');
+      if (res.data && res.data.user) {
+        let currentUser: User = res.data.user;
+        const profRes = await api.get('/profile').catch(() => null);
+        if (profRes?.data?.success && profRes.data.data) {
+          if (profRes.data.data.name) currentUser.name = profRes.data.data.name;
+          if (profRes.data.data.photo) currentUser.photo = profRes.data.data.photo;
+        }
+        setUser(currentUser);
+      }
+    } catch {}
+  };
 
   const checkUser = async () => {
     const token = localStorage.getItem('token');
@@ -58,10 +163,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (profRes?.data?.success && profRes.data.data) {
           if (profRes.data.data.name) currentUser.name = profRes.data.data.name;
           if (profRes.data.data.photo) currentUser.photo = profRes.data.data.photo;
-        }
-        if (!currentUser.photo) {
-          const cachedPhoto = localStorage.getItem('fintrack_user_photo');
-          if (cachedPhoto) currentUser.photo = cachedPhoto;
         }
         if (currentUser.email === 'demo@fintrack.io') {
           seedDemoBudgetData();
@@ -92,10 +193,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (profRes.data.data.name) userData.name = profRes.data.data.name;
           if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
         }
-        if (!userData.photo) {
-          const cachedPhoto = localStorage.getItem('fintrack_user_photo');
-          if (cachedPhoto) userData.photo = cachedPhoto;
-        }
+        sessionStorage.setItem('fintrack_demo_start', String(Date.now()));
         seedDemoBudgetData(true);
         yearService.resetToCurrentYear();
         setUser(userData);
@@ -106,46 +204,67 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateUser = (data: Partial<User>) => {
-    if (data.photo !== undefined) {
-      if (data.photo) localStorage.setItem('fintrack_user_photo', data.photo);
-      else localStorage.removeItem('fintrack_user_photo');
-    }
     setUser(prev => (prev ? { ...prev, ...data } : null));
   };
 
   const login = async (email: string, pass: string): Promise<LoginResult> => {
-    const res = await api.post('/auth/login', {
-      email: email.trim().toLowerCase(),
-      password: pass
-    });
+    try {
+      const res = await api.post('/auth/login', {
+        email: email.trim().toLowerCase(),
+        password: pass
+      });
 
-    if (res.data?.requiresVerification) {
+      if (res.data?.requiresVerification) {
+        return {
+          success: false,
+          requiresVerification: true,
+          identifier: res.data.identifier || email,
+          devOtp: res.data.devOtp,
+          message: res.data.message
+        };
+      }
+
+      if (res.data && res.data.success) {
+        if (res.data.token) localStorage.setItem('token', res.data.token);
+        let userData: User = res.data.user;
+        if (res.data.mustChangePassword || res.data.isTemporaryPassword) {
+          userData.mustChangePassword = true;
+          userData.isTemporaryPassword = true;
+        }
+        const profRes = await api.get('/profile').catch(() => null);
+        if (profRes?.data?.success && profRes.data.data) {
+          if (profRes.data.data.name) userData.name = profRes.data.data.name;
+          if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
+        }
+        yearService.resetToCurrentYear();
+        setUser(userData);
+        return { success: true };
+      }
+
       return {
         success: false,
-        requiresVerification: true,
-        identifier: res.data.identifier || email,
-        devOtp: res.data.devOtp,
-        message: res.data.message
+        message: res.data?.error || res.data?.message || 'Login failed'
       };
-    }
-
-    if (res.data && res.data.success) {
-      if (res.data.token) localStorage.setItem('token', res.data.token);
-      let userData: User = res.data.user;
-      const profRes = await api.get('/profile').catch(() => null);
-      if (profRes?.data?.success && profRes.data.data) {
-        if (profRes.data.data.name) userData.name = profRes.data.data.name;
-        if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
+    } catch (err: any) {
+      const d = err.response?.data;
+      if (d) {
+        return {
+          success: false,
+          unregistered: d.unregistered,
+          isLocked: d.isLocked,
+          lockType: d.lockType,
+          lockUntil: d.lockUntil,
+          lockReason: d.lockReason,
+          isMaintenance: d.isMaintenance,
+          maintenanceMessage: d.maintenanceMessage,
+          maintenanceEnd: d.maintenanceEnd,
+          message: d.error || d.message || err.message
+        };
       }
-      if (!userData.photo) {
-        const cachedPhoto = localStorage.getItem('fintrack_user_photo');
-        if (cachedPhoto) userData.photo = cachedPhoto;
-      }
-      yearService.resetToCurrentYear();
-      setUser(userData);
-      return { success: true };
-    } else {
-      throw new Error(res.data?.error || res.data?.message || 'Invalid email or password');
+      return {
+        success: false,
+        message: err.message || 'Login failed'
+      };
     }
   };
 
@@ -222,17 +341,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const logout = async () => {
+    try {
+      await api.post('/auth/logout').catch(() => null);
+    } catch {}
     localStorage.removeItem('token');
-    localStorage.removeItem('fintrack_user_photo');
+    sessionStorage.removeItem('fintrack_demo_start');
     yearService.resetToCurrentYear();
     setUser(null);
   };
+
+  const isAdmin = Boolean(
+    user?.role && (user.role.toUpperCase() === 'ADMIN' || user.role.toUpperCase() === 'SUPER_ADMIN')
+  );
 
   return (
     <AuthContext.Provider
       value={{
         user,
         loading,
+        maintenanceInfo,
+        demoTimeRemaining,
+        isAdmin,
         login,
         sendRegistrationOtp,
         verifyRegistrationOtp,
@@ -240,7 +369,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         resendOtp,
         loginDemo,
         logout,
-        updateUser
+        updateUser,
+        refreshUserData
       }}
     >
       {children}
