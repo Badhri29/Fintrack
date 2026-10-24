@@ -17,8 +17,13 @@ import {
   Trash2,
   Camera,
   RefreshCw,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Mail,
+  RotateCcw,
+  Send,
+  Volume2
 } from 'lucide-react';
+import { playNotificationChime } from '../services/soundService';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, type ThemeMode } from '../context/ThemeContext';
 import { currencyService, SUPPORTED_CURRENCIES } from '../services/currencyService';
@@ -35,6 +40,43 @@ const PRESET_AVATARS = [
 export const SettingsView: React.FC = () => {
   const { user, logout, updateUser } = useAuth();
   const { theme, setTheme, effectiveTheme } = useTheme();
+
+  // Notification Preferences State (Connected to backend)
+  const [notifSettings, setNotifSettings] = useState<any>({
+    txSoftware: true,
+    txMail: false,
+    logoutMail: false,
+    pwdResetSoftware: true,
+    pwdResetMail: true,
+    eodMail: true,
+    eodFrequency: 'DAILY',
+    eodTime: '20:00',
+    accessSoftware: true,
+    accessMail: true,
+    loginMail: true,
+    maintenanceSoftware: true,
+    maintenanceMail: true,
+    ccBillAlertSoftware: true,
+    ccBillAlertMail: true,
+    ccBillAlertDays: '3',
+    ccBillAlertTime: '09:00',
+    emiAlertSoftware: true,
+    emiAlertMail: true,
+    emiAlertDays: '3',
+    emiAlertTime: '09:00'
+  });
+  const [eodTesting, setEodTesting] = useState<boolean>(false);
+  const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Request Access State (Multi-select)
+  const [selectedReqTypes, setSelectedReqTypes] = useState<string[]>(['CREDIT_CARD_LIMIT']);
+  const [reqDetails, setReqDetails] = useState<string>('');
+  const [reqSending, setReqSending] = useState<boolean>(false);
+  const [reqMsg, setReqMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Granular Reset state
+  const [resetSectionLoading, setResetSectionLoading] = useState<string | null>(null);
+  const [resetMsg, setResetMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Profile states
   const [name, setName] = useState<string>('');
@@ -89,16 +131,7 @@ export const SettingsView: React.FC = () => {
   });
   const [txMessage, setTxMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Notifications preferences
-  const [budgetAlert, setBudgetAlert] = useState<boolean>(() => {
-    return localStorage.getItem('fintrack_notif_budget') !== 'false';
-  });
-  const [highExpenseAlert, setHighExpenseAlert] = useState<boolean>(() => {
-    return localStorage.getItem('fintrack_notif_highexpense') !== 'false';
-  });
-  const [monthlySummary, setMonthlySummary] = useState<boolean>(() => {
-    return localStorage.getItem('fintrack_notif_summary') !== 'false';
-  });
+  // Audio chime preference
   const [soundEffects, setSoundEffects] = useState<boolean>(() => {
     return localStorage.getItem('fintrack_notif_sound') === 'true';
   });
@@ -116,7 +149,120 @@ export const SettingsView: React.FC = () => {
 
   useEffect(() => {
     fetchProfile();
+    fetchNotificationSettings();
   }, []);
+
+  const fetchNotificationSettings = async () => {
+    try {
+      const res = await api.get('/user/notification-settings');
+      if (res.data?.success && res.data.data) {
+        setNotifSettings(res.data.data);
+      }
+    } catch {}
+  };
+
+  const handleToggleNotif = async (field: string, val: any) => {
+    const updated = { ...notifSettings, [field]: val };
+    setNotifSettings(updated);
+    try {
+      await api.put('/user/notification-settings', { [field]: val });
+      setNotifMsg({ type: 'success', text: 'Notification preferences updated!' });
+      setTimeout(() => setNotifMsg(null), 3000);
+    } catch {
+      setNotifMsg({ type: 'error', text: 'Failed to update preferences.' });
+    }
+  };
+
+  const handleTriggerTestEod = async () => {
+    setEodTesting(true);
+    try {
+      const res = await api.post('/user/trigger-eod');
+      if (res.data?.success) {
+        setNotifMsg({ type: 'success', text: res.data.message || 'Sample EOD financial digest sent to your email!' });
+        setTimeout(() => setNotifMsg(null), 5000);
+      }
+    } catch (err: any) {
+      setNotifMsg({ type: 'error', text: err.response?.data?.error || 'Failed to dispatch test EOD digest.' });
+    } finally {
+      setEodTesting(false);
+    }
+  };
+
+  const handleResetSectionData = async (section: string) => {
+    const labels: Record<string, string> = {
+      categories: 'Categories and Subcategories (reset to defaults)',
+      loans: 'Loans & EMI section',
+      cards: 'Credit Cards section',
+      entire_app: 'ENTIRE FinTrack application (all transactions, cards, loans, categories for your account ONLY)'
+    };
+
+    if (!window.confirm(`Are you sure you want to reset ${labels[section] || section}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setResetSectionLoading(section);
+    setResetMsg(null);
+
+    try {
+      const userEmail = (user?.email || 'guest').toLowerCase();
+      if (section === 'loans' || section === 'entire_app') {
+        localStorage.removeItem(`fintrack_loans_list_${userEmail}`);
+      }
+      if (section === 'cards' || section === 'entire_app') {
+        localStorage.removeItem(`fintrack_credit_cards_${userEmail}`);
+      }
+      if (section === 'entire_app') {
+        localStorage.removeItem(`fintrack_budget_store_${userEmail}`);
+      }
+
+      const res = await api.post('/user/reset-section', { section });
+      if (res.data?.success) {
+        setResetMsg({ type: 'success', text: res.data.message || 'Reset completed successfully!' });
+        setTimeout(() => {
+          if (section === 'entire_app') {
+            window.location.reload();
+          }
+        }, 1200);
+      }
+    } catch (err: any) {
+      setResetMsg({ type: 'error', text: err.response?.data?.error || 'Reset operation failed. Please try again.' });
+    } finally {
+      setResetSectionLoading(null);
+    }
+  };
+
+  const toggleReqType = (typeId: string) => {
+    setSelectedReqTypes(prev =>
+      prev.includes(typeId) ? prev.filter(t => t !== typeId) : [...prev, typeId]
+    );
+  };
+
+  const handleSubmitAccessRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (selectedReqTypes.length === 0) {
+      setReqMsg({ type: 'error', text: 'Please select at least one permission or feature to request.' });
+      return;
+    }
+    setReqSending(true);
+    try {
+      await Promise.all(
+        selectedReqTypes.map(rt =>
+          api.post('/access-requests', {
+            requestType: rt,
+            details: reqDetails.trim() || `User requested access for ${rt}`
+          })
+        )
+      );
+      setReqMsg({ type: 'success', text: `Successfully delivered ${selectedReqTypes.length} request(s) to the administrator!` });
+      setReqDetails('');
+      setSelectedReqTypes([]);
+      setTimeout(() => setReqMsg(null), 5000);
+    } catch {
+      setReqMsg({ type: 'error', text: 'Could not send request. Please try again.' });
+    } finally {
+      setReqSending(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -146,7 +292,7 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const applyPhotoChange = (newPhoto: string) => {
+  const applyPhotoChange = async (newPhoto: string) => {
     setPhoto(newPhoto);
     if (newPhoto) {
       localStorage.setItem('fintrack_user_photo', newPhoto);
@@ -155,6 +301,19 @@ export const SettingsView: React.FC = () => {
     }
     updateUser({ photo: newPhoto });
     window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { photo: newPhoto } }));
+
+    // Immediately persist photo to database
+    try {
+      await api.put('/profile', {
+        name: name.trim() || user?.name,
+        phone: phone.trim() ? phone.trim() : null,
+        age: age ? Number(age) : null,
+        gender,
+        photo: newPhoto || null
+      });
+    } catch (err) {
+      console.warn('Auto-persist photo error:', err);
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,25 +364,32 @@ export const SettingsView: React.FC = () => {
     setProfileSaving(true);
     setProfileMessage(null);
     try {
-      await api.put('/profile', {
+      const res = await api.put('/profile', {
         name: name.trim(),
-        phone: phone.trim(),
+        phone: phone.trim() ? phone.trim() : null,
         age: age ? Number(age) : null,
         gender,
-        photo
+        photo: photo || null
       });
 
       localStorage.setItem('fintrack_profile_bio', bio.trim());
       if (photo) localStorage.setItem('fintrack_user_photo', photo);
-      updateUser({ name: name.trim(), photo });
+      else localStorage.removeItem('fintrack_user_photo');
+
+      const updatedUser = res.data;
+      updateUser({
+        name: updatedUser?.name || name.trim(),
+        phone: updatedUser?.phone || phone.trim(),
+        age: updatedUser?.age,
+        gender: updatedUser?.gender,
+        photo: updatedUser?.photo ?? photo
+      });
       window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { name: name.trim(), photo } }));
-      setProfileMessage({ type: 'success', text: 'Profile & Photo saved successfully!' });
-    } catch {
-      updateUser({ name: name.trim(), photo });
-      if (photo) localStorage.setItem('fintrack_user_photo', photo);
-      window.dispatchEvent(new CustomEvent('fintrack-profile-updated', { detail: { name: name.trim(), photo } }));
-      localStorage.setItem('fintrack_profile_bio', bio.trim());
-      setProfileMessage({ type: 'success', text: 'Profile saved successfully!' });
+      setProfileMessage({ type: 'success', text: 'Profile & photo saved successfully!' });
+    } catch (err: any) {
+      console.error('Failed to save profile:', err);
+      const errMsg = err?.response?.data?.message || err?.message || 'Failed to save profile. Please check your details.';
+      setProfileMessage({ type: 'error', text: errMsg });
     } finally {
       setProfileSaving(false);
     }
@@ -306,21 +472,7 @@ export const SettingsView: React.FC = () => {
     setTimeout(() => setTxMessage(null), 3000);
   };
 
-  const handleToggleNotification = (key: 'budget' | 'highexpense' | 'summary' | 'sound', val: boolean) => {
-    if (key === 'budget') {
-      setBudgetAlert(val);
-      localStorage.setItem('fintrack_notif_budget', String(val));
-    } else if (key === 'highexpense') {
-      setHighExpenseAlert(val);
-      localStorage.setItem('fintrack_notif_highexpense', String(val));
-    } else if (key === 'summary') {
-      setMonthlySummary(val);
-      localStorage.setItem('fintrack_notif_summary', String(val));
-    } else if (key === 'sound') {
-      setSoundEffects(val);
-      localStorage.setItem('fintrack_notif_sound', String(val));
-    }
-  };
+
 
   const handleExportCSV = async () => {
     setExporting(true);
@@ -408,22 +560,6 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const handleResetSettings = () => {
-    if (window.confirm('Are you sure you want to reset all preferences to application defaults? This will not delete your transactions.')) {
-      localStorage.removeItem('fintrack_currency');
-      localStorage.removeItem('fintrack_currency_symbol');
-      localStorage.removeItem('fintrack_date_format');
-      localStorage.removeItem('fintrack_number_format');
-      localStorage.removeItem('fintrack_financial_year');
-      localStorage.removeItem('fintrack-default-transaction-type');
-      localStorage.removeItem('fintrack-default-payment-mode');
-      localStorage.removeItem('fintrack-default-category');
-      localStorage.removeItem('fintrack-default-card');
-      localStorage.removeItem('fintrack-default-note');
-      localStorage.removeItem('fintrack-autofocus-amount');
-      window.location.reload();
-    }
-  };
 
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1439,132 +1575,434 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 5. Notifications & Alerts Card */}
+        {/* 5. Notification Controls & Preferences Matrix */}
         <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-            <div
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#6366F1'
+                }}
+              >
+                <Bell size={22} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                  Notification Controls
+                </h2>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  Granular Software (in-app) & SMTP Mail dual-channel preferences
+                </span>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleTriggerTestEod}
+              disabled={eodTesting}
               style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(59, 130, 246, 0.15)',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center',
-                color: '#3B82F6'
+                gap: 8,
+                padding: '8px 14px',
+                borderRadius: 8,
+                background: '#1E293B',
+                color: '#38BDF8',
+                border: '1px solid rgba(56, 189, 248, 0.3)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Dispatches a test EOD Financial Summary with PDF directly to your email"
+            >
+              <Mail size={14} />
+              {eodTesting ? 'Dispatching Test Email...' : 'Send Test EOD Digest'}
+            </button>
+          </div>
+
+          {notifMsg && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: notifMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                color: notifMsg.type === 'success' ? '#10B981' : '#EF4444',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
               }}
             >
-              <Bell size={22} />
+              {notifMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {notifMsg.text}
             </div>
+          )}
+
+          {/* Matrix Table */}
+          <div style={{ overflowX: 'auto', border: '1px solid var(--border-color)', borderRadius: 12, marginBottom: 20 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
+                  <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 600 }}>EVENT TYPE</th>
+                  <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 600, textAlign: 'center' }}>
+                    SOFTWARE (IN-APP)
+                  </th>
+                  <th style={{ padding: '12px 16px', color: 'var(--text-secondary)', fontWeight: 600, textAlign: 'center' }}>
+                    EMAIL NOTIFICATION
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* 1. Transaction */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>New Transaction Recorded</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Triggered on every income or expense entry</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.txSoftware}
+                      onChange={e => handleToggleNotif('txSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    <span style={{ padding: '3px 8px', borderRadius: 4, background: 'rgba(100, 116, 139, 0.15)' }}>
+                      In-App Only
+                    </span>
+                  </td>
+                </tr>
+
+                {/* 2. Password Reset */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Password Reset & OTP</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Security alerts when credentials change</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.pwdResetSoftware}
+                      onChange={e => handleToggleNotif('pwdResetSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.pwdResetMail}
+                      onChange={e => handleToggleNotif('pwdResetMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 3. EOD Digest */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>EOD Financial Digest & Report</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                      Periodic net worth, category spend summary & attached PDF
+                    </div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    <span style={{ padding: '3px 8px', borderRadius: 4, background: 'rgba(100, 116, 139, 0.15)' }}>
+                      Email Only
+                    </span>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.eodMail}
+                      onChange={e => handleToggleNotif('eodMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 4. Access Request Status */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Access Request Approval / Updates</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Notifies when admin reviews your limit or unlock request</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.accessSoftware}
+                      onChange={e => handleToggleNotif('accessSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.accessMail}
+                      onChange={e => handleToggleNotif('accessMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 5. Login Security Alerts */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>New Sign-In Alert</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Email with IP and timestamp when you log in</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>
+                    <span style={{ padding: '3px 8px', borderRadius: 4, background: 'rgba(100, 116, 139, 0.15)' }}>
+                      Email Only
+                    </span>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.loginMail}
+                      onChange={e => handleToggleNotif('loginMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 6. Maintenance Notices */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Scheduled Maintenance Alerts</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Advance notices when admin schedules downtime</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.maintenanceSoftware}
+                      onChange={e => handleToggleNotif('maintenanceSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.maintenanceMail}
+                      onChange={e => handleToggleNotif('maintenanceMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 7. Credit Card Bill Due Alerts */}
+                <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Credit Card Bill Due Date Alerts</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Advance alert before your credit card payment due date arrives</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.ccBillAlertSoftware !== false}
+                      onChange={e => handleToggleNotif('ccBillAlertSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.ccBillAlertMail !== false}
+                      onChange={e => handleToggleNotif('ccBillAlertMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+
+                {/* 8. Loan & EMI Payment Alerts */}
+                <tr>
+                  <td style={{ padding: '14px 16px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Loan & EMI Payment Alerts</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Advance alert before monthly home/car/personal loan EMI debit date</div>
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.emiAlertSoftware !== false}
+                      onChange={e => handleToggleNotif('emiAlertSoftware', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                  <td style={{ padding: '14px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={notifSettings.emiAlertMail !== false}
+                      onChange={e => handleToggleNotif('emiAlertMail', e.target.checked)}
+                      style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* EOD Digest Schedule Frequency */}
+          <div
+            style={{
+              padding: 16,
+              borderRadius: 10,
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12
+            }}
+          >
             <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Notifications & Alerts
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Threshold triggers and activity digests
-              </span>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>
+                EOD Digest Delivery Frequency & Time
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Customize when Fintrack compiles and emails your financial statement
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <select
+                className="modal-input"
+                style={{ width: 130, padding: '8px 10px' }}
+                value={notifSettings.eodFrequency || 'DAILY'}
+                onChange={e => handleToggleNotif('eodFrequency', e.target.value)}
+              >
+                <option value="DAILY">Every Day</option>
+                <option value="WEEKLY">Weekly</option>
+                <option value="MONTHLY">Monthly</option>
+              </select>
+
+              <input
+                type="time"
+                className="modal-input"
+                style={{ width: 110, padding: '8px 10px' }}
+                value={notifSettings.eodTime || '20:00'}
+                onChange={e => handleToggleNotif('eodTime', e.target.value)}
+              />
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
+          {/* Bill & EMI Due Alert Schedule Preferences */}
+          <div
+            style={{
+              padding: 16,
               borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  Budget Threshold Alerts
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Warn in header notifications when category spending crosses 80%
-                </div>
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginTop: 14
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14 }}>
+                Credit Card Bill & Loan EMI Reminder Schedule
               </div>
-              <input
-                type="checkbox"
-                checked={budgetAlert}
-                onChange={e => handleToggleNotification('budget', e.target.checked)}
-                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
-              />
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Select how many days in advance to receive payment due alerts & notifications
+              </div>
             </div>
 
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  High-Value Transaction Warning
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Highlight transactions exceeding ₹5,000 (or equivalent in selected currency)
-                </div>
-              </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <select
+                className="modal-input"
+                style={{ width: 150, padding: '8px 10px' }}
+                value={notifSettings.ccBillAlertDays || '3'}
+                onChange={e => handleToggleNotif('ccBillAlertDays', e.target.value)}
+              >
+                <option value="0">Same Day Alert</option>
+                <option value="1">1 Day Before</option>
+                <option value="2">2 Days Before</option>
+                <option value="3">3 Days Before</option>
+                <option value="5">5 Days Before</option>
+              </select>
+
               <input
-                type="checkbox"
-                checked={highExpenseAlert}
-                onChange={e => handleToggleNotification('highexpense', e.target.checked)}
-                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
+                type="time"
+                className="modal-input"
+                style={{ width: 110, padding: '8px 10px' }}
+                value={notifSettings.ccBillAlertTime || '09:00'}
+                onChange={e => handleToggleNotif('ccBillAlertTime', e.target.value)}
               />
             </div>
+          </div>
 
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
+          {/* Software Notification Sound ("Ding" Bell Tone) */}
+          <div
+            style={{
+              padding: 16,
               borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  Monthly Performance Digest
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Show net cashflow insights in the notification bell
-                </div>
+              background: 'var(--bg-secondary)',
+              border: '1px solid var(--border-color)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: 12,
+              marginTop: 14
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Volume2 size={16} style={{ color: '#6366F1' }} />
+                <span>Software Notification Audio Chime ("Ding" Bell)</span>
               </div>
-              <input
-                type="checkbox"
-                checked={monthlySummary}
-                onChange={e => handleToggleNotification('summary', e.target.checked)}
-                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
-              />
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                Synthesized crystal-clear chime for instant audio feedback on new transactions, saves, and alerts
+              </div>
             </div>
 
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  Sound & Haptic Feedback
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Subtle audio chime on successful transaction saves
-                </div>
-              </div>
-              <input
-                type="checkbox"
-                checked={soundEffects}
-                onChange={e => handleToggleNotification('sound', e.target.checked)}
-                style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <button
+                type="button"
+                onClick={() => playNotificationChime()}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  borderRadius: 6,
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  color: '#818CF8',
+                  border: '1px solid rgba(99, 102, 241, 0.3)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                <Volume2 size={13} />
+                Test Chime
+              </button>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-primary)', fontWeight: 600 }}>
+                <input
+                  type="checkbox"
+                  checked={soundEffects}
+                  onChange={e => {
+                    const checked = e.target.checked;
+                    setSoundEffects(checked);
+                    localStorage.setItem('fintrack_notif_sound', checked ? 'true' : 'false');
+                    if (checked) playNotificationChime();
+                  }}
+                  style={{ width: 18, height: 18, accentColor: '#6366F1', cursor: 'pointer' }}
+                />
+                <span>Enable Sound</span>
+              </label>
             </div>
           </div>
         </div>
@@ -1655,44 +2093,6 @@ export const SettingsView: React.FC = () => {
               </button>
             </div>
 
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 16px',
-              background: 'var(--bg-secondary)',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  Reset App Preferences
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Clear saved local defaults and return to factory configurations
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleResetSettings}
-                style={{
-                  padding: '8px 14px',
-                  fontSize: 13,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#EF4444',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
-                  borderRadius: 8,
-                  fontWeight: 600,
-                  cursor: 'pointer'
-                }}
-              >
-                <Trash2 size={15} />
-                Reset Defaults
-              </button>
-            </div>
 
             {exportMessage && (
               <div
@@ -1813,6 +2213,477 @@ export const SettingsView: React.FC = () => {
                 </span>
               )}
             </div>
+          </form>
+        </div>
+
+        {/* 8. Granular Section Resets Card */}
+        <div className="summary-card" style={{ padding: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'rgba(239, 68, 68, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#EF4444'
+              }}
+            >
+              <RotateCcw size={22} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                Granular Section Resets
+              </h2>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                Reset specific functional modules or wipe your account back to clean initial state
+              </span>
+            </div>
+          </div>
+
+          {resetMsg && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: resetMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                color: resetMsg.type === 'success' ? '#10B981' : '#EF4444',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              {resetMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {resetMsg.text}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+            {/* Reset Categories */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  Categories & Subcategories
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+                  Restores default system categories (Food, Housing, Utilities, etc.) and removes custom ones.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'categories'}
+                onClick={() => handleResetSectionData('categories')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <RotateCcw size={13} />
+                {resetSectionLoading === 'categories' ? 'Resetting...' : 'Reset Categories'}
+              </button>
+            </div>
+
+            {/* Reset Loans & EMI */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  Loans & EMI Section
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+                  Deletes all active loans, liabilities, and EMI payment schedules for your account.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'loans'}
+                onClick={() => handleResetSectionData('loans')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <RotateCcw size={13} />
+                {resetSectionLoading === 'loans' ? 'Resetting...' : 'Reset Loans & EMI'}
+              </button>
+            </div>
+
+            {/* Reset Credit Cards */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  Credit Cards Section
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+                  Removes saved credit cards and card payment records for your account.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'cards'}
+                onClick={() => handleResetSectionData('cards')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.1)',
+                  color: '#EF4444',
+                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <RotateCcw size={13} />
+                {resetSectionLoading === 'cards' ? 'Resetting...' : 'Reset Credit Cards'}
+              </button>
+            </div>
+
+            {/* Reset Entire Application (Account Wipe) */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'rgba(239, 68, 68, 0.05)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 800, color: '#EF4444', fontSize: 14 }}>
+                  Entire Application (Account Reset)
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
+                  Wipes all transactions, cards, loans & resets only your account to fresh initial state.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'entire_app'}
+                onClick={() => handleResetSectionData('entire_app')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: '#DC2626',
+                  color: '#FFF',
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <Trash2 size={13} />
+                {resetSectionLoading === 'entire_app' ? 'Wiping Account...' : 'Wipe & Reset Entire App'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* 9. Request Feature Access & Quota Upgrades */}
+        <div className="summary-card" style={{ padding: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+            <div
+              style={{
+                width: 44,
+                height: 44,
+                borderRadius: 12,
+                background: 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#10B981'
+              }}
+            >
+              <Send size={22} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                Request Feature Access & Quota Upgrades
+              </h2>
+              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                Submit a request directly to the administrator to upgrade card limit, unlock restricted views, or adjust permissions
+              </span>
+            </div>
+          </div>
+
+          {reqMsg && (
+            <div
+              style={{
+                marginBottom: 16,
+                padding: '10px 14px',
+                borderRadius: 8,
+                background: reqMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                color: reqMsg.type === 'success' ? '#10B981' : '#EF4444',
+                fontSize: 13,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              {reqMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {reqMsg.text}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmitAccessRequest} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <div>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, letterSpacing: '0.05em' }}>
+                SELECT PERMISSION OR FEATURE TO REQUEST
+              </label>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+                {(() => {
+                  const currentTier = (user?.subscriptionTier || 'FREE').toUpperCase();
+                  const featureOptions: {
+                    id: string;
+                    name: string;
+                    description: string;
+                    isActive: boolean;
+                  }[] = [];
+
+                  // Subscription upgrade options (Strictly Upgrades Only - No Downgrades)
+                  if (currentTier === 'FREE') {
+                    featureOptions.push({
+                      id: 'SUBSCRIPTION_PRO',
+                      name: 'Upgrade to PRO Tier',
+                      description: 'Unlocks unlimited cards, multi-device sync, and priority reports',
+                      isActive: false
+                    });
+                    featureOptions.push({
+                      id: 'SUBSCRIPTION_ENTERPRISE',
+                      name: 'Upgrade to ENTERPRISE Tier',
+                      description: 'Maximum tier with custom categories, dedicated exports & VIP support',
+                      isActive: false
+                    });
+                  } else if (currentTier === 'PRO') {
+                    featureOptions.push({
+                      id: 'SUBSCRIPTION_ENTERPRISE',
+                      name: 'Upgrade to ENTERPRISE Tier',
+                      description: 'Upgrade from PRO to maximum tier with unlimited capacity and VIP support',
+                      isActive: false
+                    });
+                  } else {
+                    featureOptions.push({
+                      id: 'SUBSCRIPTION_MAX',
+                      name: 'ENTERPRISE Tier',
+                      description: 'You are on the highest tier. All premium modules are active.',
+                      isActive: true
+                    });
+                  }
+
+                  // Credit Card Quota
+                  featureOptions.push({
+                    id: 'CREDIT_CARD_LIMIT',
+                    name: 'Credit Card Quota Increase',
+                    description: `Current allowance: ${user?.cardLimit || 2} cards. Request additional slots.`,
+                    isActive: false
+                  });
+
+                  // Financial Dashboard
+                  featureOptions.push({
+                    id: 'DASHBOARD_ACCESS',
+                    name: 'Financial Dashboard Access',
+                    description: 'Dynamic charts, net worth trajectory, and cash flow visualization',
+                    isActive: user?.canAccessDashboard !== false
+                  });
+
+                  // Reports & Analytics
+                  featureOptions.push({
+                    id: 'REPORTS_ACCESS',
+                    name: 'Reports & Analytics Access',
+                    description: 'Monthly financial statements, category breakdowns & PDF exports',
+                    isActive: user?.canAccessReports !== false
+                  });
+
+                  // Loans & EMI
+                  featureOptions.push({
+                    id: 'LOANS_EMI_ACCESS',
+                    name: 'Loans & EMI Module',
+                    description: 'Debt amortization schedules, interest breakdown & payment planner',
+                    isActive: currentTier !== 'FREE'
+                  });
+
+                  // EOD Digest Mailer
+                  featureOptions.push({
+                    id: 'EOD_DIGEST_ACCESS',
+                    name: 'EOD Digest Mailer',
+                    description: 'Automated daily / monthly financial statement emailed to your inbox',
+                    isActive: Boolean(notifSettings.eodMail)
+                  });
+
+                  return featureOptions.map(feat => {
+                    const isSelected = selectedReqTypes.includes(feat.id);
+                    return (
+                      <div
+                        key={feat.id}
+                        onClick={() => {
+                          if (!feat.isActive) {
+                            toggleReqType(feat.id);
+                          }
+                        }}
+                        style={{
+                          padding: '14px 16px',
+                          borderRadius: 12,
+                          border: isSelected
+                            ? '2px solid #6366F1'
+                            : feat.isActive
+                            ? '1px solid rgba(16, 185, 129, 0.3)'
+                            : '1px solid var(--border-color)',
+                          background: isSelected
+                            ? 'rgba(99, 102, 241, 0.12)'
+                            : feat.isActive
+                            ? 'rgba(16, 185, 129, 0.04)'
+                            : 'var(--bg-secondary)',
+                          cursor: feat.isActive ? 'default' : 'pointer',
+                          transition: 'all 0.15s ease',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'space-between',
+                          minHeight: 110,
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                            {!feat.isActive ? (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleReqType(feat.id)}
+                                style={{ width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', flexShrink: 0 }}
+                              />
+                            ) : null}
+                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
+                              {feat.name}
+                            </div>
+                          </div>
+
+                          {feat.isActive ? (
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                              ✓ Active
+                            </span>
+                          ) : isSelected ? (
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#6366F1', color: '#FFF', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                              Selected
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(100, 116, 139, 0.2)', color: 'var(--text-secondary)', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                              Select
+                            </span>
+                          )}
+                        </div>
+
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, marginTop: 4 }}>
+                          {feat.description}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </div>
+
+            <div style={{ width: '100%' }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                DETAILS & JUSTIFICATION
+              </label>
+              <textarea
+                className="modal-input"
+                rows={4}
+                value={reqDetails}
+                onChange={e => setReqDetails(e.target.value)}
+                placeholder="Explain why you need this feature, upgrade or quota increase..."
+                required
+                style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={reqSending || selectedReqTypes.length === 0}
+              className="btn-primary"
+              style={{
+                alignSelf: 'flex-start',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                opacity: selectedReqTypes.length === 0 ? 0.6 : 1,
+                cursor: selectedReqTypes.length === 0 ? 'not-allowed' : 'pointer'
+              }}
+            >
+              <Send size={16} />
+              {reqSending
+                ? 'Submitting Request...'
+                : selectedReqTypes.length > 0
+                ? `Submit ${selectedReqTypes.length} Request(s) to Admin`
+                : 'Select Feature(s) to Request'}
+            </button>
           </form>
         </div>
 

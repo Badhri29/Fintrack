@@ -22,6 +22,9 @@ public class TransactionController {
     @Autowired
     private TransactionRepository transactionRepository;
 
+    @Autowired
+    private com.networth.repository.UserActivityLogRepository userActivityLogRepository;
+
     private LocalDate parseLocalDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDate.now();
@@ -97,6 +100,15 @@ public class TransactionController {
 
         transaction = transactionRepository.save(transaction);
 
+        try {
+            userActivityLogRepository.save(com.networth.entity.UserActivityLog.builder()
+                    .userId(principal.getId())
+                    .userEmail(principal.getEmail())
+                    .action("TRANSACTION_ADDED")
+                    .details("Added " + (transaction.getType() != null ? transaction.getType().toUpperCase() : "TRANSACTION") + " of ₹" + transaction.getAmount() + " in " + (transaction.getCategory() != null ? transaction.getCategory() : "General"))
+                    .build());
+        } catch (Exception ignored) {}
+
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(Map.of("success", true, "data", transaction));
     }
@@ -140,7 +152,18 @@ public class TransactionController {
                     .body(Map.of("success", false, "message", "Transaction not found"));
         }
 
+        var existing = opt.get();
         transactionRepository.deleteByIdAndUserId(id, principal.getId());
+
+        try {
+            userActivityLogRepository.save(com.networth.entity.UserActivityLog.builder()
+                    .userId(principal.getId())
+                    .userEmail(principal.getEmail())
+                    .action("TRANSACTION_DELETED")
+                    .details("Deleted " + existing.getType() + " of ₹" + existing.getAmount())
+                    .build());
+        } catch (Exception ignored) {}
+
         return ResponseEntity.ok(Map.of("success", true));
     }
 

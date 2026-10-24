@@ -16,6 +16,8 @@ import {
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
 import { cardService, type CardModel } from '../services/cardService';
+import { playNotificationChime } from '../services/soundService';
+import { showToast } from './ToastNotification';
 
 export type TransactionType = 'expense' | 'income' | 'savings';
 
@@ -392,6 +394,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       } else {
         await api.post('/transactions', payload);
       }
+      playNotificationChime();
+      showToast({
+        title: isEditing ? 'Transaction Updated' : 'Transaction Recorded',
+        message: `${type.toUpperCase()}: ${currencyService.format(finalNumericAmount)} for ${category} (${finalSubcategory})`,
+        type: 'success'
+      });
+      api.post('/user/log-action', {
+        action: isEditing ? 'EDIT_TRANSACTION' : 'ADD_TRANSACTION',
+        details: `${type.toUpperCase()}: ${currencyService.format(finalNumericAmount)} in ${category}`
+      }).catch(() => {});
       window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
       onSuccess();
       onClose();
