@@ -79,6 +79,7 @@ export const calculateEMI = (principal: number, annualRate: number, tenureMonths
 
 export const LoansEmiView: React.FC = () => {
   const { user } = useAuth();
+  const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
   const [loans, setLoans] = useState<LoanModel[]>(() => {
     try {
       const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
@@ -355,14 +356,20 @@ export const LoansEmiView: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => setIsAddLoanOpen(true)}
-          >
-            <Plus size={16} />
-            <span>Add New Loan</span>
-          </button>
+          {!isViewOnly ? (
+            <button
+              type="button"
+              className="btn-primary"
+              onClick={() => setIsAddLoanOpen(true)}
+            >
+              <Plus size={16} />
+              <span>Add New Loan</span>
+            </button>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 13, fontWeight: 600 }}>
+              View-only Access
+            </div>
+          )}
         </div>
       </div>
 
@@ -483,6 +490,7 @@ export const LoansEmiView: React.FC = () => {
             <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto 20px', lineHeight: 1.5 }}>
               Track home loans, car loans, personal loans, and consumer EMIs with live amortization schedules, outstanding balances, and monthly dues.
             </p>
+            {!isViewOnly && (
             <button
               type="button"
               onClick={() => setIsAddLoanOpen(true)}
@@ -504,6 +512,7 @@ export const LoansEmiView: React.FC = () => {
               <Plus size={16} />
               Add Your First Loan
             </button>
+          )}
           </div>
         ) : (
           <div className="loans-grid">
@@ -542,16 +551,18 @@ export const LoansEmiView: React.FC = () => {
                       </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteLoan(loan.id, loan.name)}
-                      title="Remove loan"
-                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
-                      onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
-                      onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    {!isViewOnly && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteLoan(loan.id, loan.name)}
+                        title="Remove loan"
+                        style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 4 }}
+                        onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                        onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
                   </div>
 
                   {/* Loan Amount & EMI Numbers */}
@@ -592,18 +603,22 @@ export const LoansEmiView: React.FC = () => {
                     Due Day: <strong style={{ color: 'var(--text-primary)' }}>{loan.dueDay}th</strong> of month
                   </div>
 
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    style={{ padding: '6px 14px', fontSize: 12 }}
-                    onClick={() => {
-                      setPayingLoan(loan);
-                      setPayEmiAmount(String(emi));
-                      setIsPayEmiOpen(true);
-                    }}
-                  >
-                    <span>Record EMI Payment</span>
-                  </button>
+                  {!isViewOnly ? (
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      style={{ padding: '6px 14px', fontSize: 12 }}
+                      onClick={() => {
+                        setPayingLoan(loan);
+                        setPayEmiAmount(String(emi));
+                        setIsPayEmiOpen(true);
+                      }}
+                    >
+                      <span>Record EMI Payment</span>
+                    </button>
+                  ) : (
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic' }}>View only</span>
+                  )}
                 </div>
               </div>
             );
@@ -731,15 +746,17 @@ export const LoansEmiView: React.FC = () => {
               </div>
             </div>
 
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
-              onClick={handleAddFromCalculator}
-            >
-              <Plus size={16} />
-              <span>Add as Tracked Loan</span>
-            </button>
+            {!isViewOnly && (
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
+                onClick={handleAddFromCalculator}
+              >
+                <Plus size={16} />
+                <span>Add as Tracked Loan</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

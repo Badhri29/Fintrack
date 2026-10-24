@@ -114,6 +114,7 @@ export const isBillPaymentTx = (t: any): boolean => {
 
 export const CreditCardsView: React.FC = () => {
   const { user } = useAuth();
+  const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
   const [isCardLimitModalOpen, setIsCardLimitModalOpen] = useState<boolean>(false);
   const [requestingLimit, setRequestingLimit] = useState<boolean>(false);
   const [limitRequestSuccess, setLimitRequestSuccess] = useState<boolean>(() => {
@@ -1178,7 +1179,7 @@ export const CreditCardsView: React.FC = () => {
                 setIsAddCardOpen(true);
               }
             }}
-            style={{ padding: '6px 14px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ padding: '6px 14px', fontSize: 13, display: isViewOnly ? 'none' : 'flex', alignItems: 'center', gap: 6 }}
             title={cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
           >
             <Plus size={15} />
@@ -1198,7 +1199,7 @@ export const CreditCardsView: React.FC = () => {
               setSpendCard(cards[0]?.name || '');
               setIsAddSpendOpen(true);
             }}
-            style={{ padding: '6px 16px', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ padding: '6px 16px', fontSize: 13, display: isViewOnly ? 'none' : 'flex', alignItems: 'center', gap: 6 }}
           >
             <Plus size={15} />
             <span>Add Credit Spend</span>
@@ -1733,43 +1734,47 @@ export const CreditCardsView: React.FC = () => {
                       </button>
 
                       {/* Edit Card Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => handleOpenEditCard(c, e)}
-                        title="Edit card details"
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.12)',
-                          border: '1px solid rgba(255, 255, 255, 0.2)',
-                          color: 'rgba(255, 255, 255, 0.75)',
-                          cursor: 'pointer',
-                          padding: 5,
-                          borderRadius: 6,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                      >
-                        <Edit3 size={14} />
-                      </button>
+                      {!isViewOnly && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenEditCard(c, e)}
+                          title="Edit card details"
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.12)',
+                            border: '1px solid rgba(255, 255, 255, 0.2)',
+                            color: 'rgba(255, 255, 255, 0.75)',
+                            cursor: 'pointer',
+                            padding: 5,
+                            borderRadius: 6,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                      )}
 
                       {/* Delete Card Button */}
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCardToDelete(c);
-                        }}
-                        title="Delete card"
-                        style={{
-                          background: 'transparent',
-                          border: 'none',
-                          color: 'rgba(255, 255, 255, 0.45)',
-                          cursor: 'pointer',
-                          padding: 4
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {!isViewOnly && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCardToDelete(c);
+                          }}
+                          title="Delete card"
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'rgba(255, 255, 255, 0.45)',
+                            cursor: 'pointer',
+                            padding: 4
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -2332,24 +2337,28 @@ export const CreditCardsView: React.FC = () => {
                           {isPayment ? `+${currencyService.format(amt)}` : `-${currencyService.format(amt)}`}
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTransaction(tx.id)}
-                            title="Delete transaction"
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--text-muted)',
-                              cursor: 'pointer',
-                              padding: 4,
-                              borderRadius: 6,
-                              transition: 'color 0.15s'
-                            }}
-                            onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
-                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          {!isViewOnly ? (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTransaction(tx.id)}
+                              title="Delete transaction"
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: 'var(--text-muted)',
+                                cursor: 'pointer',
+                                padding: 4,
+                                borderRadius: 6,
+                                transition: 'color 0.15s'
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                              onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>View only</span>
+                          )}
                         </td>
                       </tr>
                     );

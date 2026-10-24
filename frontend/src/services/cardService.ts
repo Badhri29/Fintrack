@@ -49,14 +49,14 @@ export const DEFAULT_CARDS: CardModel[] = [
     limit: 250000,
     billingDay: 12,
     dueDay: 2,
-    gradient: 'linear-gradient(135deg, #0369A1 0%, #075985 60%, #0C4A6E 100%)',
-    accent: '#38BDF8',
+    gradient: 'linear-gradient(135deg, #1E1B4B 0%, #311042 60%, #4C1D95 100%)',
+    accent: '#8B5CF6',
     isActive: true
   },
   {
     id: 'card-3',
-    name: 'SBI Cashback',
-    bank: 'SBI Card',
+    name: 'SBI Cashback Card',
+    bank: 'State Bank of India',
     network: 'Mastercard',
     cardNumber: '5241987654323014',
     last4: '3014',
@@ -73,9 +73,20 @@ export const DEFAULT_CARDS: CardModel[] = [
 ];
 
 export const getActiveUserEmail = (providedEmail?: string): string => {
+  try {
+    const cached = localStorage.getItem('fintrack_user_cache');
+    if (cached) {
+      const u = JSON.parse(cached);
+      if (u.parentUserEmail && u.parentUserEmail.trim()) {
+        return u.parentUserEmail.trim().toLowerCase();
+      }
+    }
+  } catch {}
+
   if (providedEmail && providedEmail.trim()) {
     return providedEmail.trim().toLowerCase();
   }
+
   try {
     const token = localStorage.getItem('token');
     if (token) {

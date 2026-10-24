@@ -12,7 +12,8 @@ import {
   Layers,
   TrendingUp,
   TrendingDown,
-  PiggyBank
+  PiggyBank,
+  Eye
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -143,6 +144,7 @@ export const formatCompactCurrency = (amountInr: number): string => {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransaction }) => {
   const { user } = useAuth();
+  const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
 
@@ -1160,10 +1162,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             <span>Current Year</span>
           </button>
 
-          <button className="btn-primary" onClick={onOpenNewTransaction}>
-            <Plus size={16} />
-            <span>Add Transaction</span>
-          </button>
+          {!isViewOnly ? (
+            <button className="btn-primary" onClick={onOpenNewTransaction}>
+              <Plus size={16} />
+              <span>Add Transaction</span>
+            </button>
+          ) : (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: 'rgba(59, 130, 246, 0.12)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                color: '#60A5FA',
+                padding: '8px 14px',
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 700
+              }}
+            >
+              <Eye size={15} />
+              <span>View-only Access</span>
+            </div>
+          )}
         </div>
       </div>
 

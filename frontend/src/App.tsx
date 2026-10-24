@@ -7,6 +7,7 @@ import { BudgetTransactionsView } from './views/BudgetTransactionsView';
 import { CreditCardsView } from './views/CreditCardsView';
 import { LoansEmiView } from './views/LoansEmiView';
 import { SettingsView } from './views/SettingsView';
+import { AccountAccessView } from './views/AccountAccessView';
 import { LoginView } from './views/LoginView';
 import { AdminView } from './views/AdminView';
 import { TransactionModal } from './components/TransactionModal';
@@ -14,7 +15,7 @@ import { ProfileModal } from './components/ProfileModal';
 import { TempPasswordResetModal } from './components/TempPasswordResetModal';
 import { CurrencyOnboardingModal } from './components/CurrencyOnboardingModal';
 import { InactivityTracker } from './components/InactivityTracker';
-import { ToastNotification } from './components/ToastNotification';
+import { ToastNotification, showToast } from './components/ToastNotification';
 import { AlertTriangle, Lock } from 'lucide-react';
 import api from './services/api';
 
@@ -63,11 +64,24 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [user]);
 
+  // Redirect member away from Access tab if selected
+  useEffect(() => {
+    if ((user?.isMember || user?.parentUserId) && (activeTab === 'Access' || activeTab === 'Settings')) {
+      setActiveTab('Dashboard');
+    }
+  }, [user, activeTab]);
+
   const handleTransactionSuccess = () => {
     setRefreshKey(prev => prev + 1);
   };
 
+  const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
+
   const openTransactionModal = (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => {
+    if (isViewOnly) {
+      showToast({ title: 'View Only', message: 'You have view-only access. Adding transactions is disabled.', type: 'warning' });
+      return;
+    }
     setTransactionDefaults({ category: typeof category === 'string' ? category : undefined, subcategory, type });
     setIsModalOpen(true);
   };
@@ -381,7 +395,11 @@ function AppContent() {
         )
       )}
 
-      {activeTab === 'Settings' && (
+      {activeTab === 'Access' && !user?.isMember && !user?.parentUserId && (
+        <AccountAccessView key={refreshKey} />
+      )}
+
+      {activeTab === 'Settings' && !user?.isMember && !user?.parentUserId && (
         <SettingsView key={refreshKey} />
       )}
 
