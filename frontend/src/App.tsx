@@ -336,7 +336,7 @@ function AppContent() {
             {hasPendingUpgrade ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
-                  ✓ Plan Upgrade Request Pending Administrator Approval
+                  ✓ Upgrade request has been sent, approval is pending
                 </div>
                 <button
                   type="button"

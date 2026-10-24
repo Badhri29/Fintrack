@@ -21,13 +21,32 @@ import {
   Mail,
   RotateCcw,
   Send,
-  Volume2
+  Volume2,
+  Clock
 } from 'lucide-react';
 import { playNotificationChime } from '../services/soundService';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, type ThemeMode } from '../context/ThemeContext';
 import { currencyService, SUPPORTED_CURRENCIES } from '../services/currencyService';
 import api from '../services/api';
+
+export interface SubscriptionPlanItem {
+  id: number;
+  planCode: string;
+  planName: string;
+  price: number;
+  currency: string;
+  billingPeriod: string;
+  maxCreditCards: number;
+  canAccessDashboard: boolean;
+  canAccessReports: boolean;
+  canAccessLoans: boolean;
+  canAccessBudget: boolean;
+  canExportData: boolean;
+  canUseEodDigest: boolean;
+  description?: string;
+  isActive: boolean;
+}
 
 const PRESET_AVATARS = [
   'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
@@ -68,10 +87,11 @@ export const SettingsView: React.FC = () => {
   const [eodTesting, setEodTesting] = useState<boolean>(false);
   const [notifMsg, setNotifMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Request Access State (Multi-select)
-  const [selectedReqTypes, setSelectedReqTypes] = useState<string[]>(['CREDIT_CARD_LIMIT']);
-  const [reqDetails, setReqDetails] = useState<string>('');
-  const [reqSending, setReqSending] = useState<boolean>(false);
+  // Subscription Plans & Upgrade State
+  const [plans, setPlans] = useState<SubscriptionPlanItem[]>([]);
+  const [plansLoading, setPlansLoading] = useState<boolean>(true);
+  const [myPendingRequests, setMyPendingRequests] = useState<string[]>([]);
+  const [requestingPlanCode, setRequestingPlanCode] = useState<string | null>(null);
   const [reqMsg, setReqMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Granular Reset state
@@ -150,6 +170,8 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     fetchProfile();
     fetchNotificationSettings();
+    fetchSubscriptionPlans();
+    fetchMyAccessRequests();
   }, []);
 
   const fetchNotificationSettings = async () => {
@@ -231,36 +253,54 @@ export const SettingsView: React.FC = () => {
     }
   };
 
-  const toggleReqType = (typeId: string) => {
-    setSelectedReqTypes(prev =>
-      prev.includes(typeId) ? prev.filter(t => t !== typeId) : [...prev, typeId]
-    );
+  const fetchSubscriptionPlans = async () => {
+    setPlansLoading(true);
+    try {
+      const res = await api.get('/subscription-plans');
+      if (res.data && res.data.success && Array.isArray(res.data.data)) {
+        setPlans(res.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load subscription plans', err);
+    } finally {
+      setPlansLoading(false);
+    }
   };
 
-  const handleSubmitAccessRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedReqTypes.length === 0) {
-      setReqMsg({ type: 'error', text: 'Please select at least one permission or feature to request.' });
-      return;
-    }
-    setReqSending(true);
+  const fetchMyAccessRequests = async () => {
     try {
-      await Promise.all(
-        selectedReqTypes.map(rt =>
-          api.post('/access-requests', {
-            requestType: rt,
-            details: reqDetails.trim() || `User requested access for ${rt}`
-          })
-        )
-      );
-      setReqMsg({ type: 'success', text: `Successfully delivered ${selectedReqTypes.length} request(s) to the administrator!` });
-      setReqDetails('');
-      setSelectedReqTypes([]);
-      setTimeout(() => setReqMsg(null), 5000);
-    } catch {
-      setReqMsg({ type: 'error', text: 'Could not send request. Please try again.' });
+      const res = await api.get('/access-requests/my');
+      if (res.data && res.data.success && Array.isArray(res.data.data)) {
+        const pending = res.data.data
+          .filter((r: any) => r.status === 'PENDING')
+          .map((r: any) => (r.requestType || '').toUpperCase());
+        setMyPendingRequests(pending);
+      }
+    } catch (err) {
+      console.error('Failed to load access requests', err);
+    }
+  };
+
+  const handleRequestPlanUpgrade = async (plan: SubscriptionPlanItem) => {
+    setRequestingPlanCode(plan.planCode);
+    try {
+      await api.post('/access-requests', {
+        requestType: `SUBSCRIPTION_${plan.planCode}`,
+        details: `User requested upgrade to ${plan.planName} tier (${plan.planCode})`
+      });
+      setMyPendingRequests(prev => [...prev, `SUBSCRIPTION_${plan.planCode}`, `PLAN_UPGRADE_${plan.planCode}`, plan.planCode]);
+      setReqMsg({
+        type: 'success',
+        text: 'Upgrade request has been sent, approval is pending.'
+      });
+      setTimeout(() => setReqMsg(null), 6000);
+    } catch (err: any) {
+      setReqMsg({
+        type: 'error',
+        text: err?.response?.data?.error || 'Could not send upgrade request. Please try again.'
+      });
     } finally {
-      setReqSending(false);
+      setRequestingPlanCode(null);
     }
   };
 
@@ -2445,29 +2485,38 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 9. Request Feature Access & Quota Upgrades */}
+        {/* 9. Subscription & Upgrade Packages */}
         <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(16, 185, 129, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#10B981'
-              }}
-            >
-              <Send size={22} />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 12,
+                  background: 'rgba(99, 102, 241, 0.15)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#6366F1'
+                }}
+              >
+                <Shield size={22} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                  Subscription & Upgrade Packages
+                </h2>
+                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                  View all available plans and their live feature entitlements. You can request an upgrade to unlock additional quotas and premium capabilities.
+                </span>
+              </div>
             </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Request Feature Access & Quota Upgrades
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Submit a request directly to the administrator to upgrade card limit, unlock restricted views, or adjust permissions
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current Active Tier:</span>
+              <span style={{ fontSize: 12, fontWeight: 800, padding: '4px 12px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                {(user?.subscriptionTier || 'FREE').toUpperCase()}
               </span>
             </div>
           </div>
@@ -2475,216 +2524,311 @@ export const SettingsView: React.FC = () => {
           {reqMsg && (
             <div
               style={{
-                marginBottom: 16,
-                padding: '10px 14px',
-                borderRadius: 8,
+                marginBottom: 20,
+                padding: '12px 16px',
+                borderRadius: 10,
                 background: reqMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
                 color: reqMsg.type === 'success' ? '#10B981' : '#EF4444',
                 fontSize: 13,
+                fontWeight: 600,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8
+                gap: 8,
+                border: reqMsg.type === 'success' ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid rgba(239, 68, 68, 0.3)'
               }}
             >
-              {reqMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+              {reqMsg.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
               {reqMsg.text}
             </div>
           )}
 
-          <form onSubmit={handleSubmitAccessRequest} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <div>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 10, letterSpacing: '0.05em' }}>
-                SELECT PERMISSION OR FEATURE TO REQUEST
-              </label>
+          {/* Dynamic Plans Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+            {plansLoading && plans.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', padding: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
+                Syncing latest subscription packages from server...
+              </div>
+            )}
+            {(() => {
+              const displayPlans = plans.length > 0 ? plans : [
+                {
+                  id: 1,
+                  planCode: 'FREE',
+                  planName: 'Free Starter',
+                  price: 0,
+                  currency: 'INR',
+                  billingPeriod: 'MONTHLY',
+                  maxCreditCards: 1,
+                  canAccessDashboard: true,
+                  canAccessReports: false,
+                  canAccessLoans: false,
+                  canAccessBudget: true,
+                  canExportData: false,
+                  canUseEodDigest: false,
+                  description: 'Basic personal finance tracking with up to 1 credit card.',
+                  isActive: true
+                },
+                {
+                  id: 2,
+                  planCode: 'PRO',
+                  planName: 'Pro Tier',
+                  price: 89,
+                  currency: 'INR',
+                  billingPeriod: 'MONTHLY',
+                  maxCreditCards: 7,
+                  canAccessDashboard: true,
+                  canAccessReports: false,
+                  canAccessLoans: true,
+                  canAccessBudget: true,
+                  canExportData: true,
+                  canUseEodDigest: false,
+                  description: 'Full financial intelligence with 7 cards, loans tracker, budget planner & exports.',
+                  isActive: true
+                },
+                {
+                  id: 3,
+                  planCode: 'ENTERPRISE',
+                  planName: 'Enterprise / Family',
+                  price: 99,
+                  currency: 'INR',
+                  billingPeriod: 'MONTHLY',
+                  maxCreditCards: 99,
+                  canAccessDashboard: true,
+                  canAccessReports: true,
+                  canAccessLoans: true,
+                  canAccessBudget: true,
+                  canExportData: true,
+                  canUseEodDigest: true,
+                  description: 'Unlimited credit cards, complete reporting, exports & priority controls.',
+                  isActive: true
+                }
+              ];
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
-                {(() => {
-                  const currentTier = (user?.subscriptionTier || 'FREE').toUpperCase();
-                  const featureOptions: {
-                    id: string;
-                    name: string;
-                    description: string;
-                    isActive: boolean;
-                  }[] = [];
+              const currentTier = (user?.subscriptionTier || 'FREE').toUpperCase();
+              const tierRankMap: Record<string, number> = { FREE: 1, PRO: 2, ENTERPRISE: 3 };
+              const currentRank = tierRankMap[currentTier] || 1;
 
-                  // Subscription upgrade options (Strictly Upgrades Only - No Downgrades)
-                  if (currentTier === 'FREE') {
-                    featureOptions.push({
-                      id: 'SUBSCRIPTION_PRO',
-                      name: 'Upgrade to PRO Tier',
-                      description: 'Unlocks unlimited cards, multi-device sync, and priority reports',
-                      isActive: false
-                    });
-                    featureOptions.push({
-                      id: 'SUBSCRIPTION_ENTERPRISE',
-                      name: 'Upgrade to ENTERPRISE Tier',
-                      description: 'Maximum tier with custom categories, dedicated exports & VIP support',
-                      isActive: false
-                    });
-                  } else if (currentTier === 'PRO') {
-                    featureOptions.push({
-                      id: 'SUBSCRIPTION_ENTERPRISE',
-                      name: 'Upgrade to ENTERPRISE Tier',
-                      description: 'Upgrade from PRO to maximum tier with unlimited capacity and VIP support',
-                      isActive: false
-                    });
-                  } else {
-                    featureOptions.push({
-                      id: 'SUBSCRIPTION_MAX',
-                      name: 'ENTERPRISE Tier',
-                      description: 'You are on the highest tier. All premium modules are active.',
-                      isActive: true
-                    });
-                  }
+              return displayPlans.map(p => {
+                const planCode = p.planCode.toUpperCase();
+                const planRank = tierRankMap[planCode] || (p.price > 0 ? (p.price > 100 ? 3 : 2) : 1);
+                const isCurrentPlan = currentTier === planCode;
+                const isUpgrade = planRank > currentRank;
+                const isDowngrade = planRank < currentRank;
 
-                  // Credit Card Quota
-                  featureOptions.push({
-                    id: 'CREDIT_CARD_LIMIT',
-                    name: 'Credit Card Quota Increase',
-                    description: `Current allowance: ${user?.cardLimit || 2} cards. Request additional slots.`,
-                    isActive: false
-                  });
+                const isPendingThisPlan = myPendingRequests.some(r =>
+                  r.includes(planCode) ||
+                  (planCode === 'PRO' && r.includes('PRO')) ||
+                  (planCode === 'ENTERPRISE' && r.includes('ENTERPRISE')) ||
+                  r.includes('PLAN_UPGRADE') ||
+                  r.includes('SUBSCRIPTION')
+                );
 
-                  // Financial Dashboard
-                  featureOptions.push({
-                    id: 'DASHBOARD_ACCESS',
-                    name: 'Financial Dashboard Access',
-                    description: 'Dynamic charts, net worth trajectory, and cash flow visualization',
-                    isActive: user?.canAccessDashboard !== false
-                  });
+                const isEnterprise = planCode === 'ENTERPRISE';
+                const isPro = planCode === 'PRO';
 
-                  // Reports & Analytics
-                  featureOptions.push({
-                    id: 'REPORTS_ACCESS',
-                    name: 'Reports & Analytics Access',
-                    description: 'Monthly financial statements, category breakdowns & PDF exports',
-                    isActive: user?.canAccessReports !== false
-                  });
-
-                  // Loans & EMI
-                  featureOptions.push({
-                    id: 'LOANS_EMI_ACCESS',
-                    name: 'Loans & EMI Module',
-                    description: 'Debt amortization schedules, interest breakdown & payment planner',
-                    isActive: currentTier !== 'FREE'
-                  });
-
-                  // EOD Digest Mailer
-                  featureOptions.push({
-                    id: 'EOD_DIGEST_ACCESS',
-                    name: 'EOD Digest Mailer',
-                    description: 'Automated daily / monthly financial statement emailed to your inbox',
-                    isActive: Boolean(notifSettings.eodMail)
-                  });
-
-                  return featureOptions.map(feat => {
-                    const isSelected = selectedReqTypes.includes(feat.id);
-                    return (
-                      <div
-                        key={feat.id}
-                        onClick={() => {
-                          if (!feat.isActive) {
-                            toggleReqType(feat.id);
-                          }
-                        }}
-                        style={{
-                          padding: '14px 16px',
-                          borderRadius: 12,
-                          border: isSelected
-                            ? '2px solid #6366F1'
-                            : feat.isActive
-                            ? '1px solid rgba(16, 185, 129, 0.3)'
-                            : '1px solid var(--border-color)',
-                          background: isSelected
-                            ? 'rgba(99, 102, 241, 0.12)'
-                            : feat.isActive
-                            ? 'rgba(16, 185, 129, 0.04)'
-                            : 'var(--bg-secondary)',
-                          cursor: feat.isActive ? 'default' : 'pointer',
-                          transition: 'all 0.15s ease',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'space-between',
-                          minHeight: 110,
-                          position: 'relative'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                            {!feat.isActive ? (
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleReqType(feat.id)}
-                                style={{ width: 16, height: 16, accentColor: '#6366F1', cursor: 'pointer', flexShrink: 0 }}
-                              />
-                            ) : null}
-                            <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', wordBreak: 'break-word' }}>
-                              {feat.name}
-                            </div>
-                          </div>
-
-                          {feat.isActive ? (
-                            <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', border: '1px solid rgba(16, 185, 129, 0.3)', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                              ✓ Active
-                            </span>
-                          ) : isSelected ? (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: '#6366F1', color: '#FFF', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                              Selected
-                            </span>
-                          ) : (
-                            <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(100, 116, 139, 0.2)', color: 'var(--text-secondary)', flexShrink: 0, whiteSpace: 'nowrap' }}>
-                              Select
-                            </span>
-                          )}
+                return (
+                  <div
+                    key={p.id}
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      border: isCurrentPlan
+                        ? '2px solid #10B981'
+                        : isEnterprise
+                        ? '1px solid rgba(139, 92, 246, 0.45)'
+                        : isPro
+                        ? '1px solid rgba(99, 102, 241, 0.4)'
+                        : '1px solid var(--border-color)',
+                      borderRadius: 18,
+                      padding: 24,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      boxShadow: isCurrentPlan ? '0 0 16px rgba(16, 185, 129, 0.15)' : 'none',
+                      position: 'relative'
+                    }}
+                  >
+                    <div>
+                      {/* Card Header */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
+                        <div>
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 800,
+                              letterSpacing: '0.05em',
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              background: isEnterprise ? 'rgba(139, 92, 246, 0.18)' : isPro ? 'rgba(99, 102, 241, 0.18)' : 'rgba(100, 116, 139, 0.15)',
+                              color: isEnterprise ? '#A78BFA' : isPro ? '#818CF8' : 'var(--text-secondary)',
+                              border: `1px solid ${isEnterprise ? 'rgba(139, 92, 246, 0.35)' : isPro ? 'rgba(99, 102, 241, 0.35)' : 'var(--border-color)'}`
+                            }}
+                          >
+                            {p.planCode}
+                          </span>
+                          <h3 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', margin: '10px 0 2px' }}>
+                            {p.planName}
+                          </h3>
                         </div>
 
-                        <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.45, marginTop: 4 }}>
-                          {feat.description}
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: 'var(--text-primary)' }}>
+                            {p.price > 0 ? `₹ ${p.price}` : 'Free'}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            {p.price > 0 ? `/${p.billingPeriod.toLowerCase()}` : 'Forever'}
+                          </div>
                         </div>
                       </div>
-                    );
-                  });
-                })()}
-              </div>
-            </div>
 
-            <div style={{ width: '100%' }}>
-              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                DETAILS & JUSTIFICATION
-              </label>
-              <textarea
-                className="modal-input"
-                rows={4}
-                value={reqDetails}
-                onChange={e => setReqDetails(e.target.value)}
-                placeholder="Explain why you need this feature, upgrade or quota increase..."
-                required
-                style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical' }}
-              />
-            </div>
+                      <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, minHeight: 34, lineHeight: 1.45 }}>
+                        {p.description || 'Pre-configured subscription tier.'}
+                      </p>
 
-            <button
-              type="submit"
-              disabled={reqSending || selectedReqTypes.length === 0}
-              className="btn-primary"
-              style={{
-                alignSelf: 'flex-start',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                opacity: selectedReqTypes.length === 0 ? 0.6 : 1,
-                cursor: selectedReqTypes.length === 0 ? 'not-allowed' : 'pointer'
-              }}
-            >
-              <Send size={16} />
-              {reqSending
-                ? 'Submitting Request...'
-                : selectedReqTypes.length > 0
-                ? `Submit ${selectedReqTypes.length} Request(s) to Admin`
-                : 'Select Feature(s) to Request'}
-            </button>
-          </form>
+                      {/* Quota Highlights */}
+                      <div
+                        style={{
+                          background: 'rgba(255,255,255,0.03)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 10,
+                          padding: '10px 12px',
+                          marginBottom: 16,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between'
+                        }}
+                      >
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>Credit Card Allowance:</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: '#38BDF8' }}>
+                          {p.maxCreditCards >= 90 ? 'Unlimited Cards' : `Up to ${p.maxCreditCards} Cards`}
+                        </span>
+                      </div>
+
+                      {/* Dynamic Benefits Checklist from Database */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canAccessDashboard ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canAccessDashboard ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canAccessDashboard ? '✓' : '✕'}</span>
+                          <span>Complete Financial Dashboard Access</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canAccessReports ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canAccessReports ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canAccessReports ? '✓' : '✕'}</span>
+                          <span>Financial Reports & Statement Exports</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canAccessLoans ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canAccessLoans ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canAccessLoans ? '✓' : '✕'}</span>
+                          <span>Loans & EMI Debt Amortization Tracker</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canAccessBudget ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canAccessBudget ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canAccessBudget ? '✓' : '✕'}</span>
+                          <span>Annual Budget & Expense Planning</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canExportData ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canExportData ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canExportData ? '✓' : '✕'}</span>
+                          <span>CSV & Excel Financial Data Exports</span>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: p.canUseEodDigest ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          <span style={{ color: p.canUseEodDigest ? '#10B981' : '#EF4444', fontWeight: 800 }}>{p.canUseEodDigest ? '✓' : '✕'}</span>
+                          <span>Automated EOD Digest & Statement Emails</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Action / Status Button */}
+                    <div style={{ marginTop: 8 }}>
+                      {isCurrentPlan ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 6,
+                            padding: '12px 16px',
+                            borderRadius: 10,
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            border: '1px solid rgba(16, 185, 129, 0.35)',
+                            color: '#10B981',
+                            fontWeight: 700,
+                            fontSize: 13
+                          }}
+                        >
+                          <CheckCircle size={16} /> Current Active Plan
+                        </div>
+                      ) : isDowngrade ? (
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '12px 16px',
+                            borderRadius: 10,
+                            background: 'rgba(100, 116, 139, 0.08)',
+                            border: '1px solid var(--border-color)',
+                            color: 'var(--text-secondary)',
+                            fontWeight: 600,
+                            fontSize: 12
+                          }}
+                        >
+                          Included in Current Plan
+                        </div>
+                      ) : isUpgrade ? (
+                        isPendingThisPlan ? (
+                          <div
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 6,
+                              padding: '12px 16px',
+                              borderRadius: 10,
+                              background: 'rgba(245, 158, 11, 0.12)',
+                              border: '1px solid rgba(245, 158, 11, 0.35)',
+                              color: '#F59E0B',
+                              fontWeight: 700,
+                              fontSize: 13,
+                              textAlign: 'center'
+                            }}
+                          >
+                            <Clock size={16} /> Upgrade request has been sent, approval is pending
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={requestingPlanCode === p.planCode}
+                            onClick={() => handleRequestPlanUpgrade(p)}
+                            className="btn-primary"
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: 8,
+                              padding: '12px 16px',
+                              borderRadius: 10,
+                              fontWeight: 700,
+                              fontSize: 13,
+                              background: isEnterprise
+                                ? 'linear-gradient(135deg, #8B5CF6 0%, #6366F1 100%)'
+                                : 'linear-gradient(135deg, #6366F1 0%, #3B82F6 100%)',
+                              border: 'none',
+                              cursor: requestingPlanCode === p.planCode ? 'not-allowed' : 'pointer',
+                              boxShadow: '0 4px 14px rgba(99, 102, 241, 0.3)'
+                            }}
+                          >
+                            <Send size={15} />
+                            {requestingPlanCode === p.planCode ? 'Submitting Request...' : `Request Upgrade to ${p.planName}`}
+                          </button>
+                        )
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
         </div>
 
       </div>

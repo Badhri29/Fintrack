@@ -586,7 +586,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     <UserIcon size={16} style={{ position: 'absolute', left: 14, top: 14, color: '#64748B' }} />
                     <input
                       type="text"
-                      placeholder="e.g. Badhrinarayanan"
+                      placeholder="Enter your name"
                       value={name}
                       onChange={e => setName(e.target.value)}
                       style={{

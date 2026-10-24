@@ -6,6 +6,7 @@ import com.networth.repository.*;
 import com.networth.security.UserPrincipal;
 import com.networth.service.CategorySeedService;
 import com.networth.service.EmailService;
+import com.networth.service.PdfStatementService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +71,9 @@ public class AdminController {
 
     @Autowired
     private EmailService emailService;
+
+    @Autowired
+    private PdfStatementService pdfStatementService;
 
     private boolean checkIsAdmin(UserPrincipal principal) {
         if (principal == null) return false;
@@ -1035,7 +1039,8 @@ public class AdminController {
             catList.add(m);
         });
 
-        boolean sent = emailService.sendEodSummaryEmail(user.getEmail(), user.getName(), today.toString(), income, expense, savings, catList);
+        byte[] pdfBytes = pdfStatementService.generateDailyEodStatementPdf(user, today.toString(), income, expense, savings, catList, txs);
+        boolean sent = emailService.sendEodSummaryEmail(user.getEmail(), user.getName(), today.toString(), income, expense, savings, catList, pdfBytes);
 
         return ResponseEntity.ok(Map.of("success", true, "sent", sent, "message", "End of Day financial digest sent to " + user.getEmail()));
     }

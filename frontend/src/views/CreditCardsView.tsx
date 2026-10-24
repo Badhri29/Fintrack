@@ -3512,7 +3512,7 @@ export const CreditCardsView: React.FC = () => {
                     lineHeight: 1.5
                   }}
                 >
-                  <div>✓ Plan Upgrade Request Pending Approval</div>
+                  <div>✓ Upgrade request has been sent, approval is pending</div>
                   <div style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)', marginTop: 4 }}>
                     Your subscription upgrade request is pending administrator review. You will receive an in-app and email notification once approved.
                   </div>
