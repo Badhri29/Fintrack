@@ -20,10 +20,30 @@ public class UserPrincipal implements UserDetails {
     private final User user;
 
     public UserPrincipal(User user) {
-        this.id = user.getId();
+        this.id = user.getParentUserId() != null ? user.getParentUserId() : user.getId();
         this.email = user.getEmail();
         this.password = user.getPassword();
         this.user = user;
+    }
+
+    public Long getActualUserId() {
+        return user.getId();
+    }
+
+    public boolean isLinkedMember() {
+        return user.getParentUserId() != null;
+    }
+
+    public String getMemberPermission() {
+        return user.getMemberPermission();
+    }
+
+    public boolean isViewOnly() {
+        return isLinkedMember() && "VIEW_ONLY".equalsIgnoreCase(user.getMemberPermission());
+    }
+
+    public boolean canEdit() {
+        return !isLinkedMember() || "CAN_EDIT".equalsIgnoreCase(user.getMemberPermission());
     }
 
     @Override
@@ -60,6 +80,9 @@ public class UserPrincipal implements UserDetails {
 
     @Override
     public boolean isAccountNonExpired() {
+        if (user.getMemberExpiresAt() != null && LocalDateTime.now().isAfter(user.getMemberExpiresAt())) {
+            return false;
+        }
         return true;
     }
 

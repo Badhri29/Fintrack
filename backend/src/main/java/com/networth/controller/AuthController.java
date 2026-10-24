@@ -238,8 +238,14 @@ public class AuthController {
                     .body(AuthResponse.builder().success(false).error("Please provide email and password.").build());
         }
 
-        String cleanEmail = email.trim().toLowerCase();
-        Optional<User> userOpt = userRepository.findByEmail(cleanEmail);
+        String identifier = email.trim();
+        Optional<User> userOpt = userRepository.findByEmail(identifier.toLowerCase());
+        if (userOpt.isEmpty()) {
+            userOpt = userRepository.findByMemberId(identifier.toUpperCase());
+        }
+        if (userOpt.isEmpty()) {
+            userOpt = userRepository.findByMemberId(identifier);
+        }
 
         // 1. Unregistered account check
         if (userOpt.isEmpty()) {
@@ -247,11 +253,20 @@ public class AuthController {
                     .body(AuthResponse.builder()
                             .success(false)
                             .unregistered(true)
-                            .error("Account not found with this email. We're redirecting you to Create an Account.")
+                            .error("Account not found with this identifier. We're redirecting you to Create an Account.")
                             .build());
         }
 
         User user = userOpt.get();
+
+        // Check member expiration
+        if (user.getMemberExpiresAt() != null && LocalDateTime.now().isAfter(user.getMemberExpiresAt())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .error("Your member access expired on " + user.getMemberExpiresAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")) + ". Please contact the workspace owner to renew access.")
+                            .build());
+        }
 
         // Check password first
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
@@ -386,9 +401,14 @@ public class AuthController {
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());
         setAuthCookie(response, token);
 
+        User parent = null;
+        if (user.getParentUserId() != null) {
+            parent = userRepository.findById(user.getParentUserId()).orElse(null);
+        }
+
         return ResponseEntity.ok(AuthResponse.builder()
                 .success(true)
-                .user(UserDto.fromEntity(user))
+                .user(UserDto.fromEntity(user, parent))
                 .token(token)
                 .isTemporaryPassword(isTempPwd)
                 .mustChangePassword(mustChangePwd)
@@ -515,9 +535,15 @@ public class AuthController {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(AuthResponse.builder().success(false).error("Not authenticated").build());
         }
-        User user = userRepository.findById(principal.getId()).orElse(null);
+        Long currentUserId = principal.getActualUserId();
+        User user = userRepository.findById(currentUserId).orElse(null);
         if (user == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(AuthResponse.builder().success(false).error("User not found").build());
+        }
+
+        User parent = null;
+        if (user.getParentUserId() != null) {
+            parent = userRepository.findById(user.getParentUserId()).orElse(null);
         }
 
         user.setLastActivityAt(LocalDateTime.now());
@@ -531,7 +557,7 @@ public class AuthController {
 
         return ResponseEntity.ok(AuthResponse.builder()
                 .success(true)
-                .user(UserDto.fromEntity(user))
+                .user(UserDto.fromEntity(user, parent))
                 .isMaintenance(isMaint)
                 .maintenanceMessage(maintMsg)
                 .maintenanceEnd(maintEnd)

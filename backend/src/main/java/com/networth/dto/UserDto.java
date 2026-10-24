@@ -38,8 +38,18 @@ public class UserDto {
     private LocalDateTime temporaryPasswordExpiresAt;
     private LocalDateTime lastActivityAt;
     private Boolean isOnline;
+    private Long parentUserId;
+    private String parentUserEmail;
+    private String memberPermission;
+    private Boolean isMember;
+    private String memberId;
+    private LocalDateTime memberExpiresAt;
 
     public static UserDto fromEntity(User user) {
+        return fromEntity(user, null);
+    }
+
+    public static UserDto fromEntity(User user, User parent) {
         if (user == null) return null;
 
         LocalDateTime now = LocalDateTime.now();
@@ -65,12 +75,18 @@ public class UserDto {
                 .lockType(user.getLockType() != null ? user.getLockType() : "NONE")
                 .lockUntil(user.getLockUntil())
                 .lockReason(user.getLockReason())
-                .subscriptionTier(user.getSubscriptionTier() != null ? user.getSubscriptionTier() : "FREE")
-                .cardLimit(user.getCardLimit() != null ? user.getCardLimit() : 2)
-                .canAccessDashboard(user.getCanAccessDashboard() != null ? user.getCanAccessDashboard() : true)
-                .canAccessReports(user.getCanAccessReports() != null ? user.getCanAccessReports() : true)
-                .canEditSettings(user.getCanEditSettings() != null ? user.getCanEditSettings() : true)
-                .isReadOnly(user.getIsReadOnly() != null ? user.getIsReadOnly() : false)
+                .subscriptionTier((parent != null && parent.getSubscriptionTier() != null) ? parent.getSubscriptionTier() : (user.getSubscriptionTier() != null ? user.getSubscriptionTier() : "FREE"))
+                .cardLimit((parent != null && parent.getCardLimit() != null) ? parent.getCardLimit() : (user.getCardLimit() != null ? user.getCardLimit() : 2))
+                .canAccessDashboard((parent != null && parent.getCanAccessDashboard() != null) ? parent.getCanAccessDashboard() : (user.getCanAccessDashboard() != null ? user.getCanAccessDashboard() : true))
+                .canAccessReports((parent != null && parent.getCanAccessReports() != null) ? parent.getCanAccessReports() : (user.getCanAccessReports() != null ? user.getCanAccessReports() : true))
+                .canEditSettings(user.getCanEditSettings() != null ? user.getCanEditSettings() : (user.getParentUserId() == null))
+                .isReadOnly(Boolean.TRUE.equals(user.getIsReadOnly()) || (user.getParentUserId() != null && "VIEW_ONLY".equalsIgnoreCase(user.getMemberPermission())))
+                .parentUserId(user.getParentUserId())
+                .parentUserEmail(parent != null ? parent.getEmail() : null)
+                .memberPermission(user.getMemberPermission())
+                .isMember(user.getParentUserId() != null)
+                .memberId(user.getMemberId())
+                .memberExpiresAt(user.getMemberExpiresAt())
                 .lastLoginAt(user.getLastLoginAt())
                 .lastLogoutAt(user.getLastLogoutAt())
                 .lastActivityAt(user.getLastActivityAt())

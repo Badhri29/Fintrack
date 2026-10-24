@@ -16,6 +16,7 @@ com\networth\repository\CategoryRepository.class
 com\networth\entity\SubCategory.class
 com\networth\repository\DefaultSubCategoryRepository.class
 com\networth\repository\SystemSettingRepository.class
+com\networth\repository\WorkspaceMemberRepository.class
 com\networth\entity\Asset.class
 com\networth\repository\OtpVerificationRepository.class
 com\networth\entity\Category.class
@@ -35,7 +36,9 @@ com\networth\repository\UserActivityLogRepository.class
 com\networth\service\EmailService.class
 com\networth\repository\AssetRepository.class
 com\networth\service\ValidationService.class
+com\networth\entity\WorkspaceMember.class
 com\networth\entity\UserActivityLog$UserActivityLogBuilder.class
+com\networth\entity\WorkspaceMember$WorkspaceMemberBuilder.class
 com\networth\controller\TransactionController.class
 com\networth\dto\AuthRequest.class
 com\networth\service\CategorySeedService.class
@@ -50,6 +53,7 @@ com\networth\dto\ApiResponse$ApiResponseBuilder.class
 com\networth\entity\Asset$AssetBuilder.class
 com\networth\repository\LiabilityRepository.class
 com\networth\entity\OtpVerification$OtpVerificationBuilder.class
+com\networth\controller\WorkspaceMemberController.class
 com\networth\entity\SystemSetting$SystemSettingBuilder.class
 com\networth\entity\User$UserBuilder.class
 com\networth\entity\UserNotificationSetting$UserNotificationSettingBuilder.class

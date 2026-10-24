@@ -108,6 +108,18 @@ public class User {
     @Builder.Default
     private Boolean mustChangePassword = false;
 
+    @Column(name = "parentUserId")
+    private Long parentUserId;
+
+    @Column(name = "memberPermission")
+    private String memberPermission;
+
+    @Column(name = "memberId", unique = true)
+    private String memberId;
+
+    @Column(name = "memberExpiresAt")
+    private LocalDateTime memberExpiresAt;
+
     @CreationTimestamp
     @Column(name = "createdAt", updatable = false)
     private LocalDateTime createdAt;

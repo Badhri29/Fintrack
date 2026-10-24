@@ -13,7 +13,8 @@ import {
   Coins,
   Settings,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  Users
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -42,6 +43,7 @@ const TABS = [
   'Budget & Transactions',
   'Credit Cards',
   'Loans & EMI',
+  'Access',
   'Settings'
 ];
 
@@ -50,11 +52,14 @@ const TAB_ICONS: Record<string, React.FC<any>> = {
   'Budget & Transactions': PiggyBank,
   'Credit Cards': CreditCard,
   'Loans & EMI': Coins,
+  'Access': Users,
   'Settings': Settings
 };
 
 export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenProfile, onGlobalSearch }) => {
   const { user, logout, isAdmin, demoTimeRemaining } = useAuth();
+  const isMember = Boolean(user?.isMember || user?.parentUserId);
+  const visibleTabs = TABS.filter(t => !((t === 'Access' || t === 'Settings') && isMember));
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -283,7 +288,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
 
       {/* Main Desktop Tabs */}
       <nav className="nav-tabs">
-        {TABS.map(tab => (
+        {visibleTabs.map(tab => (
           <button
             key={tab}
             className={`nav-tab ${isTabActive(tab) ? 'active' : ''}`}
@@ -328,6 +333,28 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
           >
             <Clock size={12} />
             <span>Demo: {Math.floor(demoTimeRemaining / 60)}:{String(demoTimeRemaining % 60).padStart(2, '0')}</span>
+          </div>
+        )}
+
+        {/* Workspace Member Badge */}
+        {(user?.isMember || user?.parentUserId) && (
+          <div
+            style={{
+              background: 'rgba(59, 130, 246, 0.15)',
+              border: '1px solid rgba(59, 130, 246, 0.35)',
+              color: '#60A5FA',
+              borderRadius: 8,
+              padding: '4px 10px',
+              fontSize: 11,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6
+            }}
+            title={`Workspace Member: ${user?.memberPermission === 'CAN_EDIT' ? 'Can Edit' : 'View Only'}`}
+          >
+            <Users size={12} />
+            <span>{user?.memberPermission === 'CAN_EDIT' ? 'Member (Edit)' : 'Member (View-only)'}</span>
           </div>
         )}
 
@@ -650,7 +677,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                 </button>
               )}
 
-              {TABS.map(tab => {
+              {visibleTabs.map(tab => {
                 const Icon = TAB_ICONS[tab] || LayoutDashboard;
                 return (
                   <button

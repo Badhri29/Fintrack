@@ -5,6 +5,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\con
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\HoldingsController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\ProfileController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\TransactionController.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\controller\WorkspaceMemberController.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\ApiResponse.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\AuthRequest.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\dto\AuthResponse.java
@@ -23,6 +24,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\ent
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\User.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\UserActivityLog.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\UserNotificationSetting.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\entity\WorkspaceMember.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\exception\GlobalExceptionHandler.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\NetworthApplication.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\AccessRequestRepository.java
@@ -39,6 +41,7 @@ C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\rep
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserActivityLogRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserNotificationSettingRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\UserRepository.java
+C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\repository\WorkspaceMemberRepository.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\JwtAuthenticationFilter.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\JwtUtil.java
 C:\Users\Badhrinarayanan\Desktop\Fintrack\backend\src\main\java\com\networth\security\SecurityConfig.java

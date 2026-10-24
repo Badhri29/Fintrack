@@ -128,18 +128,34 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setDevOtp(null);
 
     const isUser = activeTab === 'user';
-    const effectiveEmail = isUser ? email.trim().toLowerCase() : adminEmail.trim().toLowerCase();
+    const rawIdentifier = isUser ? email.trim() : adminEmail.trim();
     const effectivePass = isUser ? password : adminPassword;
 
-    if (!effectiveEmail || !effectivePass) {
-      setError('Please provide email address and password.');
+    if (!rawIdentifier || !effectivePass) {
+      setError('Please provide email/Member ID and password.');
       return;
     }
 
-    if (!effectiveEmail.includes('@') || !effectiveEmail.includes('.')) {
-      setError('Please enter a valid email address.');
-      return;
+    const isMemberId = isUser && (
+      rawIdentifier.toUpperCase().startsWith('MEM-') ||
+      !rawIdentifier.includes('@')
+    );
+
+    // If it's registration, must be a valid email
+    if (isUser && authMode === 'register') {
+      if (!rawIdentifier.includes('@') || !rawIdentifier.includes('.')) {
+        setError('Please enter a valid email address for registration.');
+        return;
+      }
+    } else {
+      // Login mode: if not a Member ID, must have @ and .
+      if (!isMemberId && (!rawIdentifier.includes('@') || !rawIdentifier.includes('.'))) {
+        setError('Please enter a valid email address or Member ID.');
+        return;
+      }
     }
+
+    const effectiveEmail = isMemberId ? rawIdentifier.toUpperCase() : rawIdentifier.toLowerCase();
 
     setLoading(true);
 
@@ -166,8 +182,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
       // Unregistered Account Auto-Redirect
       if (result.unregistered) {
-        setAuthMode('register');
-        setInfoMessage('No account found with this email. We have transferred you to Sign Up to create your account!');
+        if (!isMemberId) {
+          setAuthMode('register');
+          setInfoMessage('No account found with this email. We have transferred you to Sign Up to create your account!');
+        } else {
+          setError('Member ID not found. Please verify your Member ID or contact your workspace owner.');
+        }
         setLoading(false);
         return;
       }
@@ -607,7 +627,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               {/* Email Address */}
               <div>
                 <label style={{ fontSize: 12, fontWeight: 600, color: '#94A3B8', display: 'block', marginBottom: 6 }}>
-                  {activeTab === 'admin' ? 'Admin email' : 'Email address'}
+                  {activeTab === 'admin' ? 'Admin email' : 'Email or Member ID'}
                 </label>
                 <div style={{ position: 'relative' }}>
                   <Mail size={16} style={{ position: 'absolute', left: 14, top: 14, color: '#64748B' }} />
@@ -615,7 +635,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     type="text"
                     name={`ft_email_${activeTab}`}
                     id={activeTab === 'admin' ? 'admin-email-field' : 'user-email-field'}
-                    placeholder="Enter your email address"
+                    placeholder={activeTab === 'admin' ? 'Enter admin email' : 'Enter email or Member ID (e.g. MEM-123456)'}
                     value={activeTab === 'user' ? email : adminEmail}
                     onChange={e => {
                       if (activeTab === 'user') setEmail(e.target.value);

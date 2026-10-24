@@ -31,6 +31,10 @@ export interface User {
   mustChangePassword?: boolean;
   isTemporaryPassword?: boolean;
   temporaryPasswordExpiresAt?: string;
+  parentUserId?: number;
+  parentUserEmail?: string;
+  memberPermission?: 'VIEW_ONLY' | 'CAN_EDIT';
+  isMember?: boolean;
 }
 
 export interface MaintenanceInfo {
@@ -167,11 +171,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (currentUser.email === 'demo@fintrack.io') {
           seedDemoBudgetData();
         }
+        localStorage.setItem('fintrack_user_cache', JSON.stringify(currentUser));
         setUser(currentUser);
       } else {
+        localStorage.removeItem('fintrack_user_cache');
         setUser(null);
       }
     } catch {
+      localStorage.removeItem('fintrack_user_cache');
       setUser(null);
     } finally {
       setLoading(false);
@@ -196,6 +203,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         sessionStorage.setItem('fintrack_demo_start', String(Date.now()));
         seedDemoBudgetData(true);
         yearService.resetToCurrentYear();
+        localStorage.setItem('fintrack_user_cache', JSON.stringify(userData));
         setUser(userData);
       }
     } finally {
@@ -237,6 +245,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
         }
         yearService.resetToCurrentYear();
+        localStorage.setItem('fintrack_user_cache', JSON.stringify(userData));
         setUser(userData);
         return { success: true };
       }
@@ -345,6 +354,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       await api.post('/auth/logout').catch(() => null);
     } catch {}
     localStorage.removeItem('token');
+    localStorage.removeItem('fintrack_user_cache');
     sessionStorage.removeItem('fintrack_demo_start');
     yearService.resetToCurrentYear();
     setUser(null);

@@ -147,6 +147,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   initialViewMode = 'combined',
 }) => {
   const { user } = useAuth();
+  const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
   const [viewMode, setViewMode] = useState<ViewMode>(
     globalSearchQuery ? 'transactions' : initialViewMode
   );
@@ -1999,7 +2000,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                     <small>{displayDay}</small>
                                     <span>{detail.name}</span>
 
-                                    {mode === 'budget' && (
+                                    {mode === 'budget' && !isViewOnly && (
                                       <div className="budget-row-actions">
                                         <button
                                           className="budget-edit-button"
@@ -2081,7 +2082,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             section,
                           )}
 
-                        {detailsOpen && !budgetTransactionDrafts[subcategory.id] && (
+                        {detailsOpen && !isViewOnly && !budgetTransactionDrafts[subcategory.id] && (
                           <tr
                             className={`budget-add-row budget-add-transaction-row budget-add-transaction-${section}`}
                           >
@@ -2101,7 +2102,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     );
                   })}
 
-                {isOpen && (
+                {isOpen && !isViewOnly && (
                   activeAddSubcategoryId === category.id ? (
                     <tr
                       className={`budget-add-row budget-inline-add-row budget-inline-add-sub budget-inline-add-${section}`}
@@ -2506,16 +2507,18 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 </button>
               </div>
 
-              <button
-                type="button"
-                className="btn-secondary"
-                onClick={() => openAddCategoryModal()}
-                style={{ padding: '6px 14px', fontSize: 12 }}
-                title="Add Category or Subcategory"
-              >
-                <FolderPlus size={14} />
-                <span>Add Category</span>
-              </button>
+              {!isViewOnly && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => openAddCategoryModal()}
+                  style={{ padding: '6px 14px', fontSize: 12 }}
+                  title="Add Category or Subcategory"
+                >
+                  <FolderPlus size={14} />
+                  <span>Add Category</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -3429,6 +3432,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             {currency(t.amount)}
                           </td>
                           <td style={{ textAlign: 'center' }}>
+                            {!isViewOnly ? (
                             <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                               <button
                                 type="button"
@@ -3481,6 +3485,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                 )}
                               </button>
                             </div>
+                            ) : (
+                              <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>View only</span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -3925,40 +3932,42 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 gap: 10,
               }}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  onOpenNewTransaction(
-                    monthDrawer.categoryName,
-                    monthDrawer.subcategoryName !== 'Unallocated' ? monthDrawer.subcategoryName : undefined,
-                    monthDrawer.section
-                  );
-                }}
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  padding: '11px 18px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background:
-                    monthDrawer.section === 'income'
-                      ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                      : monthDrawer.section === 'savings'
-                        ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
-                        : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
-                  color: '#ffffff',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
-                }}
-              >
-                <Plus size={16} />
-                <span>Add Transaction</span>
-              </button>
+              {!isViewOnly && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenNewTransaction(
+                      monthDrawer.categoryName,
+                      monthDrawer.subcategoryName !== 'Unallocated' ? monthDrawer.subcategoryName : undefined,
+                      monthDrawer.section
+                    );
+                  }}
+                  style={{
+                    flex: 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    padding: '11px 18px',
+                    borderRadius: 10,
+                    border: 'none',
+                    background:
+                      monthDrawer.section === 'income'
+                        ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                        : monthDrawer.section === 'savings'
+                          ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)'
+                          : 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.4)',
+                  }}
+                >
+                  <Plus size={16} />
+                  <span>Add Transaction</span>
+                </button>
+              )}
             </div>
           </aside>
         </>

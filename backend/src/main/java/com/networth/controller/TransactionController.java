@@ -53,6 +53,9 @@ public class TransactionController {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
         }
+        if (principal.isViewOnly()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "View-only members cannot create transactions"));
+        }
 
         String dateStr = (String) body.get("date");
         String type = (String) body.get("type");
@@ -145,6 +148,9 @@ public class TransactionController {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
         }
+        if (principal.isViewOnly()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "View-only members cannot delete transactions"));
+        }
 
         var opt = transactionRepository.findByIdAndUserId(id, principal.getId());
         if (opt.isEmpty()) {
@@ -174,6 +180,9 @@ public class TransactionController {
                                                                  @RequestBody Map<String, Object> body) {
         if (principal == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+        if (principal.isViewOnly()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "View-only members cannot edit transactions"));
         }
 
         var opt = transactionRepository.findByIdAndUserId(id, principal.getId());
