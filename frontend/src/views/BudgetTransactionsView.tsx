@@ -75,6 +75,38 @@ const DEFAULT_CATEGORIES = {
   ],
 };
 
+
+export const getDeletedCategorySet = (email?: string): Set<string> => {
+  try {
+    const raw = localStorage.getItem(`fintrack_deleted_categories_${email || 'global'}`);
+    return raw ? new Set(JSON.parse(raw).map((k: string) => String(k).toLowerCase().trim())) : new Set();
+  } catch {
+    return new Set();
+  }
+};
+
+export const addDeletedCategory = (email: string | undefined, items: string[]) => {
+  try {
+    const set = getDeletedCategorySet(email);
+    items.forEach(it => {
+      if (it) set.add(String(it).toLowerCase().trim());
+    });
+    localStorage.setItem(`fintrack_deleted_categories_${email || 'global'}`, JSON.stringify(Array.from(set)));
+  } catch {}
+};
+
+export const unmarkDeletedCategory = (email: string | undefined, name: string) => {
+  try {
+    const clean = String(name).toLowerCase().trim();
+    const set = getDeletedCategorySet(email);
+    set.delete(clean);
+    set.delete(`expense:${clean}`);
+    set.delete(`income:${clean}`);
+    set.delete(`savings:${clean}`);
+    localStorage.setItem(`fintrack_deleted_categories_${email || 'global'}`, JSON.stringify(Array.from(set)));
+  } catch {}
+};
+
 const BASE_CATEGORY_FILTERS = [
   'All Categories',
   'Housing & Rent',
@@ -720,10 +752,16 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       return found;
     };
 
+    const deletedSet = getDeletedCategorySet(user?.email);
+
     (Object.keys(DEFAULT_CATEGORIES) as Section[]).forEach((section) =>
-      DEFAULT_CATEGORIES[section].forEach((name) =>
-        ensureCategory(section, name),
-      ),
+      DEFAULT_CATEGORIES[section].forEach((name) => {
+        const clean = name.trim().toLowerCase();
+        if (deletedSet.has(clean) || deletedSet.has(`${section}:${clean}`)) {
+          return; // Skip deleted category
+        }
+        ensureCategory(section, name);
+      }),
     );
 
     cats.forEach((category) => {
@@ -734,6 +772,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             ? 'savings'
             : 'expense';
 
+      const clean = (category.name || '').trim().toLowerCase();
+      if (deletedSet.has(clean) || deletedSet.has(`${section}:${clean}`)) {
+        return; // Skip deleted category
+      }
       ensureCategory(section, category.name, category.id);
     });
 
@@ -876,13 +918,22 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   // Transactions Ledger filtering
   const categoryFilterOptions = useMemo(() => {
-    const set = new Set<string>(BASE_CATEGORY_FILTERS);
-    apiCategories.forEach((c) => set.add(c.name));
+    const deletedSet = getDeletedCategorySet(user?.email);
+    const set = new Set<string>();
+    set.add('All Categories');
+    BASE_CATEGORY_FILTERS.forEach(f => {
+      if (f !== 'All Categories' && !deletedSet.has(f.toLowerCase())) {
+        set.add(f);
+      }
+    });
+    apiCategories.forEach((c) => {
+      if (!deletedSet.has(c.name.toLowerCase())) set.add(c.name);
+    });
     rawTransactions.forEach((t) => {
-      if (t.category) set.add(t.category);
+      if (t.category && !deletedSet.has(t.category.toLowerCase())) set.add(t.category);
     });
     return Array.from(set);
-  }, [apiCategories, rawTransactions]);
+  }, [apiCategories, rawTransactions, user?.email]);
 
   const filteredTransactions = useMemo(() => {
     return rawTransactions.filter((t) => {
@@ -1604,10 +1655,52 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         targetKey,
         name: `Category "${catObj.name}"`,
         secondsLeft: 5,
-        executeDelete: () => {
+        executeDelete: async () => {
+          // 1. Persist to deleted categories so it never returns on refresh
+          addDeletedCategory(user?.email, [catObj.name, `${section}:${catObj.name}`, categoryId]);
+
+          // 2. Call backend delete API
+          try {
+            if (catObj.categoryId) {
+              await api.delete(`/categories/${catObj.categoryId}`).catch(() => {});
+            }
+            await api.delete('/categories', { params: { type: section, name: catObj.name } }).catch(() => {});
+          } catch {}
+
+          // 3. Clean up stored budget values & planned transactions for this category
+          try {
+            const budgetKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
+            const storedB = localStorage.getItem(budgetKey);
+            if (storedB) {
+              const bMap = JSON.parse(storedB);
+              delete bMap[categoryId];
+              delete bMap[catObj.name];
+              delete bMap[`${section}:${catObj.name}`];
+              catObj.subcategories.forEach(s => {
+                delete bMap[s.id];
+                delete bMap[s.name];
+              });
+              localStorage.setItem(budgetKey, JSON.stringify(bMap));
+              setBudgetValues(bMap);
+            }
+
+            const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+            const storedTx = localStorage.getItem(txKey);
+            if (storedTx) {
+              const txMap = JSON.parse(storedTx);
+              delete txMap[categoryId];
+              catObj.subcategories.forEach(s => {
+                delete txMap[s.id];
+              });
+              localStorage.setItem(txKey, JSON.stringify(txMap));
+              setBudgetTransactions(txMap);
+            }
+          } catch {}
+
+          // 4. Update memory state
           setSections((current) => ({
             ...current,
-            [section]: current[section].filter((c) => c.id !== categoryId),
+            [section]: current[section].filter((c) => c.id !== categoryId && c.name !== catObj.name),
           }));
         },
       },
@@ -1689,6 +1782,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setIsCategorySubmitting(true);
     setCategoryInlineError(null);
     try {
+      unmarkDeletedCategory(user?.email, name);
       await api.post('/categories', {
         name,
         type: section,

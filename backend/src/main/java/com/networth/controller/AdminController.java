@@ -765,6 +765,7 @@ public class AdminController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Request type is required."));
         }
 
+        String actionToken = java.util.UUID.randomUUID().toString();
         AccessRequest req = AccessRequest.builder()
                 .userId(principal.getId())
                 .userEmail(principal.getEmail())
@@ -772,9 +773,56 @@ public class AdminController {
                 .requestType(requestType.trim())
                 .details(details != null ? details.trim() : "Requested access")
                 .status("PENDING")
+                .actionToken(actionToken)
                 .build();
 
         req = accessRequestRepository.save(req);
+
+        // Notify Administrator by Email with 1-click Approve / Reject options
+        try {
+            List<User> adminUsers = userRepository.findAll().stream()
+                    .filter(u -> u.getRole() != null && (u.getRole().equalsIgnoreCase("ADMIN") || u.getRole().equalsIgnoreCase("SUPER_ADMIN")))
+                    .collect(Collectors.toList());
+
+            Set<String> adminEmails = new HashSet<>();
+            // Always dispatch to the primary administrator Gmail address so it arrives directly in the inbox
+            adminEmails.add("fintracktool@gmail.com");
+
+            for (User adm : adminUsers) {
+                if (adm.getEmail() != null && !adm.getEmail().isBlank()) {
+                    String admMail = adm.getEmail().trim().toLowerCase();
+                    // Avoid sending to synthetic/mock domain addresses that cannot receive real emails
+                    if (!admMail.endsWith("@fintrack.app") && !admMail.endsWith("@fintrack.io") && !admMail.endsWith("@fintrack.internal") && !admMail.endsWith("@example.com")) {
+                        adminEmails.add(admMail);
+                    }
+                }
+            }
+            systemSettingRepository.findBySettingKey("ADMIN_EMAIL").ifPresent(s -> {
+                if (s.getSettingValue() != null && !s.getSettingValue().isBlank()) {
+                    String customAdm = s.getSettingValue().trim().toLowerCase();
+                    if (!customAdm.endsWith("@fintrack.app") && !customAdm.endsWith("@fintrack.io") && !customAdm.endsWith("@fintrack.internal")) {
+                        adminEmails.add(customAdm);
+                    }
+                }
+            });
+
+            String baseUrl = System.getenv("APP_BASE_URL");
+            if (baseUrl == null || baseUrl.isBlank()) baseUrl = "http://localhost:8081";
+
+            for (String admMail : adminEmails) {
+                emailService.sendAdminAccessRequestNotificationEmail(
+                        admMail,
+                        req.getUserName(),
+                        req.getUserEmail(),
+                        req.getRequestType(),
+                        req.getDetails(),
+                        actionToken,
+                        baseUrl
+                );
+            }
+        } catch (Exception ex) {
+            logger.error("Error sending admin access request email notification: {}", ex.getMessage());
+        }
 
         userActivityLogRepository.save(UserActivityLog.builder()
                 .userId(principal.getId())
@@ -869,6 +917,110 @@ public class AdminController {
                 .build());
 
         return ResponseEntity.ok(Map.of("success", true, "data", req));
+    }
+
+    @GetMapping(value = "/public/access-requests/action", produces = "text/html;charset=UTF-8")
+    public ResponseEntity<String> handleEmailAccessRequestAction(@RequestParam("token") String token,
+                                                                 @RequestParam("action") String action) {
+        if (token == null || token.isBlank()) {
+            return ResponseEntity.badRequest().body(renderActionHtml("Invalid Request", "No action token provided.", "#EF4444", "Error"));
+        }
+
+        Optional<AccessRequest> opt = accessRequestRepository.findByActionToken(token);
+        if (opt.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(renderActionHtml("Request Not Found", "This access request token is invalid or has expired.", "#EF4444", "Not Found"));
+        }
+
+        AccessRequest req = opt.get();
+        if (!"PENDING".equalsIgnoreCase(req.getStatus())) {
+            return ResponseEntity.ok(renderActionHtml(
+                    "Already Processed",
+                    "This request was already <strong>" + req.getStatus() + "</strong>" + (req.getUpdatedAt() != null ? " on " + req.getUpdatedAt() : "") + ".",
+                    "#6366F1",
+                    req.getStatus()
+            ));
+        }
+
+        String normalizedAction = "APPROVE".equalsIgnoreCase(action) ? "APPROVED" : "REJECTED";
+        req.setStatus(normalizedAction);
+        req.setAdminNote("Actioned directly via Email (" + normalizedAction + ")");
+        accessRequestRepository.save(req);
+
+        User targetUser = userRepository.findById(req.getUserId()).orElse(null);
+        if (targetUser != null && "APPROVED".equals(normalizedAction)) {
+            String type = req.getRequestType().toUpperCase();
+            if (type.contains("ENTERPRISE")) {
+                applyPlanToUser(targetUser, "ENTERPRISE");
+            } else if (type.contains("PRO")) {
+                applyPlanToUser(targetUser, "PRO");
+            } else if (type.contains("PLAN") || type.contains("SUBSCRIPTION")) {
+                String nextTier = "FREE".equalsIgnoreCase(targetUser.getSubscriptionTier()) ? "PRO" : "ENTERPRISE";
+                applyPlanToUser(targetUser, nextTier);
+            } else if (type.contains("CARD")) {
+                if ("FREE".equalsIgnoreCase(targetUser.getSubscriptionTier())) {
+                    applyPlanToUser(targetUser, "PRO");
+                } else {
+                    int currentLimit = targetUser.getCardLimit() != null ? targetUser.getCardLimit() : 2;
+                    targetUser.setCardLimit(currentLimit + 3);
+                    userRepository.save(targetUser);
+                }
+            } else if (type.contains("DASHBOARD")) {
+                targetUser.setCanAccessDashboard(true);
+                userRepository.save(targetUser);
+            } else if (type.contains("REPORT")) {
+                targetUser.setCanAccessReports(true);
+                userRepository.save(targetUser);
+            } else if (type.contains("UNLOCK")) {
+                targetUser.setLockType("NONE");
+                targetUser.setStatus("ACTIVE");
+                userRepository.save(targetUser);
+            } else {
+                userRepository.save(targetUser);
+            }
+        }
+
+        if (targetUser != null) {
+            try {
+                emailService.sendAccessRequestStatusEmail(targetUser.getEmail(), targetUser.getName(), req.getRequestType(), normalizedAction, req.getAdminNote());
+            } catch (Exception ignored) {}
+        }
+
+        try {
+            userActivityLogRepository.save(UserActivityLog.builder()
+                    .userId(targetUser != null ? targetUser.getId() : 0L)
+                    .userEmail(req.getUserEmail())
+                    .action("EMAIL_ACTION_REQUEST")
+                    .details("Admin " + normalizedAction + " request for " + req.getUserEmail() + " directly via Email Link")
+                    .build());
+        } catch (Exception ignored) {}
+
+        boolean isApprove = "APPROVED".equals(normalizedAction);
+        String title = isApprove ? "Request Approved Successfully!" : "Request Rejected";
+        String message = isApprove
+                ? "User <strong>" + req.getUserEmail() + "</strong> has been granted <strong>" + req.getRequestType() + "</strong>. Their account permissions and limits have been updated."
+                : "The request from user <strong>" + req.getUserEmail() + "</strong> has been marked as rejected.";
+        String color = isApprove ? "#10B981" : "#EF4444";
+
+        return ResponseEntity.ok(renderActionHtml(title, message, color, normalizedAction));
+    }
+
+    private String renderActionHtml(String title, String message, String color, String badge) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + title + " - FinTrack</title>"
+                + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                + "<style>"
+                + "body { margin: 0; background-color: #0A0D14; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; box-sizing: border-box; color: #FFF; }"
+                + ".card { background: #0F131D; border: 1px solid #1E2638; border-radius: 20px; padding: 36px; max-width: 480px; width: 100%; text-align: center; box-shadow: 0 25px 60px rgba(0,0,0,0.7); }"
+                + ".badge { display: inline-block; padding: 6px 16px; border-radius: 999px; font-size: 12px; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 20px; background: " + color + "20; color: " + color + "; border: 1px solid " + color + "40; }"
+                + "h1 { margin: 0 0 12px; font-size: 22px; font-weight: 800; }"
+                + "p { color: #94A3B8; font-size: 14px; line-height: 1.6; margin: 0 0 28px; }"
+                + ".btn { display: inline-block; background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%); color: #FFF; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 700; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.4); }"
+                + "</style></head><body>"
+                + "<div class='card'>"
+                + "  <div class='badge'>" + badge + "</div>"
+                + "  <h1>" + title + "</h1>"
+                + "  <p>" + message + "</p>"
+                + "  <a href='http://localhost:5173' class='btn'>Open FinTrack Dashboard</a>"
+                + "</div></body></html>";
     }
 
     // =========================================================================

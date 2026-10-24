@@ -41,7 +41,7 @@ public class User {
     @Builder.Default
     private Boolean isVerified = false;
 
-    @Column(columnDefinition = "TEXT")
+    @Column(columnDefinition = "LONGTEXT")
     private String photo;
 
     @Builder.Default

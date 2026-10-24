@@ -212,7 +212,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
 
   const updateUser = (data: Partial<User>) => {
-    setUser(prev => (prev ? { ...prev, ...data } : null));
+    setUser(prev => {
+      if (!prev) return null;
+      const updated = { ...prev, ...data };
+      try {
+        localStorage.setItem('fintrack_user_cache', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
   };
 
   const login = async (email: string, pass: string): Promise<LoginResult> => {

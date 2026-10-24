@@ -259,6 +259,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           password,
           name: name.trim() || undefined
         });
+        sessionStorage.setItem('fintrack_is_new_registration', 'true');
       } else {
         await verifyExistingAccount(email.trim().toLowerCase(), otp.trim());
       }
@@ -291,6 +292,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
   return (
     <div
+      className="auth-page"
       style={{
         minHeight: '100vh',
         width: '100vw',
@@ -337,6 +339,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
       {/* Main Login Card (Clean, centered single-card auth container) */}
       <div
+        className="auth-card"
         style={{
           width: '100%',
           maxWidth: '480px',
@@ -523,6 +526,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   Verification Code (OTP)
                 </label>
                 <input
+                  className="auth-input"
                   type="text"
                   maxLength={6}
                   placeholder="• • • • • •"
@@ -605,6 +609,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   <div style={{ position: 'relative' }}>
                     <UserIcon size={16} style={{ position: 'absolute', left: 14, top: 14, color: '#64748B' }} />
                     <input
+                      className="auth-input"
                       type="text"
                       placeholder="Enter your name"
                       value={name}
@@ -632,6 +637,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 <div style={{ position: 'relative' }}>
                   <Mail size={16} style={{ position: 'absolute', left: 14, top: 14, color: '#64748B' }} />
                   <input
+                    className="auth-input"
                     type="text"
                     name={`ft_email_${activeTab}`}
                     id={activeTab === 'admin' ? 'admin-email-field' : 'user-email-field'}
@@ -669,6 +675,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 <div style={{ position: 'relative' }}>
                   <Lock size={16} style={{ position: 'absolute', left: 14, top: 14, color: '#64748B' }} />
                   <input
+                    className="auth-input"
                     type={showPassword ? 'text' : 'password'}
                     name={`ft_pwd_${activeTab}`}
                     id={activeTab === 'admin' ? 'admin-password-field' : 'user-password-field'}

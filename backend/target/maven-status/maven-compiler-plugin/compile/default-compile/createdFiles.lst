@@ -5,6 +5,7 @@ com\networth\entity\DefaultCategory$DefaultCategoryBuilder.class
 com\networth\repository\SubscriptionPlanRepository.class
 com\networth\repository\UserNotificationSettingRepository.class
 com\networth\repository\TransactionRepository.class
+com\networth\config\DatabaseMigrationRunner.class
 com\networth\dto\ApiResponse.class
 com\networth\controller\HoldingsController.class
 com\networth\exception\GlobalExceptionHandler.class
