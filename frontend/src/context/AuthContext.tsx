@@ -73,7 +73,7 @@ interface AuthContextType {
   verifyRegistrationOtp: (params: { email: string; otp: string; password: string; name?: string }) => Promise<void>;
   verifyExistingAccount: (email: string, otp: string) => Promise<void>;
   resendOtp: (email: string, purpose?: string) => Promise<{ devOtp?: string; message?: string }>;
-  loginDemo: () => Promise<void>;
+  loginDemo: () => Promise<LoginResult>;
   logout: () => Promise<void>;
   updateUser: (data: Partial<User>) => void;
   refreshUserData: () => Promise<void>;
@@ -185,13 +185,52 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const loginDemo = async () => {
+  const loginDemo = async (): Promise<LoginResult> => {
     setLoading(true);
     try {
-      let res = await api.post('/auth/login', { email: 'demo@fintrack.io', password: 'password123' }).catch(() => null);
-      if (!res?.data?.success) {
-        res = await api.post('/auth/register', { email: 'demo@fintrack.io', password: 'password123' }).catch(() => null);
+      let res: any = null;
+      try {
+        res = await api.post('/auth/login', { email: 'demo@fintrack.io', password: 'password123' });
+      } catch (err: any) {
+        const d = err.response?.data;
+        if (d?.isLocked) {
+          return {
+            success: false,
+            isLocked: true,
+            lockType: d.lockType,
+            lockUntil: d.lockUntil,
+            lockReason: d.lockReason,
+            message: d.error || d.message || (d.lockReason ? `Demo account is locked: ${d.lockReason}` : 'This demo account has been locked by the administrator.')
+          };
+        }
+        if (d?.unregistered || err.response?.status === 404) {
+          try {
+            res = await api.post('/auth/register', { email: 'demo@fintrack.io', password: 'password123' });
+          } catch (regErr: any) {
+            const regD = regErr.response?.data;
+            if (regD?.isLocked) {
+              return {
+                success: false,
+                isLocked: true,
+                lockType: regD.lockType,
+                lockUntil: regD.lockUntil,
+                lockReason: regD.lockReason,
+                message: regD.error || regD.message || regD.lockReason
+              };
+            }
+            return {
+              success: false,
+              message: regD?.error || regD?.message || 'Failed to create demo account'
+            };
+          }
+        } else {
+          return {
+            success: false,
+            message: d?.error || d?.message || 'Demo login failed'
+          };
+        }
       }
+
       if (res?.data?.success) {
         if (res.data.token) localStorage.setItem('token', res.data.token);
         let userData: User = res.data.user;
@@ -205,7 +244,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         yearService.resetToCurrentYear();
         localStorage.setItem('fintrack_user_cache', JSON.stringify(userData));
         setUser(userData);
+        return { success: true };
       }
+
+      const d = res?.data;
+      if (d?.isLocked) {
+        return {
+          success: false,
+          isLocked: true,
+          lockType: d.lockType,
+          lockUntil: d.lockUntil,
+          lockReason: d.lockReason,
+          message: d.error || d.message || d.lockReason
+        };
+      }
+
+      return {
+        success: false,
+        message: d?.error || d?.message || 'Demo login failed'
+      };
     } finally {
       setLoading(false);
     }
