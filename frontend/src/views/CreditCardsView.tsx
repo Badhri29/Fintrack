@@ -1957,7 +1957,7 @@ export const CreditCardsView: React.FC = () => {
                                   <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                     {cat.name}
                                   </span>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
                                     <span style={{ fontWeight: 700, color: '#EF4444' }}>
                                       {currencyService.format(cat.amount)}
                                     </span>
@@ -2308,7 +2308,7 @@ export const CreditCardsView: React.FC = () => {
                           {tx.date}
                         </td>
                         <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
                             <span>{tx.description || tx.details || (isPayment ? 'Bill Payment' : 'Card Spend')}</span>
                             {isPayment && (
                               <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(16, 185, 129, 0.18)', color: '#10B981' }}>
@@ -2806,7 +2806,7 @@ export const CreditCardsView: React.FC = () => {
                 </div>
 
                 {/* Last 4 Digits, Expiry (Clean MM & YY), and CVV */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 0.8fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 0.85fr)', gap: 12 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                       LAST 4 DIGITS
@@ -2818,7 +2818,7 @@ export const CreditCardsView: React.FC = () => {
                       value={editLast4}
                       onChange={e => setEditLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       className="modal-input"
-                      style={{ fontFamily: 'monospace', textAlign: 'center' }}
+                      style={{ fontFamily: 'monospace', textAlign: 'center', width: '100%', boxSizing: 'border-box' }}
                       required
                     />
                   </div>
@@ -2827,7 +2827,7 @@ export const CreditCardsView: React.FC = () => {
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                       EXPIRY (MM / YY)
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
                       <input
                         type="number"
                         min={1}
@@ -2836,7 +2836,7 @@ export const CreditCardsView: React.FC = () => {
                         value={editExpiryMonth}
                         onChange={e => setEditExpiryMonth(Number(e.target.value))}
                         className="modal-input"
-                        style={{ textAlign: 'center' }}
+                        style={{ textAlign: 'center', width: '100%', minWidth: 0, flex: 1, padding: '10px 4px' }}
                         required
                       />
                       <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>/</span>
@@ -2848,7 +2848,7 @@ export const CreditCardsView: React.FC = () => {
                         value={editExpiryYear}
                         onChange={e => setEditExpiryYear(Number(e.target.value))}
                         className="modal-input"
-                        style={{ textAlign: 'center' }}
+                        style={{ textAlign: 'center', width: '100%', minWidth: 0, flex: 1, padding: '10px 4px' }}
                         required
                       />
                     </div>
@@ -2865,7 +2865,7 @@ export const CreditCardsView: React.FC = () => {
                       value={editCvv}
                       onChange={e => setEditCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       className="modal-input"
-                      style={{ fontFamily: 'monospace', textAlign: 'center' }}
+                      style={{ fontFamily: 'monospace', textAlign: 'center', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                 </div>
@@ -3069,7 +3069,7 @@ export const CreditCardsView: React.FC = () => {
                 </div>
 
                 {/* Last 4 Digits, Expiry (Clean MM & YY), and CVV */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr 0.8fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 0.85fr)', gap: 12 }}>
                   <div>
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                       LAST 4 DIGITS
@@ -3081,7 +3081,7 @@ export const CreditCardsView: React.FC = () => {
                       value={newCardLast4}
                       onChange={e => setNewCardLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       className="modal-input"
-                      style={{ fontFamily: 'monospace', textAlign: 'center' }}
+                      style={{ fontFamily: 'monospace', textAlign: 'center', width: '100%', boxSizing: 'border-box' }}
                       required
                     />
                   </div>
@@ -3090,7 +3090,7 @@ export const CreditCardsView: React.FC = () => {
                     <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                       EXPIRY (MM / YY)
                     </label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
                       <input
                         type="number"
                         min={1}
@@ -3099,7 +3099,7 @@ export const CreditCardsView: React.FC = () => {
                         value={newCardExpiryMonth}
                         onChange={e => setNewCardExpiryMonth(Number(e.target.value))}
                         className="modal-input"
-                        style={{ textAlign: 'center' }}
+                        style={{ textAlign: 'center', width: '100%', minWidth: 0, flex: 1, padding: '10px 4px' }}
                         required
                       />
                       <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>/</span>
@@ -3111,7 +3111,7 @@ export const CreditCardsView: React.FC = () => {
                         value={newCardExpiryYear}
                         onChange={e => setNewCardExpiryYear(Number(e.target.value))}
                         className="modal-input"
-                        style={{ textAlign: 'center' }}
+                        style={{ textAlign: 'center', width: '100%', minWidth: 0, flex: 1, padding: '10px 4px' }}
                         required
                       />
                     </div>
@@ -3128,7 +3128,7 @@ export const CreditCardsView: React.FC = () => {
                       value={newCardCvv}
                       onChange={e => setNewCardCvv(e.target.value.replace(/\D/g, '').slice(0, 4))}
                       className="modal-input"
-                      style={{ fontFamily: 'monospace', textAlign: 'center' }}
+                      style={{ fontFamily: 'monospace', textAlign: 'center', width: '100%', boxSizing: 'border-box' }}
                     />
                   </div>
                 </div>
