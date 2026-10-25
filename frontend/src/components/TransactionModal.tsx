@@ -18,6 +18,7 @@ import { currencyService } from '../services/currencyService';
 import { useAuth } from '../context/AuthContext';
 import { getDeletedCategorySet } from '../views/BudgetTransactionsView';
 import { cardService, type CardModel } from '../services/cardService';
+import { bankAccountService } from '../services/bankAccountService';
 import { playNotificationChime } from '../services/soundService';
 import { showToast } from './ToastNotification';
 
@@ -187,6 +188,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [isCustomSubcategory, setIsCustomSubcategory] = useState<boolean>(false);
   const [customSubcategoryText, setCustomSubcategoryText] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<string>('upi');
+  const [paymentModeOptions, setPaymentModeOptions] = useState(() => bankAccountService.getPaymentModeOptions(user?.email));
+
+  useEffect(() => {
+    const handleAccUpdated = () => {
+      setPaymentModeOptions(bankAccountService.getPaymentModeOptions(user?.email));
+    };
+    window.addEventListener('fintrack-accounts-updated', handleAccUpdated);
+    return () => window.removeEventListener('fintrack-accounts-updated', handleAccUpdated);
+  }, [user]);
   const [card, setCard] = useState<string>('');
   const [activeCards, setActiveCards] = useState<CardModel[]>(() => cardService.getActiveCards());
 
@@ -896,12 +906,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   e.currentTarget.style.boxShadow = 'none';
                 }}
               >
-                <option value="upi">UPI / GPay / PhonePe</option>
-                <option value="credit">Credit Card</option>
-                <option value="debit">Debit Card</option>
-                <option value="bank_transfer">Bank Transfer</option>
-                <option value="netbanking">Net Banking / NEFT</option>
-                <option value="cash">Cash</option>
+                {paymentModeOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 

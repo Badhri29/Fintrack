@@ -265,8 +265,8 @@ public class AuthController {
                 ? user.getLockReason()
                 : "Account restricted by administrator.";
 
-        if ("TEMP".equals(lockType) && user.getLockUntil() != null) {
-            if (LocalDateTime.now().isBefore(user.getLockUntil())) {
+        if ("TEMP".equals(lockType)) {
+            if (user.getLockUntil() != null && LocalDateTime.now().isBefore(user.getLockUntil())) {
                 return ResponseEntity.status(HttpStatus.FORBIDDEN)
                         .body(AuthResponse.builder()
                                 .success(false)
@@ -276,16 +276,25 @@ public class AuthController {
                                 .lockReason(lockReason)
                                 .error("Your account has been temporarily locked until " + user.getLockUntil() + ". Reason: " + lockReason)
                                 .build());
-            } else {
+            } else if (user.getLockUntil() != null) {
                 // Auto-expired temp lock -> unlock account automatically
                 user.setLockType("NONE");
                 user.setStatus("ACTIVE");
                 user.setLockReason(null);
                 user.setLockUntil(null);
                 userRepository.save(user);
+            } else {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .isLocked(true)
+                                .lockType("TEMP")
+                                .lockReason(lockReason)
+                                .error("Your account is temporarily locked. Reason: " + lockReason)
+                                .build());
             }
-        } else if ("FULL".equals(lockType) || "PERMANENT".equals(lockType) || "LOCKED".equalsIgnoreCase(user.getStatus())) {
-            String effectiveLockType = "PERMANENT".equals(lockType) ? "PERMANENT" : "FULL";
+        } else if (!"NONE".equalsIgnoreCase(lockType) || "LOCKED".equalsIgnoreCase(user.getStatus()) || "SUSPENDED".equalsIgnoreCase(user.getStatus())) {
+            String effectiveLockType = "PERMANENT".equalsIgnoreCase(lockType) ? "PERMANENT" : "FULL";
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(AuthResponse.builder()
                             .success(false)
@@ -322,6 +331,25 @@ public class AuthController {
 
         boolean isAdminUser = user.getRole() != null &&
                 (user.getRole().equalsIgnoreCase("ADMIN") || user.getRole().equalsIgnoreCase("SUPER_ADMIN"));
+
+        // Enforce Portal Isolation: Admin login works ONLY in Admin portal, User login works ONLY in User portal
+        String portal = request.getLoginPortal() != null ? request.getLoginPortal().trim().toUpperCase() : null;
+        if (portal != null) {
+            if ("USER".equals(portal) && isAdminUser) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .error("Administrator accounts must sign in using the Admin Login portal. Please switch to the Admin tab.")
+                                .build());
+            }
+            if ("ADMIN".equals(portal) && !isAdminUser) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                        .body(AuthResponse.builder()
+                                .success(false)
+                                .error("Access denied: This portal is strictly for Administrators. Regular users please sign in via the User Login tab.")
+                                .build());
+            }
+        }
 
         // 3. Scheduled Maintenance Check
         Optional<SystemSetting> maintSetting = systemSettingRepository.findBySettingKey("MAINTENANCE_ACTIVE");

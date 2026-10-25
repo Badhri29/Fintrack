@@ -43,6 +43,38 @@ import { cardService, type CardModel } from '../services/cardService';
 export type { LoanModel, MonthEmiScheduleItem };
 export { calculateEMI, calculateLoanTenureMonths, calculateLoanInterestAmount, calculateLoanEMIs, generateEmiSchedule, DEFAULT_LOANS };
 
+
+// Helper to render formatted loan descriptions (bold tags and color spans)
+const renderFormattedDescription = (desc: string) => {
+  if (!desc) return null;
+
+  // Split by supported tags <b>...</b>, <strong>...</strong>, and <span style="color: ...">...</span>
+  // Also supports [b]...[/b] and [color=...][/color]
+  const clean = desc
+    .replace(/\[b\]/gi, '<b>')
+    .replace(/\[\/b\]/gi, '</b>')
+    .replace(/\[color=([^\]]+)\]/gi, '<span style="color: $1">')
+    .replace(/\[\/color\]/gi, '</span>');
+
+  const parts = clean.split(/(<[^>]+>[^<]*<\/[^>]+>)/g);
+
+  return (
+    <span style={{ display: 'inline-block', lineHeight: 1.5 }}>
+      {parts.map((part, idx) => {
+        const colorMatch = part.match(/<span\s+style="color:\s*([^"]+)">([\s\S]*?)<\/span>/i);
+        if (colorMatch) {
+          return <span key={idx} style={{ color: colorMatch[1] }}>{colorMatch[2]}</span>;
+        }
+        const boldMatch = part.match(/<(?:b|strong)>([\s\S]*?)<\/(?:b|strong)>/i);
+        if (boldMatch) {
+          return <strong key={idx} style={{ fontWeight: 800, color: 'inherit' }}>{boldMatch[1]}</strong>;
+        }
+        return part;
+      })}
+    </span>
+  );
+};
+
 export const LoansEmiView: React.FC = () => {
   const { user } = useAuth();
   const { effectiveTheme } = useTheme();
@@ -70,6 +102,53 @@ export const LoansEmiView: React.FC = () => {
 
   // Split screen state: selected loan for isolated EMI details inspector (like Admin tool)
   const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
+
+  // Sorting state for active loan cards
+  
+  // Format Toolbar Helpers for Rich Description
+  const insertFormatting = (
+    currentText: string,
+    setText: (s: string) => void,
+    tagOpen: string,
+    tagClose: string,
+    sampleText: string = 'text'
+  ) => {
+    setText(currentText ? `${currentText} ${tagOpen}${sampleText}${tagClose}` : `${tagOpen}${sampleText}${tagClose}`);
+  };
+
+  const [loanSortOption, setLoanSortOption] = useState<string>('latest');
+
+  // Sorted loans list based on user selection
+  const sortedLoans = useMemo(() => {
+    const list = [...loans];
+    list.sort((a, b) => {
+      const metricsA = calculateLoanEMIs(a);
+      const metricsB = calculateLoanEMIs(b);
+
+      switch (loanSortOption) {
+        case 'amount_high':
+          return (Number(b.principal) || 0) - (Number(a.principal) || 0);
+        case 'amount_low':
+          return (Number(a.principal) || 0) - (Number(b.principal) || 0);
+        case 'monthly_high':
+          return metricsB.emi - metricsA.emi;
+        case 'monthly_low':
+          return metricsA.emi - metricsB.emi;
+        case 'emis_high':
+          return metricsB.remainingEmis - metricsA.remainingEmis;
+        case 'emis_low':
+          return metricsA.remainingEmis - metricsB.remainingEmis;
+        case 'due_day':
+          return (a.dueDay || 5) - (b.dueDay || 5);
+        case 'oldest':
+          return new Date(a.startDate || 0).getTime() - new Date(b.startDate || 0).getTime();
+        case 'latest':
+        default:
+          return new Date(b.startDate || 0).getTime() - new Date(a.startDate || 0).getTime();
+      }
+    });
+    return list;
+  }, [loans, loanSortOption]);
 
   // Add Loan Modal Form State
   const [isAddLoanOpen, setIsAddLoanOpen] = useState<boolean>(false);
@@ -1129,6 +1208,58 @@ export const LoansEmiView: React.FC = () => {
                 transition: 'all 0.3s ease'
               }}
             >
+              {/* Sorting Toolbar (Requirement 3) */}
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 12,
+                  padding: '10px 14px',
+                  marginBottom: 16,
+                  flexWrap: 'wrap',
+                  gap: 10
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <SlidersHorizontal size={14} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
+                    SORT LOAN CARDS:
+                  </span>
+                  <select
+                    value={loanSortOption}
+                    onChange={e => setLoanSortOption(e.target.value)}
+                    className="modal-select"
+                    style={{
+                      padding: '5px 12px',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      borderRadius: 8,
+                      width: 'auto',
+                      minWidth: 210,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value="latest">⏱️ Latest Added (Newest)</option>
+                    <option value="oldest">🕰️ Oldest Added</option>
+                    <option value="amount_high">💰 Big Loan Amount (Highest)</option>
+                    <option value="amount_low">🪙 Small Loan Amount (Lowest)</option>
+                    <option value="monthly_high">📈 High Monthly EMI</option>
+                    <option value="monthly_low">📉 Low Monthly EMI</option>
+                    <option value="emis_high">📅 Largest EMI Count (Remaining)</option>
+                    <option value="emis_low">⚡ Smallest EMI Count (Remaining)</option>
+                    <option value="due_day">🗓️ Closest Monthly Due Date</option>
+                  </select>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                  Showing <strong style={{ color: 'var(--text-primary)' }}>{sortedLoans.length}</strong> active loans
+                </div>
+              </div>
+
               <div
                 style={{
                   display: 'grid',
@@ -1136,7 +1267,7 @@ export const LoansEmiView: React.FC = () => {
                   gap: 16
                 }}
               >
-                {loans.map(loan => {
+                {sortedLoans.map(loan => {
                   const emiInfo = calculateLoanEMIs(loan);
                   const isSelected = selectedLoanId === loan.id;
                   const isIncludedInNetWorth = loan.includeInNetWorth !== false;
@@ -1174,7 +1305,12 @@ export const LoansEmiView: React.FC = () => {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
                           <div style={{ flex: 1 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                              {/* Green / Red Indicator Dot (Requirement 7) */}
+                              {isSelected && (
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 999, background: '#3B82F6', color: '#FFF', fontSize: 10, fontWeight: 800, letterSpacing: '0.04em' }}>
+                                    👁️ ACTIVE / OPENED
+                                  </span>
+                                )}
+                                {/* Green / Red Indicator Dot (Requirement 7) */}
                               {!emiInfo.isClosed ? (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.12)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
                                   <span style={{ position: 'relative', display: 'flex', height: 7, width: 7 }}>
@@ -1221,8 +1357,8 @@ export const LoansEmiView: React.FC = () => {
                                 </div>
                               )}
                               {loan.description && (
-                                <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                                  {loan.description}
+                                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--text-muted)', marginTop: 3 }}>
+                                  {renderFormattedDescription(loan.description)}
                                 </span>
                               )}
                             </div>
@@ -2775,7 +2911,7 @@ export const LoansEmiView: React.FC = () => {
       {/* Modal: Add New Loan (Requirements 2 & 8: Name, Loan Number, Lender, Due Day, Principal, EMI, Remaining, Start Date, End Date, Description, Net Worth) */}
       {isAddLoanOpen && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 540 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
@@ -3007,19 +3143,66 @@ export const LoansEmiView: React.FC = () => {
                 )}
               </div>
 
-              {/* Row 5: Description */}
+              {/* Row 5: Description with Bold & Colors Toolbar */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  DESCRIPTION / PURPOSE
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    DESCRIPTION / PURPOSE (SUPPORTS BOLD & COLORS)
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<b>', '</b>', 'Important')}
+                      title="Insert Bold Text"
+                      style={{ padding: '2px 8px', borderRadius: 4, background: '#1E293B', border: '1px solid var(--border-color)', color: '#FFF', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<span style="color: #38BDF8">', '</span>', 'Blue')}
+                      title="Insert Sky Blue Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#38BDF8', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<span style="color: #34D399">', '</span>', 'Green')}
+                      title="Insert Emerald Green Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#34D399', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<span style="color: #FBBF24">', '</span>', 'Amber')}
+                      title="Insert Amber Gold Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBBF24', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<span style="color: #F87171">', '</span>', 'Red')}
+                      title="Insert Rose Red Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#F87171', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(loanDescription, setLoanDescription, '<span style="color: #A78BFA">', '</span>', 'Purple')}
+                      title="Insert Purple Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#A78BFA', border: 'none', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
                 <textarea
                   rows={2}
-                  placeholder="e.g. Purpose of loan, collateral details, or repayment account notes"
+                  placeholder="e.g. <b>Car Loan</b> with <span style='color: #38BDF8'>8.5% interest</span>..."
                   value={loanDescription}
                   onChange={e => setLoanDescription(e.target.value)}
                   className="modal-input"
                   style={{ resize: 'vertical' }}
                 />
+                {loanDescription && (
+                  <div style={{ marginTop: 4, padding: '4px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Preview: {renderFormattedDescription(loanDescription)}
+                  </div>
+                )}
               </div>
 
               {/* Checkbox: Calculate this loan towards Net Worth */}
@@ -3071,7 +3254,7 @@ export const LoansEmiView: React.FC = () => {
       {/* Modal: Edit Existing Loan (Requirement 3) */}
       {isEditLoanOpen && editingLoan && (
         <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 540 }}>
+          <div className="modal-container" style={{ width: '100%', maxWidth: 560, maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
@@ -3256,11 +3439,53 @@ export const LoansEmiView: React.FC = () => {
                 </span>
               </div>
 
-              {/* Row 5: Description */}
+              {/* Row 5: Description with Bold & Colors Toolbar */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  DESCRIPTION / PURPOSE
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    DESCRIPTION / PURPOSE (SUPPORTS BOLD & COLORS)
+                  </label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<b>', '</b>', 'Important')}
+                      title="Insert Bold Text"
+                      style={{ padding: '2px 8px', borderRadius: 4, background: '#1E293B', border: '1px solid var(--border-color)', color: '#FFF', fontWeight: 800, fontSize: 11, cursor: 'pointer' }}
+                    >
+                      B
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<span style="color: #38BDF8">', '</span>', 'Blue')}
+                      title="Insert Sky Blue Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#38BDF8', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<span style="color: #34D399">', '</span>', 'Green')}
+                      title="Insert Emerald Green Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#34D399', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<span style="color: #FBBF24">', '</span>', 'Amber')}
+                      title="Insert Amber Gold Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#FBBF24', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<span style="color: #F87171">', '</span>', 'Red')}
+                      title="Insert Rose Red Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#F87171', border: 'none', cursor: 'pointer' }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => insertFormatting(editDescription, setEditDescription, '<span style="color: #A78BFA">', '</span>', 'Purple')}
+                      title="Insert Purple Text"
+                      style={{ width: 18, height: 18, borderRadius: '50%', background: '#A78BFA', border: 'none', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
                 <textarea
                   rows={2}
                   value={editDescription}
@@ -3268,6 +3493,11 @@ export const LoansEmiView: React.FC = () => {
                   className="modal-input"
                   style={{ resize: 'vertical' }}
                 />
+                {editDescription && (
+                  <div style={{ marginTop: 4, padding: '4px 8px', background: 'rgba(255,255,255,0.03)', borderRadius: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                    Preview: {renderFormattedDescription(editDescription)}
+                  </div>
+                )}
               </div>
 
               {/* Repayment Source in Edit Modal */}

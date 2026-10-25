@@ -16,6 +16,7 @@ public class AuthRequest {
     private String name;
     private String otp;
     private String purpose;
+    private String loginPortal;
 
     public String getEffectiveEmail() {
         if (email != null && !email.trim().isEmpty()) {
