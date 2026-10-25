@@ -529,6 +529,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     return result;
   }, [transactions, backendCategories, budgetStore, selectedYear, selectedMonths]);
 
+  const [loansVersion, setLoansVersion] = useState<number>(0);
+  useEffect(() => {
+    const onLoansChanged = () => {
+      setLoansVersion(v => v + 1);
+    };
+    window.addEventListener('fintrack-loans-changed', onLoansChanged);
+    return () => window.removeEventListener('fintrack-loans-changed', onLoansChanged);
+  }, []);
+
   // Overall Top Metrics & Comprehensive Net Worth Calculation (Point 4 & Point 6)
   const metrics = useMemo(() => {
     const estimateIncome = sectionData.income.totalBudget;
@@ -661,7 +670,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       peerDebts,
       netWorth: !isNaN(netWorth) ? netWorth : (summaryData.netWorth || 0)
     };
-  }, [sectionData, transactions, selectedYear, selectedMonths, summaryData]);
+  }, [sectionData, transactions, selectedYear, selectedMonths, summaryData, loansVersion]);
 
   // Credit Card Overview Data (Point 3 matching user Image 2)
   const [creditCards, setCreditCards] = useState<any[]>(() => {

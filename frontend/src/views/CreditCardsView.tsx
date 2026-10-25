@@ -44,6 +44,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
 import { cardService, type CardModel } from '../services/cardService';
+import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { yearService } from '../services/yearService';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { useTheme } from '../context/ThemeContext';
@@ -163,6 +164,19 @@ export const CreditCardsView: React.FC = () => {
 
   // Cards state loaded through cardService
   const [cards, setCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
+  const [allLoans, setAllLoans] = useState<LoanModel[]>(() => loanService.getLoans(user?.email));
+
+  useEffect(() => {
+    const handleLoansChanged = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setAllLoans(e.detail);
+      } else {
+        setAllLoans(loanService.getLoans(user?.email));
+      }
+    };
+    window.addEventListener('fintrack-loans-changed', handleLoansChanged);
+    return () => window.removeEventListener('fintrack-loans-changed', handleLoansChanged);
+  }, [user]);
   const [selectedCardId, setSelectedCardId] = useState<string>('all');
   const [actualTransactions, setActualTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -685,14 +699,37 @@ export const CreditCardsView: React.FC = () => {
   }, [creditTransactions, safeCurrentPage, pageSize]);
 
   // Calculate card-by-card balance and metrics
-  // NET OUTSTANDING = TOTAL CREDIT PURCHASES - TOTAL BILL PAYMENTS
+  // NET OUTSTANDING = TOTAL CREDIT PURCHASES + ACTIVE LINKED LOAN EMIs - TOTAL BILL PAYMENTS
   const cardBalancesMap = useMemo(() => {
-    const map: Record<string, { purchases: number; payments: number; netOutstanding: number; avail: number; util: number }> = {};
+    const map: Record<string, { purchases: number; payments: number; activeLoanEmis: number; linkedLoans: LoanModel[]; netOutstanding: number; avail: number; util: number }> = {};
 
     cards.forEach(c => {
+      const cleanCardName = (c.name || '').trim().toLowerCase();
+      const linked = allLoans.filter(l => {
+        if (l.status === 'closed') return false;
+        const isCard = l.repaymentSource === 'credit_card';
+        const matchesId = l.linkedCardId === c.id;
+        const matchesName = l.linkedCardName && l.linkedCardName.trim().toLowerCase() === cleanCardName;
+        const matchesLender = l.lender && cleanCardName.includes(l.lender.trim().toLowerCase());
+        return (isCard && (matchesId || matchesName)) || matchesId || (isCard && matchesLender);
+      });
+
+      let emiSum = 0;
+      linked.forEach(l => {
+        const m = calculateLoanEMIs(l);
+        if (!m.isClosed) {
+          const sch = generateEmiSchedule(l, m);
+          if (sch.some(s => s.status !== 'paid')) {
+            emiSum += m.emi;
+          }
+        }
+      });
+
       map[c.name] = {
         purchases: 0,
         payments: 0,
+        activeLoanEmis: emiSum,
+        linkedLoans: linked,
         netOutstanding: 0,
         avail: c.limit,
         util: 0
@@ -717,7 +754,8 @@ export const CreditCardsView: React.FC = () => {
     cards.forEach(c => {
       const p = map[c.name].purchases;
       const pay = map[c.name].payments;
-      const net = Math.max(0, p - pay);
+      const emi = map[c.name].activeLoanEmis;
+      const net = Math.max(0, p + emi - pay);
       const avail = Math.max(0, c.limit - net);
       const util = c.limit > 0 ? (net / c.limit) * 100 : 0;
 
@@ -727,7 +765,7 @@ export const CreditCardsView: React.FC = () => {
     });
 
     return map;
-  }, [allCreditTransactions, cards]);
+  }, [allCreditTransactions, cards, allLoans]);
 
   // Aggregate Metrics Across Cards
   const totalCreditLimit = useMemo(() => {
@@ -1053,11 +1091,21 @@ export const CreditCardsView: React.FC = () => {
       });
 
       if (res.data && res.data.success) {
+        // Automatically settle linked loan EMI with ZERO duplicate debit
+        const cardObj = cards.find(c => c.name === payCardName);
+        const cardIdToSettle = cardObj ? cardObj.id : selectedCardId;
+        const settleRes = loanService.settleCardLoansOnBillPayment(cardIdToSettle, payCardName, user?.email);
+
+        let bannerText = `Bill payment of ${currencyService.format(baseAmount)} for ${payCardName} recorded! Outstanding balance reduced.`;
+        if (settleRes.settledCount > 0) {
+          bannerText += ` Linked loan EMI for "${settleRes.settledLoans.join(', ')}" was automatically marked as Paid with ZERO duplicate debit!`;
+        }
+
         setBannerMsg({
           type: 'success',
-          text: `Bill payment of ${currencyService.format(baseAmount)} for ${payCardName} recorded! Outstanding balance reduced.`
+          text: bannerText
         });
-        setTimeout(() => setBannerMsg(null), 4000);
+        setTimeout(() => setBannerMsg(null), 5000);
         setIsPayBillOpen(false);
         setPayAmount('');
         await fetchActualTransactions();
@@ -1992,9 +2040,16 @@ export const CreditCardsView: React.FC = () => {
 
                     {/* Card Due Day, Bill Day & Expand Trigger */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                      <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.75)' }}>
-                        Bill day: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.75)' }}>
+                          Bill day: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
+                        </span>
+                        {cardStats.activeLoanEmis > 0 && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', background: 'rgba(56, 189, 248, 0.2)', padding: '2px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}>
+                            💳 Loan EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
+                          </span>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <button
                           type="button"
@@ -3903,7 +3958,27 @@ export const CreditCardsView: React.FC = () => {
                   </span>
                 </div>
 
-                <div style={{ position: 'relative' }}>
+                {cardBalancesMap[payCardName]?.activeLoanEmis > 0 && (
+                <div style={{ padding: '10px 12px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: 8, border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Card Regular Spends:</span>
+                    <span style={{ fontWeight: 600 }}>{currencyService.format(cardBalancesMap[payCardName]?.purchases || 0)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', color: '#6366F1' }}>
+                    <span>Active Loan EMI ({cardBalancesMap[payCardName]?.linkedLoans?.[0]?.name || 'EMI'}):</span>
+                    <span style={{ fontWeight: 600 }}>+{currencyService.format(cardBalancesMap[payCardName]?.activeLoanEmis || 0)}</span>
+                  </div>
+                  <div style={{ borderTop: '1px dashed rgba(99, 102, 241, 0.2)', paddingTop: 4, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+                    <span>Total Outstanding:</span>
+                    <span style={{ color: '#EF4444' }}>{currencyService.format(cardBalancesMap[payCardName]?.netOutstanding || 0)}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#10B981', marginTop: 2 }}>
+                    ✓ Paying this bill automatically marks the loan EMI as Paid with ZERO duplicate bank debit!
+                  </div>
+                </div>
+              )}
+
+              <div style={{ position: 'relative' }}>
                   <input
                     type="text"
                     placeholder="Enter payment amount (e.g. 8000 or 5000+3000)"
