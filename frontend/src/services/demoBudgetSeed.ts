@@ -109,7 +109,10 @@ export const seedDemoBudgetData = (force: boolean = false) => {
       tenureMonths: 6,
       paidMonths: 4,
       startDate: '2024-06-15',
-      dueDay: 15
+      dueDay: 15,
+      repaymentSource: 'credit_card',
+      linkedCardId: 'card-1',
+      linkedCardName: 'HDFC Regalia Gold'
     },
     {
       id: 'loan-4',

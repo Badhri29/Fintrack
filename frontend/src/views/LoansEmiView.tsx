@@ -27,238 +27,21 @@ import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { getUserStorageKey } from '../services/storageHelper';
 import { playNotificationChime } from '../services/soundService';
 import { useTheme } from '../context/ThemeContext';
+import {
+  type LoanModel,
+  type MonthEmiScheduleItem,
+  calculateEMI,
+  calculateLoanTenureMonths,
+  calculateLoanInterestAmount,
+  calculateLoanEMIs,
+  generateEmiSchedule,
+  DEFAULT_LOANS,
+  loanService
+} from '../services/loanService';
+import { cardService, type CardModel } from '../services/cardService';
 
-export interface LoanModel {
-  id: string;
-  name: string; // Loan/Account Name
-  loanNumber?: string; // Loan / Account Number
-  lender: string; // Lender / Bank Name
-  principal: number; // Loan Amount
-  emiAmount: number; // EMI Amount
-  remainingAmount: number; // Remaining Amount
-  startDate: string; // Start date
-  endDate: string; // End date
-  includeInNetWorth?: boolean; // Calculate to net worth or not (default: true)
-  type?: 'Home Loan' | 'Auto Loan' | 'Personal Loan' | 'Education Loan' | 'Consumer Durable' | 'Other';
-  interestRate?: number; // Optional Annual %
-  tenureMonths?: number;
-  paidMonths?: number;
-  paidScheduleIndices?: number[]; // Specific month indices (1, 2, ...) marked paid
-  dueDay?: number; // Monthly EMI Due Day (1-31, default: 5)
-  description?: string; // Description / Purpose
-  status?: 'active' | 'closed'; // Active or Closed status
-}
-
-export interface MonthEmiScheduleItem {
-  index: number;
-  monthStr: string;
-  monthName: string;
-  year: number;
-  dateStr: string;
-  emiAmount: number;
-  status: 'paid' | 'pending' | 'upcoming';
-  isCurrentMonth: boolean;
-  isNextMonth: boolean;
-}
-
-const DEFAULT_LOANS: LoanModel[] = [
-  {
-    id: 'loan-1',
-    name: 'HDFC Home Loan',
-    loanNumber: 'HL-74928103',
-    lender: 'HDFC Bank',
-    principal: 3500000,
-    emiAmount: 30375,
-    remainingAmount: 2650000,
-    startDate: '2021-08-01',
-    endDate: '2041-08-01',
-    includeInNetWorth: true,
-    type: 'Home Loan',
-    interestRate: 8.5,
-    tenureMonths: 240,
-    paidMonths: 58,
-    dueDay: 5,
-    description: 'Residential property mortgage for Palm Heights Apartment',
-    status: 'active'
-  },
-  {
-    id: 'loan-2',
-    name: 'SBI Car Loan',
-    loanNumber: 'AL-55829140',
-    lender: 'State Bank of India',
-    principal: 800000,
-    emiAmount: 16568,
-    remainingAmount: 373333,
-    startDate: '2023-11-01',
-    endDate: '2028-11-01',
-    includeInNetWorth: true,
-    type: 'Auto Loan',
-    interestRate: 8.9,
-    tenureMonths: 60,
-    paidMonths: 32,
-    dueDay: 10,
-    description: 'Electric SUV auto financing with 5-year fixed repayment tenure',
-    status: 'active'
-  },
-  {
-    id: 'loan-3',
-    name: 'Apple iPhone 16 Pro EMI',
-    loanNumber: 'CD-99238411',
-    lender: 'HDFC SmartEMI',
-    principal: 119900,
-    emiAmount: 19983,
-    remainingAmount: 39967,
-    startDate: '2024-06-15',
-    endDate: '2024-12-15',
-    includeInNetWorth: true,
-    type: 'Consumer Durable',
-    interestRate: 0,
-    tenureMonths: 6,
-    paidMonths: 4,
-    dueDay: 15,
-    description: 'No-cost EMI 6-month consumer electronics installment plan',
-    status: 'active'
-  }
-];
-
-// Calculate EMI using standard amortization formula
-export const calculateEMI = (principal: number, annualRate: number, tenureMonths: number): number => {
-  if (principal <= 0 || tenureMonths <= 0) return 0;
-  if (annualRate <= 0) return Math.round(principal / tenureMonths);
-  const r = annualRate / 12 / 100;
-  const emi = (principal * r * Math.pow(1 + r, tenureMonths)) / (Math.pow(1 + r, tenureMonths) - 1);
-  return Math.round(emi);
-};
-
-// Calculate total tenure months from start and end dates
-export const calculateLoanTenureMonths = (startDateStr: string, endDateStr: string, fallbackTenure?: number): number => {
-  if (startDateStr && endDateStr) {
-    const s = new Date(startDateStr);
-    const e = new Date(endDateStr);
-    if (!isNaN(s.getTime()) && !isNaN(e.getTime())) {
-      const diff = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
-      if (diff > 0) return diff;
-    }
-  }
-  return fallbackTenure && fallbackTenure > 0 ? fallbackTenure : 12;
-};
-
-// Calculate interest amount from principal, EMI, and tenure months
-export const calculateLoanInterestAmount = (principal: number, emi: number, tenureMonths: number): number => {
-  if (principal <= 0 || emi <= 0 || tenureMonths <= 0) return 0;
-  const totalPayable = emi * tenureMonths;
-  return Math.max(0, Math.round(totalPayable - principal));
-};
-
-// Full metrics calculator for any loan card & split view
-export const calculateLoanEMIs = (loan: LoanModel) => {
-  const tenureMonths = calculateLoanTenureMonths(loan.startDate, loan.endDate, loan.tenureMonths);
-  const emi = typeof loan.emiAmount === 'number' && !isNaN(loan.emiAmount) && loan.emiAmount > 0
-    ? loan.emiAmount
-    : calculateEMI(loan.principal, loan.interestRate || 0, tenureMonths);
-
-  const totalEmis = tenureMonths;
-  let completedEmis = 0;
-  if (Array.isArray(loan.paidScheduleIndices)) {
-    completedEmis = loan.paidScheduleIndices.length;
-  } else if (loan.paidMonths !== undefined && loan.paidMonths !== null) {
-    completedEmis = loan.paidMonths;
-  } else if (emi > 0 && typeof loan.remainingAmount === 'number') {
-    completedEmis = Math.min(totalEmis, Math.max(0, Math.round((loan.principal - loan.remainingAmount) / emi)));
-  }
-
-  const isClosed = loan.status === 'closed' || (typeof loan.remainingAmount === 'number' && loan.remainingAmount <= 0) || (totalEmis > 0 && completedEmis >= totalEmis);
-
-  if (isClosed) {
-    completedEmis = totalEmis;
-  }
-
-  const remaining = typeof loan.remainingAmount === 'number' && !isNaN(loan.remainingAmount)
-    ? loan.remainingAmount
-    : Math.max(0, loan.principal - (completedEmis * emi));
-
-  const remainingEmis = Math.max(0, totalEmis - completedEmis);
-  const totalInterest = calculateLoanInterestAmount(loan.principal, emi, totalEmis);
-  const totalPayable = loan.principal + totalInterest;
-  const paidPrincipal = Math.max(0, loan.principal - remaining);
-  const paidPct = loan.principal > 0 ? Math.min(100, Math.max(0, Math.round((paidPrincipal / loan.principal) * 100))) : 100;
-
-  return {
-    tenureMonths,
-    emi,
-    remaining,
-    totalEmis,
-    completedEmis,
-    remainingEmis,
-    totalInterest,
-    totalPayable,
-    paidPrincipal,
-    paidPct,
-    isClosed
-  };
-};
-
-// Generate month-by-month amortization and payment schedule from start date to end date
-export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<typeof calculateLoanEMIs>): MonthEmiScheduleItem[] => {
-  const schedule: MonthEmiScheduleItem[] = [];
-  const sDate = loan.startDate ? new Date(loan.startDate) : new Date();
-  const totalMonths = Math.max(1, emiMetrics.totalEmis);
-  const dueDay = loan.dueDay || 5;
-
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonth = now.getMonth();
-
-  for (let i = 0; i < totalMonths; i++) {
-    const itemDate = new Date(sDate.getFullYear(), sDate.getMonth() + i, dueDay);
-    const itemYear = itemDate.getFullYear();
-    const itemMonth = itemDate.getMonth();
-    const index = i + 1;
-
-    const isCurrent = itemYear === currentYear && itemMonth === currentMonth;
-    const isPast = (itemYear < currentYear) || (itemYear === currentYear && itemMonth < currentMonth);
-    const isNext = (itemYear === currentYear && itemMonth === currentMonth + 1) ||
-                   (itemMonth === 0 && itemYear === currentYear + 1 && currentMonth === 11);
-
-    let isMonthPaid = false;
-    if (emiMetrics.isClosed) {
-      isMonthPaid = true;
-    } else if (Array.isArray(loan.paidScheduleIndices)) {
-      isMonthPaid = loan.paidScheduleIndices.includes(index);
-    } else if (i < emiMetrics.completedEmis) {
-      isMonthPaid = true;
-    }
-
-    const monthStr = itemDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
-    const monthName = itemDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const dateStr = itemDate.toISOString().substring(0, 10);
-
-    let status: 'paid' | 'pending' | 'upcoming' = 'upcoming';
-    if (isMonthPaid) {
-      status = 'paid';
-    } else if (isCurrent) {
-      status = 'pending';
-    } else if (isPast) {
-      status = 'pending';
-    } else {
-      status = 'upcoming';
-    }
-
-    schedule.push({
-      index,
-      monthStr,
-      monthName,
-      year: itemYear,
-      dateStr,
-      emiAmount: emiMetrics.emi,
-      status,
-      isCurrentMonth: isCurrent,
-      isNextMonth: isNext
-    });
-  }
-
-  return schedule;
-};
+export type { LoanModel, MonthEmiScheduleItem };
+export { calculateEMI, calculateLoanTenureMonths, calculateLoanInterestAmount, calculateLoanEMIs, generateEmiSchedule, DEFAULT_LOANS };
 
 export const LoansEmiView: React.FC = () => {
   const { user } = useAuth();
@@ -302,6 +85,8 @@ export const LoansEmiView: React.FC = () => {
   const [loanDescription, setLoanDescription] = useState<string>('');
   const [loanIncludeNetWorth, setLoanIncludeNetWorth] = useState<boolean>(true);
   const [loanPaidMonths, setLoanPaidMonths] = useState<number>(0);
+  const [loanRepaymentSource, setLoanRepaymentSource] = useState<'bank' | 'credit_card'>('bank');
+  const [loanLinkedCardId, setLoanLinkedCardId] = useState<string>('');
 
   // Edit Loan Modal State
   const [isEditLoanOpen, setIsEditLoanOpen] = useState<boolean>(false);
@@ -319,6 +104,35 @@ export const LoansEmiView: React.FC = () => {
   const [editStatus, setEditStatus] = useState<'active' | 'closed'>('active');
   const [editIncludeNetWorth, setEditIncludeNetWorth] = useState<boolean>(true);
   const [editPaidMonths, setEditPaidMonths] = useState<number>(0);
+  const [editRepaymentSource, setEditRepaymentSource] = useState<'bank' | 'credit_card'>('bank');
+  const [editLinkedCardId, setEditLinkedCardId] = useState<string>('');
+
+  // User Credit Cards for linking
+  const [userCards, setUserCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
+
+  useEffect(() => {
+    const handleCards = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setUserCards(e.detail);
+      } else {
+        setUserCards(cardService.getCards(user?.email));
+      }
+    };
+    window.addEventListener('fintrack-cards-updated', handleCards);
+    return () => window.removeEventListener('fintrack-cards-updated', handleCards);
+  }, [user]);
+
+  useEffect(() => {
+    const handleLoansChanged = (e: any) => {
+      if (e.detail && Array.isArray(e.detail)) {
+        setLoans(e.detail);
+      } else {
+        setLoans(loanService.getLoans(user?.email));
+      }
+    };
+    window.addEventListener('fintrack-loans-changed', handleLoansChanged);
+    return () => window.removeEventListener('fintrack-loans-changed', handleLoansChanged);
+  }, [user]);
 
   // Sending email reminder loader
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
@@ -331,6 +145,12 @@ export const LoansEmiView: React.FC = () => {
   const [recordTransaction, setRecordTransaction] = useState<boolean>(true);
   const [payEmiMode, setPayEmiMode] = useState<string>('upi');
   const [paySaving, setPaySaving] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (payingLoan) {
+      setRecordTransaction(payingLoan.repaymentSource !== 'credit_card');
+    }
+  }, [payingLoan]);
 
   // Dynamic height tracking for Loan Cards Section
   const loanCardsContainerRef = useRef<HTMLDivElement>(null);
@@ -379,8 +199,7 @@ export const LoansEmiView: React.FC = () => {
 
   const saveLoans = (newLoans: LoanModel[]) => {
     setLoans(newLoans);
-    const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
-    localStorage.setItem(storageKey, JSON.stringify(newLoans));
+    loanService.saveLoans(newLoans, user?.email);
   };
 
   const fetchTransactions = async () => {
@@ -697,11 +516,12 @@ export const LoansEmiView: React.FC = () => {
       ? remaining
       : Math.max(0, principal - (initialPaidCount * (!isNaN(emi) && emi >= 0 ? emi : 0)));
 
+    const linkedCard = userCards.find(c => c.id === loanLinkedCardId);
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
       name: loanName.trim(),
       loanNumber: loanNumber.trim() || `LN-${Math.floor(100000 + Math.random() * 900000)}`,
-      lender: loanLender.trim() || 'Bank / Lender',
+      lender: loanRepaymentSource === 'credit_card' && linkedCard ? `${linkedCard.name} (EMI)` : (loanLender.trim() || 'Bank / Lender'),
       dueDay: Number(loanDueDay) || 5,
       principal: principal,
       emiAmount: !isNaN(emi) && emi >= 0 ? emi : 0,
@@ -710,12 +530,15 @@ export const LoansEmiView: React.FC = () => {
       endDate: loanEndDate,
       description: loanDescription.trim(),
       includeInNetWorth: loanIncludeNetWorth,
-      type: 'Other',
+      type: loanRepaymentSource === 'credit_card' ? 'Credit Card EMI' : 'Other',
       interestRate: 0,
       tenureMonths: tenureMonths,
       paidMonths: initialPaidCount,
       paidScheduleIndices: initialPaidIndices,
-      status: (calculatedRem <= 0 || (tenureMonths > 0 && initialPaidCount >= tenureMonths)) ? 'closed' : 'active'
+      status: (calculatedRem <= 0 || (tenureMonths > 0 && initialPaidCount >= tenureMonths)) ? 'closed' : 'active',
+      repaymentSource: loanRepaymentSource,
+      linkedCardId: loanRepaymentSource === 'credit_card' ? loanLinkedCardId : undefined,
+      linkedCardName: loanRepaymentSource === 'credit_card' && linkedCard ? linkedCard.name : undefined
     };
 
     const updated = [...loans, newLoan];
@@ -754,6 +577,8 @@ export const LoansEmiView: React.FC = () => {
     setEditStatus(loan.status || (loan.remainingAmount <= 0 ? 'closed' : 'active'));
     setEditIncludeNetWorth(loan.includeInNetWorth !== false);
     setEditPaidMonths(loan.paidMonths || (Array.isArray(loan.paidScheduleIndices) ? loan.paidScheduleIndices.length : 0));
+    setEditRepaymentSource(loan.repaymentSource || 'bank');
+    setEditLinkedCardId(loan.linkedCardId || '');
     setIsEditLoanOpen(true);
   };
 
@@ -795,7 +620,10 @@ export const LoansEmiView: React.FC = () => {
           tenureMonths: tenureMonths,
           paidMonths: newPaidCount,
           paidScheduleIndices: indices,
-          status: isNowClosed ? ('closed' as const) : ('active' as const)
+          status: isNowClosed ? ('closed' as const) : ('active' as const),
+          repaymentSource: editRepaymentSource,
+          linkedCardId: editRepaymentSource === 'credit_card' ? editLinkedCardId : undefined,
+          linkedCardName: editRepaymentSource === 'credit_card' ? (userCards.find(c => c.id === editLinkedCardId)?.name || l.linkedCardName) : undefined
         };
       }
       return l;
@@ -1385,6 +1213,13 @@ export const LoansEmiView: React.FC = () => {
 
                             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                               Lender: <strong style={{ color: 'var(--text-primary)' }}>{loan.lender}</strong>
+                              {loan.repaymentSource === 'credit_card' && (
+                                <div style={{ marginTop: 4 }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, color: '#38BDF8', background: 'rgba(56, 189, 248, 0.15)', padding: '2px 8px', borderRadius: 6 }}>
+                                    💳 Billed to: {loan.linkedCardName || 'Credit Card'}
+                                  </span>
+                                </div>
+                              )}
                               {loan.description && (
                                 <span style={{ display: 'block', fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                                   {loan.description}
@@ -3119,6 +2954,59 @@ export const LoansEmiView: React.FC = () => {
                 </span>
               </div>
 
+              {/* Repayment Source: Direct Bank Account vs Credit Card EMI */}
+              <div style={{ padding: '10px 12px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  REPAYMENT METHOD (HOW THIS LOAN IS BILLED / PAID)
+                </label>
+                <div style={{ display: 'flex', gap: 14, marginBottom: loanRepaymentSource === 'credit_card' ? 10 : 0 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="loanRepaymentSource"
+                      value="bank"
+                      checked={loanRepaymentSource === 'bank'}
+                      onChange={() => setLoanRepaymentSource('bank')}
+                    />
+                    <span>🏦 Direct Bank Account</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="loanRepaymentSource"
+                      value="credit_card"
+                      checked={loanRepaymentSource === 'credit_card'}
+                      onChange={() => setLoanRepaymentSource('credit_card')}
+                    />
+                    <span>💳 Credit Card EMI</span>
+                  </label>
+                </div>
+
+                {loanRepaymentSource === 'credit_card' && (
+                  <div style={{ marginTop: 8 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                      SELECT LINKED CREDIT CARD *
+                    </label>
+                    <select
+                      value={loanLinkedCardId}
+                      onChange={e => setLoanLinkedCardId(e.target.value)}
+                      className="modal-select"
+                      required
+                    >
+                      <option value="">-- Choose Credit Card --</option>
+                      {userCards.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.bank} •••• {c.last4})
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ fontSize: 11, color: '#10B981', marginTop: 4, display: 'block' }}>
+                      ✓ Monthly EMI will be included in this card's bill. Paying your card bill settles this EMI automatically with ZERO duplicate expense debits!
+                    </span>
+                  </div>
+                )}
+              </div>
+
               {/* Row 5: Description */}
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -3382,6 +3270,55 @@ export const LoansEmiView: React.FC = () => {
                 />
               </div>
 
+              {/* Repayment Source in Edit Modal */}
+              <div style={{ padding: '10px 12px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  REPAYMENT METHOD
+                </label>
+                <div style={{ display: 'flex', gap: 14, marginBottom: editRepaymentSource === 'credit_card' ? 10 : 0 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="editRepaymentSource"
+                      value="bank"
+                      checked={editRepaymentSource === 'bank'}
+                      onChange={() => setEditRepaymentSource('bank')}
+                    />
+                    <span>🏦 Direct Bank Account</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="editRepaymentSource"
+                      value="credit_card"
+                      checked={editRepaymentSource === 'credit_card'}
+                      onChange={() => setEditRepaymentSource('credit_card')}
+                    />
+                    <span>💳 Credit Card EMI</span>
+                  </label>
+                </div>
+
+                {editRepaymentSource === 'credit_card' && (
+                  <div style={{ marginTop: 8 }}>
+                    <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                      LINKED CREDIT CARD
+                    </label>
+                    <select
+                      value={editLinkedCardId}
+                      onChange={e => setEditLinkedCardId(e.target.value)}
+                      className="modal-select"
+                    >
+                      <option value="">-- Choose Credit Card --</option>
+                      {userCards.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({c.bank} •••• {c.last4})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+
               {/* Checkbox: Calculate this loan towards Net Worth */}
               <div
                 style={{
@@ -3452,6 +3389,18 @@ export const LoansEmiView: React.FC = () => {
             </div>
 
             <form onSubmit={handlePayEmiSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {payingLoan?.repaymentSource === 'credit_card' && (
+                <div style={{ padding: '10px 12px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: 8, border: '1px solid rgba(99, 102, 241, 0.25)', fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: '#818CF8', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                    💳 Billed to Credit Card: {payingLoan?.linkedCardName || payingLoan?.lender || 'Credit Card'}
+                  </div>
+                  <div style={{ color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                    This EMI is billed through your credit card statement. When you pay your credit card bill, this EMI is automatically settled. 
+                    <br />
+                    <span style={{ color: '#10B981', fontWeight: 600 }}>Tip:</span> Use <strong>"Mark Paid Only"</strong> if you are recording an already-paid statement to prevent duplicate bank debits.
+                  </div>
+                </div>
+              )}
               {/* Payment Action: Record Transaction vs Mark Paid Only */}
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
