@@ -16,6 +16,9 @@ export interface CardModel {
   gradient: string;
   accent: string;
   isActive?: boolean;
+  isAddon?: boolean;
+  primaryCardId?: string;
+  holderName?: string;
 }
 
 export const DEFAULT_CARDS: CardModel[] = [

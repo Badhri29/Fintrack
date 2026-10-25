@@ -1,5 +1,6 @@
 package com.networth.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,6 +23,7 @@ public class AuthResponse {
 
     // Advanced admin control & security flags
     private Boolean unregistered;
+    @JsonProperty("isLocked")
     private Boolean isLocked;
     private String lockType;
     private String lockUntil;

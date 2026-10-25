@@ -26,6 +26,7 @@ type TabType = 'user' | 'admin';
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const {
     login,
+    logout,
     sendRegistrationOtp,
     verifyRegistrationOtp,
     verifyExistingAccount,
@@ -66,6 +67,14 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     lockReason?: string;
     message?: string;
   }>({ isOpen: false });
+
+  const [lockedAccountWarning, setLockedAccountWarning] = useState<{
+    isLocked: boolean;
+    lockType?: string;
+    lockUntil?: string;
+    lockReason?: string;
+    identifier?: string;
+  } | null>(null);
 
   const [maintenanceModal, setMaintenanceModal] = useState<{
     isOpen: boolean;
@@ -177,8 +186,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         return;
       }
 
-      // 2. Sign In (User or Admin)
-      const result = await login(effectiveEmail, effectivePass);
+      // 2. Sign In (User or Admin) with strict portal separation
+      const result = await login(effectiveEmail, effectivePass, isUser ? 'USER' : 'ADMIN');
+
+      // Enforce strict portal separation: Admin can only log in from admin tab, user from user tab
+      if (result.success && result.role) {
+        const r = result.role.toUpperCase();
+        if (isUser && (r === 'ADMIN' || r === 'SUPER_ADMIN')) {
+          logout();
+          setError('Administrator accounts must sign in using the Admin Login portal. Please switch to the Admin tab.');
+          setLoading(false);
+          return;
+        }
+        if (!isUser && r !== 'ADMIN' && r !== 'SUPER_ADMIN') {
+          logout();
+          setError('Access denied: This portal is strictly for Administrators. Regular users please sign in via the User Login tab.');
+          setLoading(false);
+          return;
+        }
+      }
 
       // Unregistered Account Auto-Redirect
       if (result.unregistered) {
@@ -203,9 +229,16 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         return;
       }
 
-      // Locked account check
+      // Locked account check (Warning message directly on display & modal)
       if (result.isLocked) {
         const lockDescription = result.lockReason || 'Account restricted by administrator.';
+        setLockedAccountWarning({
+          isLocked: true,
+          lockType: result.lockType || 'FULL',
+          lockUntil: result.lockUntil,
+          lockReason: lockDescription,
+          identifier: effectiveEmail
+        });
         setLockModal({
           isOpen: true,
           lockType: result.lockType,
@@ -213,7 +246,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           lockReason: lockDescription,
           message: result.message || `Your account access has been restricted: ${lockDescription}`
         });
-        setError(`Account Locked: ${lockDescription}`);
+        setError(`⚠️ ACCOUNT ACCESS RESTRICTED: ${lockDescription}`);
         setLoading(false);
         return;
       }
@@ -250,6 +283,13 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const result = await loginDemo();
       if (result && result.isLocked) {
         const lockDescription = result.lockReason || 'Account restricted by administrator.';
+        setLockedAccountWarning({
+          isLocked: true,
+          lockType: result.lockType || 'FULL',
+          lockUntil: result.lockUntil,
+          lockReason: lockDescription,
+          identifier: 'demo@fintrack.io'
+        });
         setLockModal({
           isOpen: true,
           lockType: result.lockType,
@@ -257,7 +297,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           lockReason: lockDescription,
           message: result.message || `Demo account access restricted: ${lockDescription}`
         });
-        setError(`Demo Account Locked: ${lockDescription}`);
+        setError(`⚠️ DEMO ACCOUNT LOCKED: ${lockDescription}`);
         return;
       }
       if (result && !result.success && result.message) {
@@ -492,8 +532,69 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
+          {/* Locked Account Warning Banner directly on display */}
+          {lockedAccountWarning && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2) 0%, rgba(185, 28, 28, 0.25) 100%)',
+                border: '2px solid #EF4444',
+                boxShadow: '0 0 25px rgba(239, 68, 68, 0.35)',
+                borderRadius: 12,
+                padding: '16px 18px',
+                marginBottom: 20,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                animation: 'shake 0.4s ease-in-out'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 32, height: 32, borderRadius: 8, background: '#EF4444', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Lock size={18} />
+                  </div>
+                  <div>
+                    <h4 style={{ margin: 0, fontSize: 14, fontWeight: 800, color: '#FFF', letterSpacing: '0.04em' }}>
+                      ACCOUNT ACCESS BLOCKED / LOCKED
+                    </h4>
+                    <span style={{ fontSize: 11, color: '#FCA5A5', fontWeight: 600 }}>
+                      {lockedAccountWarning.lockType === 'TEMP' ? 'Temporary Suspension' : 'Administrative Lock Active'} • {lockedAccountWarning.identifier}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLockedAccountWarning(null)}
+                  style={{ background: 'transparent', border: 'none', color: '#FCA5A5', cursor: 'pointer', fontSize: 16 }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(0, 0, 0, 0.35)', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#F87171', textTransform: 'uppercase' }}>
+                  ADMINISTRATIVE REASON:
+                </div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF', marginTop: 2 }}>
+                  "{lockedAccountWarning.lockReason}"
+                </div>
+              </div>
+
+              {lockedAccountWarning.lockUntil && (
+                <div style={{ fontSize: 11.5, color: '#FCD34D', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Clock size={13} />
+                  <span>Auto-unlock scheduled for: <strong>{new Date(lockedAccountWarning.lockUntil).toLocaleString()}</strong></span>
+                </div>
+              )}
+
+              <div style={{ fontSize: 11, color: '#CBD5E1', lineHeight: 1.4 }}>
+                This account cannot be accessed. If you believe this is a mistake, please contact your workspace super administrator.
+              </div>
+            </div>
+          )}
+
           {/* Error & Info Alerts */}
-          {error && (
+          {error && !lockedAccountWarning && (
             <div
               style={{
                 background: 'rgba(239, 68, 68, 0.1)',

@@ -60,6 +60,7 @@ export interface LoginResult {
   maintenanceEnd?: string;
   mustChangePassword?: boolean;
   isTemporaryPassword?: boolean;
+  role?: string;
 }
 
 interface AuthContextType {
@@ -68,7 +69,7 @@ interface AuthContextType {
   maintenanceInfo: MaintenanceInfo | null;
   demoTimeRemaining: number | null; // seconds remaining in demo session
   isAdmin: boolean;
-  login: (email: string, pass: string) => Promise<LoginResult>;
+  login: (email: string, pass: string, loginPortal?: "USER" | "ADMIN") => Promise<LoginResult>;
   sendRegistrationOtp: (email: string) => Promise<{ success: boolean; devOtp?: string; message?: string }>;
   verifyRegistrationOtp: (params: { email: string; otp: string; password: string; name?: string }) => Promise<void>;
   verifyExistingAccount: (email: string, otp: string) => Promise<void>;
@@ -244,7 +245,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         yearService.resetToCurrentYear();
         localStorage.setItem('fintrack_user_cache', JSON.stringify(userData));
         setUser(userData);
-        return { success: true };
+        return { success: true, role: userData.role };
       }
 
       const d = res?.data;
@@ -279,11 +280,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     });
   };
 
-  const login = async (email: string, pass: string): Promise<LoginResult> => {
+  const login = async (email: string, pass: string, loginPortal?: "USER" | "ADMIN"): Promise<LoginResult> => {
     try {
       const res = await api.post('/auth/login', {
         email: email.trim().toLowerCase(),
-        password: pass
+        password: pass,
+        loginPortal: loginPortal
       });
 
       if (res.data?.requiresVerification) {
