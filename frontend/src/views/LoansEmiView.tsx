@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Landmark,
   Plus,
@@ -14,7 +14,11 @@ import {
   Calendar,
   Mail,
   X,
-  Check
+  Check,
+  Search,
+  Filter,
+  SlidersHorizontal,
+  RotateCcw
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -318,6 +322,23 @@ export const LoansEmiView: React.FC = () => {
   const [calcRate, setCalcRate] = useState<number>(8.5);
   const [calcTenureYears, setCalcTenureYears] = useState<number>(5);
 
+  // Pagination & Filtering for Loans/EMI Transactions Table (Budget & Transactions style)
+  const [emiSearchQuery, setEmiSearchQuery] = useState<string>('');
+  const [emiFilterType, setEmiFilterType] = useState<'all' | 'paid' | 'recent'>('all');
+  const [emiSelectedLoanFilter, setEmiSelectedLoanFilter] = useState<string>('all');
+  const [emiPaymentModeFilter, setEmiPaymentModeFilter] = useState<string>('all');
+  const [emiFromDate, setEmiFromDate] = useState<string>('');
+  const [emiToDate, setEmiToDate] = useState<string>('');
+  const [emiMinAmount, setEmiMinAmount] = useState<string>('');
+  const [emiMaxAmount, setEmiMaxAmount] = useState<string>('');
+  const [showEmiDatePopover, setShowEmiDatePopover] = useState<boolean>(false);
+  const [showEmiAmountPopover, setShowEmiAmountPopover] = useState<boolean>(false);
+  const emiDateRef = useRef<HTMLDivElement>(null);
+  const emiAmountRef = useRef<HTMLDivElement>(null);
+
+  const [emiCurrentPage, setEmiCurrentPage] = useState<number>(1);
+  const [emiPageSize, setEmiPageSize] = useState<number>(10);
+
   const saveLoans = (newLoans: LoanModel[]) => {
     setLoans(newLoans);
     const storageKey = getUserStorageKey('fintrack_loans_list', user?.email);
@@ -379,6 +400,186 @@ export const LoansEmiView: React.FC = () => {
       );
     });
   }, [actualTransactions]);
+
+  // Close popovers on outside click
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (emiDateRef.current && !emiDateRef.current.contains(e.target as Node)) {
+        setShowEmiDatePopover(false);
+      }
+      if (emiAmountRef.current && !emiAmountRef.current.contains(e.target as Node)) {
+        setShowEmiAmountPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  // Reset pagination to page 1 on filter changes
+  useEffect(() => {
+    setEmiCurrentPage(1);
+  }, [emiSearchQuery, emiFilterType, emiSelectedLoanFilter, emiPaymentModeFilter, emiFromDate, emiToDate, emiMinAmount, emiMaxAmount]);
+
+  const applyEmiDatePreset = (preset: 'all' | 'this_month' | 'last_month' | 'last_30' | 'this_year') => {
+    const now = new Date();
+    if (preset === 'all') {
+      setEmiFromDate('');
+      setEmiToDate('');
+    } else if (preset === 'this_month') {
+      const start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().substring(0, 10);
+      const end = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().substring(0, 10);
+      setEmiFromDate(start);
+      setEmiToDate(end);
+    } else if (preset === 'last_month') {
+      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().substring(0, 10);
+      const end = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().substring(0, 10);
+      setEmiFromDate(start);
+      setEmiToDate(end);
+    } else if (preset === 'last_30') {
+      const start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10);
+      const end = now.toISOString().substring(0, 10);
+      setEmiFromDate(start);
+      setEmiToDate(end);
+    } else if (preset === 'this_year') {
+      const start = `${now.getFullYear()}-01-01`;
+      const end = `${now.getFullYear()}-12-31`;
+      setEmiFromDate(start);
+      setEmiToDate(end);
+    }
+    setShowEmiDatePopover(false);
+    setEmiCurrentPage(1);
+  };
+
+  const applyEmiAmountPreset = (preset: 'all' | 'under_10k' | '10k_30k' | 'above_30k') => {
+    if (preset === 'all') {
+      setEmiMinAmount('');
+      setEmiMaxAmount('');
+    } else if (preset === 'under_10k') {
+      setEmiMinAmount('');
+      setEmiMaxAmount('10000');
+    } else if (preset === '10k_30k') {
+      setEmiMinAmount('10000');
+      setEmiMaxAmount('30000');
+    } else if (preset === 'above_30k') {
+      setEmiMinAmount('30000');
+      setEmiMaxAmount('');
+    }
+    setShowEmiAmountPopover(false);
+    setEmiCurrentPage(1);
+  };
+
+  const getEmiDateLabel = () => {
+    if (emiFromDate && emiToDate) return `${emiFromDate.substring(5)} to ${emiToDate.substring(5)}`;
+    if (emiFromDate) return `From ${emiFromDate.substring(5)}`;
+    if (emiToDate) return `Until ${emiToDate.substring(5)}`;
+    return 'Date Range';
+  };
+
+  const getEmiAmountLabel = () => {
+    const cur = currencyService.getActiveCurrencyConfig().symbol;
+    if (emiMinAmount && emiMaxAmount) return `${cur}${emiMinAmount} - ${cur}${emiMaxAmount}`;
+    if (emiMinAmount) return `≥ ${cur}${emiMinAmount}`;
+    if (emiMaxAmount) return `≤ ${cur}${emiMaxAmount}`;
+    return 'Amount Range';
+  };
+
+  // Filtered EMI Transactions
+  const filteredEmiTransactions = useMemo(() => {
+    return emiTransactions.filter(t => {
+      if (emiSearchQuery.trim()) {
+        const q = emiSearchQuery.toLowerCase().trim();
+        const desc = String(t.description || t.details || '').toLowerCase();
+        const cat = String(t.category || '').toLowerCase();
+        const sub = String(t.subcategory || '').toLowerCase();
+        const mode = String(t.paymentMode || '').toLowerCase();
+        const date = String(t.date || '').toLowerCase();
+        const amt = String(t.amount || '');
+        if (!desc.includes(q) && !cat.includes(q) && !sub.includes(q) && !mode.includes(q) && !date.includes(q) && !amt.includes(q)) {
+          return false;
+        }
+      }
+
+      if (emiFilterType === 'recent') {
+        const txDate = new Date(t.date);
+        const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        if (txDate < thirtyDaysAgo) return false;
+      }
+
+      if (emiSelectedLoanFilter !== 'all') {
+        const desc = String(t.description || t.details || '').toLowerCase();
+        const sub = String(t.subcategory || '').toLowerCase();
+        const targetLoan = loans.find(l => l.id === emiSelectedLoanFilter);
+        if (targetLoan) {
+          const lName = targetLoan.name.toLowerCase();
+          const lLender = targetLoan.lender.toLowerCase();
+          if (!desc.includes(lName) && !desc.includes(lLender) && !sub.includes(lName) && !sub.includes(lLender)) {
+            return false;
+          }
+        }
+      }
+
+      if (emiPaymentModeFilter !== 'all') {
+        const mode = String(t.paymentMode || '').toLowerCase();
+        if (mode !== emiPaymentModeFilter.toLowerCase()) return false;
+      }
+
+      if (emiFromDate && t.date < emiFromDate) return false;
+      if (emiToDate && t.date > emiToDate) return false;
+
+      const amt = Number(t.amount) || 0;
+      if (emiMinAmount && amt < Number(emiMinAmount)) return false;
+      if (emiMaxAmount && amt > Number(emiMaxAmount)) return false;
+
+      return true;
+    });
+  }, [emiTransactions, emiSearchQuery, emiFilterType, emiSelectedLoanFilter, emiPaymentModeFilter, emiFromDate, emiToDate, emiMinAmount, emiMaxAmount, loans]);
+
+  const emiTotalPages = Math.max(1, Math.ceil(filteredEmiTransactions.length / emiPageSize));
+  const safeEmiCurrentPage = Math.min(emiCurrentPage, emiTotalPages);
+
+  const paginatedEmiTransactions = useMemo(() => {
+    const startIndex = (safeEmiCurrentPage - 1) * emiPageSize;
+    return filteredEmiTransactions.slice(startIndex, startIndex + emiPageSize);
+  }, [filteredEmiTransactions, safeEmiCurrentPage, emiPageSize]);
+
+  const hasActiveEmiFilters = Boolean(
+    emiSearchQuery ||
+    emiFilterType !== 'all' ||
+    emiSelectedLoanFilter !== 'all' ||
+    emiPaymentModeFilter !== 'all' ||
+    emiFromDate ||
+    emiToDate ||
+    emiMinAmount ||
+    emiMaxAmount
+  );
+
+  const handleResetEmiFilters = () => {
+    setEmiSearchQuery('');
+    setEmiFilterType('all');
+    setEmiSelectedLoanFilter('all');
+    setEmiPaymentModeFilter('all');
+    setEmiFromDate('');
+    setEmiToDate('');
+    setEmiMinAmount('');
+    setEmiMaxAmount('');
+    setEmiCurrentPage(1);
+  };
+
+  const handleDeleteTransaction = async (id: number) => {
+    if (!window.confirm('Are you sure you want to delete this EMI repayment record?')) return;
+    try {
+      const res = await api.delete(`/transactions/${id}`);
+      if (res.data?.success) {
+        setActualTransactions(prev => prev.filter(t => t.id !== id));
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+        setBannerMsg({ type: 'success', text: 'Transaction removed from EMI repayments ledger.' });
+        playNotificationChime();
+        setTimeout(() => setBannerMsg(null), 3000);
+      }
+    } catch {
+      alert('Failed to delete transaction.');
+    }
+  };
 
   // Loan Metrics Calculations (Borrowed, Paid, Outstanding, Monthly EMI, Progress)
   const metrics = useMemo(() => {
@@ -1659,71 +1860,729 @@ export const LoansEmiView: React.FC = () => {
         </div>
       </div>
 
-      {/* Actual EMI Payment History */}
-      <div className="summary-card" style={{ padding: 24 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      {/* Actual EMI Payment History Ledger with Full Filtering, Limits & Pagination (Budget & Transactions style) */}
+      <div className="summary-card" style={{ padding: 24, borderRadius: 16 }}>
+        {/* Table Header Controls */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
           <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Actual EMI & Debt Repayments Ledger ({emiTransactions.length})
+            <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+              Actual Loan EMI Repayments Ledger ({filteredEmiTransactions.length})
             </h3>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Transactions recorded from your database ledger under Debt Repayment / Loan EMI
+              Search, filter, and track loan repayments, EMI auto-debits & principal payoffs
             </span>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="segmented-control" style={{ display: 'inline-flex', background: 'var(--bg-secondary)', padding: 3, borderRadius: 10, border: '1px solid var(--border-color)' }}>
+              <button
+                type="button"
+                onClick={() => setEmiFilterType('all')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 7,
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: emiFilterType === 'all' ? 700 : 500,
+                  background: emiFilterType === 'all' ? 'var(--accent-indigo)' : 'transparent',
+                  color: emiFilterType === 'all' ? '#FFF' : 'var(--text-secondary)',
+                  cursor: 'pointer'
+                }}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmiFilterType('paid')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 7,
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: emiFilterType === 'paid' ? 700 : 500,
+                  background: emiFilterType === 'paid' ? 'var(--accent-indigo)' : 'transparent',
+                  color: emiFilterType === 'paid' ? '#FFF' : 'var(--text-secondary)',
+                  cursor: 'pointer'
+                }}
+              >
+                Paid
+              </button>
+              <button
+                type="button"
+                onClick={() => setEmiFilterType('recent')}
+                style={{
+                  padding: '5px 12px',
+                  borderRadius: 7,
+                  border: 'none',
+                  fontSize: 12,
+                  fontWeight: emiFilterType === 'recent' ? 700 : 500,
+                  background: emiFilterType === 'recent' ? 'var(--accent-indigo)' : 'transparent',
+                  color: emiFilterType === 'recent' ? '#FFF' : 'var(--text-secondary)',
+                  cursor: 'pointer'
+                }}
+              >
+                Last 30 Days
+              </button>
+            </div>
+
+            {!isViewOnly && (
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ padding: '6px 14px', fontSize: 12 }}
+                onClick={() => {
+                  if (loans.length === 0) {
+                    setBannerMsg({ type: 'error', text: 'Please add a loan first before recording EMI repayments.' });
+                    setTimeout(() => setBannerMsg(null), 3500);
+                    setIsAddLoanOpen(true);
+                    return;
+                  }
+                  setPayingLoan(loans[0]);
+                  setPayEmiAmount(String(calculateLoanEMIs(loans[0]).emi));
+                  setIsPayEmiOpen(true);
+                }}
+              >
+                <Plus size={14} />
+                <span>Record EMI Payment</span>
+              </button>
+            )}
           </div>
         </div>
 
+        {/* Search & Filter Toolbar (Budget & Transactions style) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          {/* Search Box */}
+          <div
+            style={{
+              width: 260,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 10,
+              padding: '8px 12px',
+              gap: 8
+            }}
+          >
+            <Search size={15} style={{ color: 'var(--text-secondary)' }} />
+            <input
+              type="text"
+              placeholder="Search loan repayments..."
+              value={emiSearchQuery}
+              onChange={e => setEmiSearchQuery(e.target.value)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                color: 'var(--text-primary)',
+                width: '100%',
+                fontSize: 12
+              }}
+            />
+            {emiSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setEmiSearchQuery('')}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 2 }}
+                title="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Loan Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
+            <select
+              value={emiSelectedLoanFilter}
+              onChange={e => setEmiSelectedLoanFilter(e.target.value)}
+              style={{
+                background: 'var(--bg-input)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 10,
+                fontSize: 12,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="all">All Loans & Accounts</option>
+              {loans.map(l => (
+                <option key={l.id} value={l.id}>{l.name} ({l.lender})</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Payment Mode Filter Dropdown */}
+          <select
+            value={emiPaymentModeFilter}
+            onChange={e => setEmiPaymentModeFilter(e.target.value)}
+            style={{
+              background: 'var(--bg-input)',
+              border: '1px solid var(--border-color)',
+              color: 'var(--text-primary)',
+              padding: '8px 12px',
+              borderRadius: 10,
+              fontSize: 12,
+              outline: 'none',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="all">All Payment Modes</option>
+            <option value="bank_transfer">Bank Auto-Debit / ECS</option>
+            <option value="upi">UPI / GPay</option>
+            <option value="netbanking">Net Banking</option>
+            <option value="debit">Debit Card</option>
+          </select>
+
+          {/* Date Filter Popover */}
+          <div style={{ position: 'relative', flexShrink: 0 }} ref={emiDateRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowEmiDatePopover(open => !open);
+                setShowEmiAmountPopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: emiFromDate || emiToDate ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-input)',
+                border: emiFromDate || emiToDate ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+                color: emiFromDate || emiToDate ? 'var(--accent-indigo)' : 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: emiFromDate || emiToDate ? 600 : 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Calendar size={14} />
+              <span>{getEmiDateLabel()}</span>
+              {(emiFromDate || emiToDate) && (
+                <span
+                  onClick={e => {
+                    e.stopPropagation();
+                    setEmiFromDate('');
+                    setEmiToDate('');
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', marginLeft: 2 }}
+                >
+                  <X size={12} />
+                </span>
+              )}
+            </button>
+
+            {showEmiDatePopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  width: 300,
+                  background: 'var(--bg-card, #0d1527)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  QUICK DATE PRESETS
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { key: 'all', label: 'All Time' },
+                    { key: 'this_month', label: 'This Month' },
+                    { key: 'last_month', label: 'Last Month' },
+                    { key: 'last_30', label: 'Last 30 Days' },
+                    { key: 'this_year', label: 'This Year' }
+                  ].map(p => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyEmiDatePreset(p.key as any)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ height: 1, background: 'var(--border-color)', margin: '2px 0' }} />
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  CUSTOM RANGE
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 34 }}>From:</span>
+                    <input
+                      type="date"
+                      value={emiFromDate}
+                      onChange={e => setEmiFromDate(e.target.value)}
+                      className="modal-input"
+                      style={{ flex: 1, padding: '5px 8px', fontSize: 11 }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 34 }}>To:</span>
+                    <input
+                      type="date"
+                      value={emiToDate}
+                      onChange={e => setEmiToDate(e.target.value)}
+                      className="modal-input"
+                      style={{ flex: 1, padding: '5px 8px', fontSize: 11 }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setEmiFromDate(''); setEmiToDate(''); }}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmiDatePopover(false)}
+                    style={{ background: 'var(--accent-indigo)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Amount Filter Popover */}
+          <div style={{ position: 'relative', flexShrink: 0 }} ref={emiAmountRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowEmiAmountPopover(open => !open);
+                setShowEmiDatePopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                background: emiMinAmount || emiMaxAmount ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-input)',
+                border: emiMinAmount || emiMaxAmount ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+                color: emiMinAmount || emiMaxAmount ? 'var(--accent-indigo)' : 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: emiMinAmount || emiMaxAmount ? 600 : 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <SlidersHorizontal size={14} />
+              <span>{getEmiAmountLabel()}</span>
+              {(emiMinAmount || emiMaxAmount) && (
+                <span
+                  onClick={e => {
+                    e.stopPropagation();
+                    setEmiMinAmount('');
+                    setEmiMaxAmount('');
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', marginLeft: 2 }}
+                >
+                  <X size={12} />
+                </span>
+              )}
+            </button>
+
+            {showEmiAmountPopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  left: 0,
+                  width: 300,
+                  background: 'var(--bg-card, #0d1527)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  AMOUNT PRESETS
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'under_10k', label: `< 10k` },
+                    { key: '10k_30k', label: `10k - 30k` },
+                    { key: 'above_30k', label: `> 30k` }
+                  ].map(p => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyEmiAmountPreset(p.key as any)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ height: 1, background: 'var(--border-color)', margin: '2px 0' }} />
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  CUSTOM RANGE ({currencyService.getActiveCurrencyConfig().symbol})
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={emiMinAmount}
+                    onChange={e => setEmiMinAmount(e.target.value)}
+                    className="modal-input"
+                    style={{ flex: 1, padding: '5px 8px', fontSize: 11 }}
+                  />
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={emiMaxAmount}
+                    onChange={e => setEmiMaxAmount(e.target.value)}
+                    className="modal-input"
+                    style={{ flex: 1, padding: '5px 8px', fontSize: 11 }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setEmiMinAmount(''); setEmiMaxAmount(''); }}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowEmiAmountPopover(false)}
+                    style={{ background: 'var(--accent-indigo)', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Reset Filters Button */}
+          {hasActiveEmiFilters && (
+            <button
+              type="button"
+              onClick={handleResetEmiFilters}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                color: '#EF4444',
+                padding: '8px 12px',
+                borderRadius: 10,
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+              title="Reset all search & filter controls"
+            >
+              <RotateCcw size={13} />
+              <span>Reset</span>
+            </button>
+          )}
+        </div>
+
+        {/* Repayments Table with Min/Max Height (Bounded limit, no overflow) */}
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)' }}>
+          <div style={{ textAlign: 'center', padding: '60px 0', minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
             Loading EMI repayment history from database...
           </div>
-        ) : emiTransactions.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '36px 20px', border: '1px dashed var(--border-color)', borderRadius: 12, background: 'var(--bg-secondary)' }}>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 10px' }}>
-              No recorded EMI payment transactions yet in the database.
+        ) : filteredEmiTransactions.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '48px 20px', minHeight: 280, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border-color)', borderRadius: 12, background: 'var(--bg-secondary)' }}>
+            <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(99, 102, 241, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px', color: '#6366F1' }}>
+              <Landmark size={24} />
+            </div>
+            <h4 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: '0 0 6px' }}>
+              No Loan Repayments Found
+            </h4>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '0 0 16px', maxWidth: 450 }}>
+              {hasActiveEmiFilters
+                ? 'No transactions match your active search and filter criteria. Try resetting filters.'
+                : 'Transactions recorded under Debt Repayment or Loan EMI will automatically display here.'}
             </p>
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Click "Record EMI Payment" on any active loan above to automatically record payments into your database!
-            </span>
+            {hasActiveEmiFilters ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={handleResetEmiFilters}
+                style={{ padding: '6px 14px', fontSize: 12 }}
+              >
+                <span>Clear All Filters</span>
+              </button>
+            ) : !isViewOnly && (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  if (loans.length > 0) {
+                    setPayingLoan(loans[0]);
+                    setPayEmiAmount(String(calculateLoanEMIs(loans[0]).emi));
+                    setIsPayEmiOpen(true);
+                  }
+                }}
+                style={{ padding: '6px 14px', fontSize: 12 }}
+              >
+                <Plus size={14} />
+                <span>Record First EMI Payment</span>
+              </button>
+            )}
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 12, textTransform: 'uppercase' }}>
-                  <th style={{ padding: '12px 14px' }}>Date</th>
-                  <th style={{ padding: '12px 14px' }}>Description</th>
-                  <th style={{ padding: '12px 14px' }}>Category</th>
-                  <th style={{ padding: '12px 14px' }}>Payment Mode</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'right' }}>Amount Paid</th>
-                  <th style={{ padding: '12px 14px', textAlign: 'center' }}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {emiTransactions.map(tx => (
-                  <tr
-                    key={tx.id}
-                    style={{ borderBottom: '1px solid var(--border-color)' }}
-                  >
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{tx.date}</td>
-                    <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>{tx.description}</td>
-                    <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>{tx.category || 'Debt Repayment'}</td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-indigo)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
-                        {tx.paymentMode || 'UPI'}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10B981' }}>
-                      {currencyService.format(Number(tx.amount) || 0)}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#10B981', fontSize: 12, fontWeight: 600 }}>
-                        <CheckCircle size={14} /> Paid
-                      </span>
-                    </td>
+          <div>
+            {/* Scrollable table container with strict minHeight & maxHeight (Prevents infinite expansion) */}
+            <div style={{ overflowX: 'auto', minHeight: 280, maxHeight: 460, overflowY: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 12, textTransform: 'uppercase', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
+                    <th style={{ padding: '12px 14px' }}>Date</th>
+                    <th style={{ padding: '12px 14px' }}>Description</th>
+                    <th style={{ padding: '12px 14px' }}>Category</th>
+                    <th style={{ padding: '12px 14px' }}>Payment Mode</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Amount Paid</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>Status</th>
+                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {paginatedEmiTransactions.map(tx => (
+                    <tr
+                      key={tx.id}
+                      style={{ borderBottom: '1px solid var(--border-color)', transition: 'background 0.15s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        {tx.date}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>{tx.description || tx.details || 'Loan EMI Repayment'}</span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                        {tx.subcategory || tx.category || 'Debt Repayment'}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <span style={{ padding: '2px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-indigo)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                          {tx.paymentMode || 'BANK AUTO-DEBIT'}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: '#10B981', whiteSpace: 'nowrap' }}>
+                        {currencyService.format(Number(tx.amount) || 0)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: '#10B981', fontSize: 12, fontWeight: 600 }}>
+                          <CheckCircle size={14} /> Paid
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        {!isViewOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTransaction(tx.id)}
+                            title="Delete repayment record"
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--text-muted)',
+                              cursor: 'pointer',
+                              padding: 4,
+                              borderRadius: 6,
+                              transition: 'color 0.15s'
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.color = '#EF4444')}
+                            onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-muted)')}
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>View only</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls (Exact Budget & Transactions style) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                marginTop: 16,
+                paddingTop: 14,
+                borderTop: '1px solid var(--border-color)',
+                fontSize: 12,
+                color: 'var(--text-secondary)'
+              }}
+            >
+              {/* Range Info */}
+              <div>
+                Showing{' '}
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {(safeEmiCurrentPage - 1) * emiPageSize + 1}
+                </strong>{' '}
+                to{' '}
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {Math.min(safeEmiCurrentPage * emiPageSize, filteredEmiTransactions.length)}
+                </strong>{' '}
+                of{' '}
+                <strong style={{ color: 'var(--text-primary)' }}>
+                  {filteredEmiTransactions.length}
+                </strong>{' '}
+                repayments
+              </div>
+
+              {/* Rows Per Page & Page Navigation */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span>Rows:</span>
+                  <select
+                    value={emiPageSize}
+                    onChange={e => {
+                      setEmiPageSize(Number(e.target.value));
+                      setEmiCurrentPage(1);
+                    }}
+                    style={{
+                      background: 'var(--bg-input)',
+                      border: '1px solid var(--border-color)',
+                      color: 'var(--text-primary)',
+                      padding: '4px 8px',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+
+                {/* Page Navigation Buttons */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => setEmiCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={safeEmiCurrentPage === 1}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      background: safeEmiCurrentPage === 1 ? 'transparent' : 'var(--bg-secondary)',
+                      color: safeEmiCurrentPage === 1 ? 'var(--text-muted)' : 'var(--text-primary)',
+                      cursor: safeEmiCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600
+                    }}
+                  >
+                    Prev
+                  </button>
+
+                  {Array.from({ length: emiTotalPages }, (_, i) => i + 1)
+                    .filter(page => page === 1 || page === emiTotalPages || Math.abs(page - safeEmiCurrentPage) <= 1)
+                    .map((page, idx, arr) => {
+                      const prev = arr[idx - 1];
+                      const showEllipsis = prev && page - prev > 1;
+
+                      return (
+                        <React.Fragment key={page}>
+                          {showEllipsis && <span style={{ padding: '0 4px', color: 'var(--text-muted)' }}>...</span>}
+                          <button
+                            type="button"
+                            onClick={() => setEmiCurrentPage(page)}
+                            style={{
+                              width: 30,
+                              height: 30,
+                              borderRadius: 6,
+                              border: '1px solid',
+                              borderColor: page === safeEmiCurrentPage ? 'var(--accent-indigo)' : 'var(--border-color)',
+                              background: page === safeEmiCurrentPage ? 'var(--accent-indigo)' : 'var(--bg-secondary)',
+                              color: page === safeEmiCurrentPage ? '#FFF' : 'var(--text-primary)',
+                              fontWeight: page === safeEmiCurrentPage ? 700 : 500,
+                              fontSize: 12,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            {page}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
+
+                  <button
+                    type="button"
+                    onClick={() => setEmiCurrentPage(p => Math.min(emiTotalPages, p + 1))}
+                    disabled={safeEmiCurrentPage === emiTotalPages}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      border: '1px solid var(--border-color)',
+                      background: safeEmiCurrentPage === emiTotalPages ? 'transparent' : 'var(--bg-secondary)',
+                      color: safeEmiCurrentPage === emiTotalPages ? 'var(--text-muted)' : 'var(--text-primary)',
+                      cursor: safeEmiCurrentPage === emiTotalPages ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      fontWeight: 600
+                    }}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

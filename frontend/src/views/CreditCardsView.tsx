@@ -20,7 +20,11 @@ import {
   Activity,
   BarChart2,
   Check,
-  Lock
+  Lock,
+  Calendar,
+  RotateCcw,
+  X,
+  Filter
 } from 'lucide-react';
 import { playNotificationChime } from '../services/soundService';
 import {
@@ -164,6 +168,118 @@ export const CreditCardsView: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  // Segmented Type Filter ('all' | 'spends' | 'bills')
+  const [ccFilterType, setCcFilterType] = useState<'all' | 'spends' | 'bills'>('all');
+  // Date and Amount range filters
+  const [ccFromDate, setCcFromDate] = useState<string>('');
+  const [ccToDate, setCcToDate] = useState<string>('');
+  const [ccMinAmount, setCcMinAmount] = useState<string>('');
+  const [ccMaxAmount, setCcMaxAmount] = useState<string>('');
+  // Popover state for Date & Amount filter dropdowns
+  const [showCcDatePopover, setShowCcDatePopover] = useState<boolean>(false);
+  const [showCcAmountPopover, setShowCcAmountPopover] = useState<boolean>(false);
+  const ccDateFilterRef = useRef<HTMLDivElement>(null);
+  const ccAmountFilterRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (ccDateFilterRef.current && !ccDateFilterRef.current.contains(e.target as Node)) {
+        setShowCcDatePopover(false);
+      }
+      if (ccAmountFilterRef.current && !ccAmountFilterRef.current.contains(e.target as Node)) {
+        setShowCcAmountPopover(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const applyCcDatePreset = (preset: 'all' | 'this_month' | 'last_month' | 'last_30' | 'this_year') => {
+    const now = new Date();
+    if (preset === 'all') {
+      setCcFromDate('');
+      setCcToDate('');
+    } else if (preset === 'this_month') {
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(y, now.getMonth() + 1, 0).getDate();
+      setCcFromDate(`${y}-${m}-01`);
+      setCcToDate(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+    } else if (preset === 'last_month') {
+      const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(y, d.getMonth() + 1, 0).getDate();
+      setCcFromDate(`${y}-${m}-01`);
+      setCcToDate(`${y}-${m}-${String(lastDay).padStart(2, '0')}`);
+    } else if (preset === 'last_30') {
+      const end = now.toISOString().slice(0, 10);
+      const start = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      setCcFromDate(start);
+      setCcToDate(end);
+    } else if (preset === 'this_year') {
+      setCcFromDate(`${selectedYear}-01-01`);
+      setCcToDate(`${selectedYear}-12-31`);
+    }
+  };
+
+  const applyCcAmountPreset = (preset: 'all' | 'under_1k' | '1k_5k' | '5k_20k' | 'above_20k') => {
+    if (preset === 'all') {
+      setCcMinAmount('');
+      setCcMaxAmount('');
+    } else if (preset === 'under_1k') {
+      setCcMinAmount('');
+      setCcMaxAmount('1000');
+    } else if (preset === '1k_5k') {
+      setCcMinAmount('1000');
+      setCcMaxAmount('5000');
+    } else if (preset === '5k_20k') {
+      setCcMinAmount('5000');
+      setCcMaxAmount('20000');
+    } else if (preset === 'above_20k') {
+      setCcMinAmount('20000');
+      setCcMaxAmount('');
+    }
+  };
+
+  const getCcDateFilterLabel = () => {
+    if (ccFromDate && ccToDate) return `${ccFromDate.slice(5)} to ${ccToDate.slice(5)}`;
+    if (ccFromDate) return `From ${ccFromDate.slice(5)}`;
+    if (ccToDate) return `Until ${ccToDate.slice(5)}`;
+    return 'Date Range';
+  };
+
+  const getCcAmountFilterLabel = () => {
+    const cur = currencyService.getActiveCurrencyConfig().symbol;
+    if (ccMinAmount && ccMaxAmount) return `${cur}${ccMinAmount} - ${cur}${ccMaxAmount}`;
+    if (ccMinAmount) return `≥ ${cur}${ccMinAmount}`;
+    if (ccMaxAmount) return `≤ ${cur}${ccMaxAmount}`;
+    return 'Amount Range';
+  };
+
+  const hasActiveCcFilters = Boolean(
+    searchQuery ||
+    categoryFilter !== 'all' ||
+    selectedCardId !== 'all' ||
+    ccFilterType !== 'all' ||
+    ccFromDate ||
+    ccToDate ||
+    ccMinAmount ||
+    ccMaxAmount
+  );
+
+  const handleResetCcFilters = () => {
+    setSearchQuery('');
+    setCategoryFilter('all');
+    setSelectedCardId('all');
+    setCcFilterType('all');
+    setCcFromDate('');
+    setCcToDate('');
+    setCcMinAmount('');
+    setCcMaxAmount('');
+    setCurrentPage(1);
+  };
 
   // Hovered Card State: Automatically expands on hover, collapses on mouse leave with smooth grace window
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
@@ -521,6 +637,20 @@ export const CreditCardsView: React.FC = () => {
         }
       }
 
+      // Segmented Type filter (All / Card Spends / Bill Payments)
+      const isPayment = isBillPaymentTx(t);
+      if (ccFilterType === 'spends' && isPayment) return false;
+      if (ccFilterType === 'bills' && !isPayment) return false;
+
+      // Date Range filter
+      if (ccFromDate && t.date && t.date < ccFromDate) return false;
+      if (ccToDate && t.date && t.date > ccToDate) return false;
+
+      // Amount Range filter
+      const amt = Math.abs(Number(t.amount) || 0);
+      if (ccMinAmount && amt < Number(ccMinAmount)) return false;
+      if (ccMaxAmount && amt > Number(ccMaxAmount)) return false;
+
       // Search filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -538,12 +668,12 @@ export const CreditCardsView: React.FC = () => {
 
       return true;
     });
-  }, [yearCreditTransactions, selectedMonths, selectedCardId, searchQuery, categoryFilter, cards]);
+  }, [yearCreditTransactions, selectedMonths, selectedCardId, searchQuery, categoryFilter, ccFilterType, ccFromDate, ccToDate, ccMinAmount, ccMaxAmount, cards]);
 
   // Reset pagination to page 1 whenever filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedMonths, selectedYear, selectedCardId, searchQuery, categoryFilter]);
+  }, [selectedMonths, selectedYear, selectedCardId, searchQuery, categoryFilter, ccFilterType, ccFromDate, ccToDate, ccMinAmount, ccMaxAmount]);
 
   // Pagination calculations (Budget & Transactions style)
   const totalPages = Math.max(1, Math.ceil(creditTransactions.length / pageSize));
@@ -2162,49 +2292,161 @@ export const CreditCardsView: React.FC = () => {
 
       {/* 7. Actual Credit Card Transactions Ledger with Min/Max Height & Pagination Limits */}
       <div className="summary-card" style={{ padding: 24, borderRadius: 16 }}>
-        {/* Table Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 18 }}>
+        {/* Table Controls & Segmented Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-              Actual Credit Card Transactions ({creditTransactions.length})
+              Credit Card Transactions Ledger ({creditTransactions.length})
             </h3>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Filtered from your live database ledger • Bounded height with pagination controls
+              Search, filter, and track credit card spends & bill payments with bounded scroll & pagination
             </span>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Search */}
-            <div style={{ position: 'relative' }}>
-              <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-              <input
-                type="text"
-                placeholder="Search transactions..."
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                style={{
-                  padding: '7px 12px 7px 30px',
-                  borderRadius: 8,
-                  fontSize: 12,
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-color)',
-                  color: 'var(--text-primary)',
-                  width: 180
-                }}
-              />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div className="segmented-control">
+              <button
+                type="button"
+                className={`segmented-btn ${ccFilterType === 'all' ? 'active' : ''}`}
+                onClick={() => setCcFilterType('all')}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${ccFilterType === 'spends' ? 'active' : ''}`}
+                onClick={() => setCcFilterType('spends')}
+              >
+                Card Spends
+              </button>
+              <button
+                type="button"
+                className={`segmented-btn ${ccFilterType === 'bills' ? 'active' : ''}`}
+                onClick={() => setCcFilterType('bills')}
+              >
+                Bill Payments
+              </button>
             </div>
 
-            {/* Category Filter */}
+            <button
+              type="button"
+              className="btn-primary"
+              style={{ padding: '7px 14px', fontSize: 12 }}
+              onClick={() => {
+                if (cards.length === 0) {
+                  setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
+                  setTimeout(() => setBannerMsg(null), 3500);
+                  setIsAddCardOpen(true);
+                  return;
+                }
+                setSpendCard(cards[0]?.name || '');
+                setIsAddSpendOpen(true);
+              }}
+            >
+              <Plus size={14} />
+              <span>Add Spend</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Toolbar (Search, Card, Category, Date Popover, Amount Popover, Reset) */}
+        <div
+          className="transactions-filter-toolbar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: 16
+          }}
+        >
+          {/* Fixed-width Search Input */}
+          <div
+            style={{
+              width: 260,
+              flexShrink: 0,
+              display: 'flex',
+              alignItems: 'center',
+              background: 'var(--bg-input, var(--bg-secondary))',
+              border: '1px solid var(--border-color)',
+              borderRadius: 12,
+              padding: '8px 12px',
+              gap: 8
+            }}
+          >
+            <Search size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+            <input
+              type="text"
+              placeholder="Search card, category, merchant..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                border: 'none',
+                background: 'transparent',
+                outline: 'none',
+                color: 'var(--text-primary)',
+                width: '100%',
+                fontSize: 12
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                  padding: 2
+                }}
+                title="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {/* Card Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <CreditCard size={14} style={{ color: 'var(--text-secondary)' }} />
+            <select
+              value={selectedCardId}
+              onChange={e => setSelectedCardId(e.target.value)}
+              style={{
+                background: 'var(--bg-input, var(--bg-secondary))',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 12,
+                fontSize: 12,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              <option value="all">All Cards ({cards.length})</option>
+              {cards.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name} (•••• {c.last4})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Category Filter Dropdown */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
             <select
               value={categoryFilter}
               onChange={e => setCategoryFilter(e.target.value)}
               style={{
-                padding: '7px 12px',
-                borderRadius: 8,
-                fontSize: 12,
-                background: 'var(--bg-secondary)',
+                background: 'var(--bg-input, var(--bg-secondary))',
                 border: '1px solid var(--border-color)',
                 color: 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 12,
+                fontSize: 12,
+                outline: 'none',
                 cursor: 'pointer'
               }}
             >
@@ -2213,25 +2455,409 @@ export const CreditCardsView: React.FC = () => {
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
+          </div>
 
+          {/* Date Filter Popover */}
+          <div style={{ position: 'relative', flexShrink: 0 }} ref={ccDateFilterRef}>
             <button
               type="button"
-              className="btn-primary"
-              style={{ padding: '7px 14px', fontSize: 12 }}
               onClick={() => {
-              if (cards.length === 0) {
-                setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
-                setTimeout(() => setBannerMsg(null), 3500);
-                setIsAddCardOpen(true);
-                return;
-              }
-              setSpendCard(cards[0]?.name || '');
-              setIsAddSpendOpen(true);
-            }}
+                setShowCcDatePopover(open => !open);
+                setShowCcAmountPopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                background: ccFromDate || ccToDate ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-input, var(--bg-secondary))',
+                border: ccFromDate || ccToDate ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+                color: ccFromDate || ccToDate ? 'var(--accent-indigo)' : 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: ccFromDate || ccToDate ? 600 : 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                minWidth: 120,
+                whiteSpace: 'nowrap'
+              }}
+              title="Filter by date range"
             >
-              <Plus size={14} />
-              <span>Add Spend</span>
+              <Calendar size={14} />
+              <span>{getCcDateFilterLabel()}</span>
+              {(ccFromDate || ccToDate) && (
+                <span
+                  onClick={e => {
+                    e.stopPropagation();
+                    setCcFromDate('');
+                    setCcToDate('');
+                  }}
+                  style={{
+                    marginLeft: 2,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: 'rgba(99, 102, 241, 0.25)',
+                    fontSize: 10,
+                    lineHeight: 1
+                  }}
+                  title="Clear date filter"
+                >
+                  ✕
+                </span>
+              )}
             </button>
+
+            {showCcDatePopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  left: 0,
+                  width: 300,
+                  background: 'var(--bg-card, #0d1527)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 14,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  QUICK PRESETS
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { key: 'all', label: 'All Time' },
+                    { key: 'this_month', label: 'This Month' },
+                    { key: 'last_month', label: 'Last Month' },
+                    { key: 'last_30', label: 'Last 30 Days' },
+                    { key: 'this_year', label: 'This Year' }
+                  ].map(p => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyCcDatePreset(p.key as any)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ height: 1, background: 'var(--border-color)', margin: '2px 0' }} />
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  CUSTOM RANGE
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 34 }}>From:</span>
+                    <input
+                      type="date"
+                      value={ccFromDate}
+                      onChange={e => setCcFromDate(e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 6,
+                        padding: '4px 8px',
+                        color: 'var(--text-primary)',
+                        fontSize: 12
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', width: 34 }}>To:</span>
+                    <input
+                      type="date"
+                      value={ccToDate}
+                      onChange={e => setCcToDate(e.target.value)}
+                      style={{
+                        flex: 1,
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 6,
+                        padding: '4px 8px',
+                        color: 'var(--text-primary)',
+                        fontSize: 12
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px solid var(--border-color)' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCcFromDate('');
+                      setCcToDate('');
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: 11,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCcDatePopover(false)}
+                    style={{
+                      background: 'var(--accent-indigo)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Amount Filter Popover */}
+          <div style={{ position: 'relative', flexShrink: 0 }} ref={ccAmountFilterRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCcAmountPopover(open => !open);
+                setShowCcDatePopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 7,
+                background: ccMinAmount || ccMaxAmount ? 'rgba(99, 102, 241, 0.15)' : 'var(--bg-input, var(--bg-secondary))',
+                border: ccMinAmount || ccMaxAmount ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+                color: ccMinAmount || ccMaxAmount ? 'var(--accent-indigo)' : 'var(--text-primary)',
+                padding: '8px 12px',
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: ccMinAmount || ccMaxAmount ? 600 : 500,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease',
+                minWidth: 120,
+                whiteSpace: 'nowrap'
+              }}
+              title="Filter by amount range"
+            >
+              <DollarSign size={14} />
+              <span>{getCcAmountFilterLabel()}</span>
+              {(ccMinAmount || ccMaxAmount) && (
+                <span
+                  onClick={e => {
+                    e.stopPropagation();
+                    setCcMinAmount('');
+                    setCcMaxAmount('');
+                  }}
+                  style={{
+                    marginLeft: 2,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    background: 'rgba(99, 102, 241, 0.25)',
+                    fontSize: 10,
+                    lineHeight: 1
+                  }}
+                  title="Clear amount filter"
+                >
+                  ✕
+                </span>
+              )}
+            </button>
+
+            {showCcAmountPopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 8px)',
+                  left: 0,
+                  width: 300,
+                  background: 'var(--bg-card, #0d1527)',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 14,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 100,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  QUICK PRESETS
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'under_1k', label: `< ${currencyService.getActiveCurrencyConfig().symbol}1,000` },
+                    { key: '1k_5k', label: `${currencyService.getActiveCurrencyConfig().symbol}1k - 5k` },
+                    { key: '5k_20k', label: `${currencyService.getActiveCurrencyConfig().symbol}5k - 20k` },
+                    { key: 'above_20k', label: `> ${currencyService.getActiveCurrencyConfig().symbol}20,000` }
+                  ].map(p => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyCcAmountPreset(p.key as any)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid var(--border-color)',
+                        background: 'var(--bg-secondary)',
+                        color: 'var(--text-primary)',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ height: 1, background: 'var(--border-color)', margin: '2px 0' }} />
+
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)' }}>
+                  CUSTOM RANGE ({currencyService.getActiveCurrencyConfig().symbol})
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={ccMinAmount}
+                    onChange={e => setCcMinAmount(e.target.value)}
+                    style={{
+                      width: '50%',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6,
+                      padding: '4px 8px',
+                      color: 'var(--text-primary)',
+                      fontSize: 12
+                    }}
+                  />
+                  <span style={{ color: 'var(--text-muted)' }}>—</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={ccMaxAmount}
+                    onChange={e => setCcMaxAmount(e.target.value)}
+                    style={{
+                      width: '50%',
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 6,
+                      padding: '4px 8px',
+                      color: 'var(--text-primary)',
+                      fontSize: 12
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px solid var(--border-color)' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCcMinAmount('');
+                      setCcMaxAmount('');
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'var(--text-muted)',
+                      fontSize: 11,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCcAmountPopover(false)}
+                    style={{
+                      background: 'var(--accent-indigo)',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right Actions: Reset & Count Badge */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {hasActiveCcFilters && (
+              <button
+                type="button"
+                onClick={handleResetCcFilters}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  color: '#EF4444',
+                  padding: '7px 12px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5
+                }}
+                title="Clear all active filters"
+              >
+                <RotateCcw size={12} />
+                <span>Clear Filters</span>
+              </button>
+            )}
+
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                color: 'var(--text-secondary)',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                padding: '7px 11px',
+                borderRadius: 8,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              Showing {creditTransactions.length} of {yearCreditTransactions.length} items
+            </div>
           </div>
         </div>
 
@@ -2364,6 +2990,20 @@ export const CreditCardsView: React.FC = () => {
                       </tr>
                     );
                   })}
+                  {/* Minimum 5 rows placeholder so height is always stable */}
+                  {paginatedTransactions.length < 5 &&
+                    Array.from({ length: 5 - paginatedTransactions.length }).map((_, emptyIdx) => (
+                      <tr key={`empty-cc-row-${emptyIdx}`} className="empty-placeholder-row">
+                        <td style={{ height: 49, padding: '12px 14px' }}>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                        <td>&nbsp;</td>
+                      </tr>
+                    ))}
                 </tbody>
               </table>
             </div>
