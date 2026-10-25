@@ -377,6 +377,9 @@ textarea,
   background: var(--bg-input, #131824) !important;
   color: var(--text-primary, #F8FAFC) !important;
   border: 1px solid var(--border-color, #232D42) !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   border-radius: var(--radius-sm, 8px) !important;
   padding: 10px 14px;
   font-family: inherit;

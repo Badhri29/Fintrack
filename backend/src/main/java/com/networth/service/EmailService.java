@@ -384,6 +384,48 @@ public class EmailService {
         return sendHtmlEmail(toEmail, subject, html);
     }
 
+    public boolean sendLoanEmiReminderEmail(String toEmail, String name, String loanName, String lender, String loanNumber, double emiAmount, int dueDay, double remainingAmount) {
+        String subject = "FinTrack Alert: Upcoming EMI Due for " + loanName;
+        String html = "<!DOCTYPE html><html><body style='margin:0;padding:24px;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#1E293B;'>"
+                + "<div style='max-width:540px;margin:0 auto;background:#FFFFFF;border-radius:16px;border:1px solid #E2E8F0;box-shadow:0 8px 24px rgba(0,0,0,0.05);overflow:hidden;'>"
+                + "  <div style='background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);padding:28px 32px;color:#FFFFFF;'>"
+                + "    <div style='font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#C7D2FE;'>FinTrack Loan Reminder</div>"
+                + "    <h2 style='margin:8px 0 0;font-size:22px;font-weight:800;color:#FFFFFF;'>Upcoming EMI Payment Due</h2>"
+                + "    <p style='margin:4px 0 0;font-size:13px;color:#E0E7FF;'>Scheduled auto-debit and debt repayment notice</p>"
+                + "  </div>"
+                + "  <div style='padding:28px 32px;'>"
+                + "    <p style='font-size:15px;margin:0 0 14px;color:#334155;'>Hello <strong>" + (name != null ? name : "User") + "</strong>,</p>"
+                + "    <p style='font-size:14px;line-height:1.6;color:#64748B;margin:0 0 20px;'>This is a scheduled notification regarding your upcoming monthly loan EMI payment:</p>"
+                + "    <div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:12px;padding:20px;margin-bottom:20px;'>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Loan Account</span>"
+                + "        <strong style='font-size:14px;color:#1E293B;'>" + loanName + "</strong>"
+                + "      </div>"
+                + (loanNumber != null && !loanNumber.isEmpty() ? "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:10px;'><span style='font-size:13px;color:#64748B;'>Loan Number</span><strong style='font-size:13px;color:#4338CA;font-family:monospace;'>" + loanNumber + "</strong></div>" : "")
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Lender / Bank</span>"
+                + "        <strong style='font-size:14px;color:#1E293B;'>" + (lender != null ? lender : "Bank") + "</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Monthly Due Day</span>"
+                + "        <strong style='font-size:14px;color:#EF4444;'>" + dueDay + "th of this month</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #E2E8F0;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Monthly EMI Amount</span>"
+                + "        <strong style='font-size:16px;color:#4338CA;'>₹ " + String.format("%.2f", emiAmount) + "</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Outstanding Principal</span>"
+                + "        <strong style='font-size:14px;color:#64748B;'>₹ " + String.format("%.2f", remainingAmount) + "</strong>"
+                + "      </div>"
+                + "    </div>"
+                + "    <p style='font-size:13px;color:#64748B;line-height:1.6;margin:0 0 20px;'>Please ensure sufficient funds in your linked bank account to avoid auto-debit bounce fees or credit score impact.</p>"
+                + "    <div style='border-top:1px solid #E2E8F0;padding-top:16px;margin-top:20px;font-size:11px;color:#94A3B8;text-align:center;'>FinTrack Automated Notifications Desk • fintracktool@gmail.com</div>"
+                + "  </div>"
+                + "</div></body></html>";
+        return sendHtmlEmail(toEmail, subject, html);
+    }
+
     private String buildOtpHtml(String email, String otpCode, String purpose) {
         return "<!DOCTYPE html><html>"
                 + "<head><meta charset='UTF-8'></head>"

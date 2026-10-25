@@ -1197,6 +1197,45 @@ public class AdminController {
         return ResponseEntity.ok(Map.of("success", true, "sent", sent, "message", "End of Day financial digest sent to " + user.getEmail()));
     }
 
+    @PostMapping("/user/send-loan-reminder")
+    public ResponseEntity<?> sendLoanEmiReminder(@AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "error", "Unauthorized"));
+        }
+
+        User user = principal.getUser();
+        String loanName = (String) body.getOrDefault("loanName", "Active Loan");
+        String lender = (String) body.getOrDefault("lender", "Bank / Financial Institution");
+        String loanNumber = (String) body.getOrDefault("loanNumber", "");
+        double emiAmount = 0.0;
+        try {
+            emiAmount = Double.parseDouble(body.getOrDefault("emiAmount", 0).toString());
+        } catch (Exception ignored) {}
+
+        int dueDay = 5;
+        try {
+            dueDay = Integer.parseInt(body.getOrDefault("dueDay", 5).toString());
+        } catch (Exception ignored) {}
+
+        double remainingAmount = 0.0;
+        try {
+            remainingAmount = Double.parseDouble(body.getOrDefault("remainingAmount", 0).toString());
+        } catch (Exception ignored) {}
+
+        boolean sent = emailService.sendLoanEmiReminderEmail(user.getEmail(), user.getName(), loanName, lender, loanNumber, emiAmount, dueDay, remainingAmount);
+
+        try {
+            userActivityLogRepository.save(UserActivityLog.builder()
+                    .userId(user.getId())
+                    .userEmail(user.getEmail())
+                    .action("LOAN_REMINDER_EMAIL_DISPATCH")
+                    .details("Dispatched EMI payment reminder email for " + loanName + " due on " + dueDay + "th")
+                    .build());
+        } catch (Exception ignored) {}
+
+        return ResponseEntity.ok(Map.of("success", true, "sent", sent, "message", "EMI reminder email sent to " + user.getEmail()));
+    }
+
     // =========================================================================
     // 6. GRANULAR DATA RESETS (USER-SCOPED)
     // =========================================================================
