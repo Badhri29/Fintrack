@@ -259,56 +259,11 @@ public class AuthController {
 
         User user = userOpt.get();
 
-        // Check member expiration
-        if (user.getMemberExpiresAt() != null && LocalDateTime.now().isAfter(user.getMemberExpiresAt())) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(AuthResponse.builder()
-                            .success(false)
-                            .error("Your member access expired on " + user.getMemberExpiresAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")) + ". Please contact the workspace owner to renew access.")
-                            .build());
-        }
-
-        // Check password first
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
-            userActivityLogRepository.save(UserActivityLog.builder()
-                    .userId(user.getId())
-                    .userEmail(user.getEmail())
-                    .action("FAILED_LOGIN")
-                    .details("Failed login attempt (invalid password)")
-                    .ipAddress(httpRequest.getRemoteAddr())
-                    .userAgent(httpRequest.getHeader("User-Agent"))
-                    .build());
-
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(AuthResponse.builder().success(false).error("Invalid email or password.").build());
-        }
-
-        boolean isAdminUser = user.getRole() != null &&
-                (user.getRole().equalsIgnoreCase("ADMIN") || user.getRole().equalsIgnoreCase("SUPER_ADMIN"));
-
-        // 2. Scheduled Maintenance Check
-        Optional<SystemSetting> maintSetting = systemSettingRepository.findBySettingKey("MAINTENANCE_ACTIVE");
-        if (maintSetting.isPresent() && "true".equalsIgnoreCase(maintSetting.get().getSettingValue()) && !isAdminUser) {
-            String maintMsg = systemSettingRepository.findBySettingKey("MAINTENANCE_MESSAGE")
-                    .map(SystemSetting::getSettingValue)
-                    .orElse("System maintenance is underway. Regular logins are temporarily paused.");
-            String maintEnd = systemSettingRepository.findBySettingKey("MAINTENANCE_END")
-                    .map(SystemSetting::getSettingValue)
-                    .orElse("Shortly");
-
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(AuthResponse.builder()
-                            .success(false)
-                            .isMaintenance(true)
-                            .maintenanceMessage(maintMsg)
-                            .maintenanceEnd(maintEnd)
-                            .error("Scheduled Maintenance Underway: " + maintMsg)
-                            .build());
-        }
-
-        // 3. Account Lock Checks
+        // 2. Account Lock Checks (Evaluate first so locked users immediately receive warning notice with admin description)
         String lockType = user.getLockType() != null ? user.getLockType().toUpperCase() : "NONE";
-        String lockReason = user.getLockReason() != null ? user.getLockReason() : "Account restricted by administrator.";
+        String lockReason = (user.getLockReason() != null && !user.getLockReason().isBlank())
+                ? user.getLockReason()
+                : "Account restricted by administrator.";
 
         if ("TEMP".equals(lockType) && user.getLockUntil() != null) {
             if (LocalDateTime.now().isBefore(user.getLockUntil())) {
@@ -327,24 +282,64 @@ public class AuthController {
                 user.setStatus("ACTIVE");
                 user.setLockReason(null);
                 user.setLockUntil(null);
+                userRepository.save(user);
             }
-        } else if ("FULL".equals(lockType)) {
+        } else if ("FULL".equals(lockType) || "PERMANENT".equals(lockType) || "LOCKED".equalsIgnoreCase(user.getStatus())) {
+            String effectiveLockType = "PERMANENT".equals(lockType) ? "PERMANENT" : "FULL";
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(AuthResponse.builder()
                             .success(false)
                             .isLocked(true)
-                            .lockType("FULL")
+                            .lockType(effectiveLockType)
                             .lockReason(lockReason)
-                            .error("Your account is currently locked. Reason: " + lockReason + ". Please contact administrator.")
+                            .error("Your account is currently locked. Reason: " + lockReason)
                             .build());
-        } else if ("PERMANENT".equals(lockType)) {
+        }
+
+        // Check member expiration
+        if (user.getMemberExpiresAt() != null && LocalDateTime.now().isAfter(user.getMemberExpiresAt())) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(AuthResponse.builder()
                             .success(false)
-                            .isLocked(true)
-                            .lockType("PERMANENT")
-                            .lockReason(lockReason)
-                            .error("Your account has been permanently locked by administrator. Reason: " + lockReason + ". Please contact administrator to request manual unlock.")
+                            .error("Your member access expired on " + user.getMemberExpiresAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm")) + ". Please contact the workspace owner to renew access.")
+                            .build());
+        }
+
+        // Check password
+        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            userActivityLogRepository.save(UserActivityLog.builder()
+                    .userId(user.getId())
+                    .userEmail(user.getEmail())
+                    .action("FAILED_LOGIN")
+                    .details("Failed login attempt (invalid password)")
+                    .ipAddress(httpRequest.getRemoteAddr())
+                    .userAgent(httpRequest.getHeader("User-Agent"))
+                    .build());
+
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(AuthResponse.builder().success(false).error("Invalid email or password.").build());
+        }
+
+        boolean isAdminUser = user.getRole() != null &&
+                (user.getRole().equalsIgnoreCase("ADMIN") || user.getRole().equalsIgnoreCase("SUPER_ADMIN"));
+
+        // 3. Scheduled Maintenance Check
+        Optional<SystemSetting> maintSetting = systemSettingRepository.findBySettingKey("MAINTENANCE_ACTIVE");
+        if (maintSetting.isPresent() && "true".equalsIgnoreCase(maintSetting.get().getSettingValue()) && !isAdminUser) {
+            String maintMsg = systemSettingRepository.findBySettingKey("MAINTENANCE_MESSAGE")
+                    .map(SystemSetting::getSettingValue)
+                    .orElse("System maintenance is underway. Regular logins are temporarily paused.");
+            String maintEnd = systemSettingRepository.findBySettingKey("MAINTENANCE_END")
+                    .map(SystemSetting::getSettingValue)
+                    .orElse("Shortly");
+
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(AuthResponse.builder()
+                            .success(false)
+                            .isMaintenance(true)
+                            .maintenanceMessage(maintMsg)
+                            .maintenanceEnd(maintEnd)
+                            .error("Scheduled Maintenance Underway: " + maintMsg)
                             .build());
         }
 

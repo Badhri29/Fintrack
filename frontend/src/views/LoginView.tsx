@@ -205,13 +205,15 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
       // Locked account check
       if (result.isLocked) {
+        const lockDescription = result.lockReason || 'Account restricted by administrator.';
         setLockModal({
           isOpen: true,
           lockType: result.lockType,
           lockUntil: result.lockUntil,
-          lockReason: result.lockReason,
-          message: result.message
+          lockReason: lockDescription,
+          message: result.message || `Your account access has been restricted: ${lockDescription}`
         });
+        setError(`Account Locked: ${lockDescription}`);
         setLoading(false);
         return;
       }
@@ -234,6 +236,39 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       }
     } catch (err: any) {
       setError(err.message || 'Authentication error. Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Demo Login Handler with Account Lock & Description Support
+  const handleDemoLogin = async () => {
+    setError(null);
+    setInfoMessage(null);
+    setLoading(true);
+    try {
+      const result = await loginDemo();
+      if (result && result.isLocked) {
+        const lockDescription = result.lockReason || 'Account restricted by administrator.';
+        setLockModal({
+          isOpen: true,
+          lockType: result.lockType,
+          lockUntil: result.lockUntil,
+          lockReason: lockDescription,
+          message: result.message || `Demo account access restricted: ${lockDescription}`
+        });
+        setError(`Demo Account Locked: ${lockDescription}`);
+        return;
+      }
+      if (result && !result.success && result.message) {
+        setError(result.message);
+        return;
+      }
+      if (result?.success) {
+        onLoginSuccess();
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Failed to initialize demo account.');
     } finally {
       setLoading(false);
     }
@@ -822,7 +857,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   </div>
                   <button
                     type="button"
-                    onClick={loginDemo}
+                    onClick={handleDemoLogin}
                     style={{
                       background: 'rgba(99, 102, 241, 0.15)',
                       border: '1px solid rgba(99, 102, 241, 0.3)',
@@ -908,16 +943,24 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             {lockModal.lockReason && (
               <div
                 style={{
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  border: '1px solid rgba(239, 68, 68, 0.2)',
-                  padding: '10px 14px',
-                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.12)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  padding: '12px 14px',
+                  borderRadius: 10,
                   fontSize: 13,
                   color: '#FCA5A5',
-                  marginBottom: 16
+                  marginBottom: 16,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4
                 }}
               >
-                <strong>Reason:</strong> {lockModal.lockReason}
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#EF4444' }}>
+                  Lock Reason / Description:
+                </div>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: '#FFFFFF', wordBreak: 'break-word', lineHeight: 1.5 }}>
+                  {lockModal.lockReason}
+                </div>
               </div>
             )}
 
@@ -1100,9 +1143,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <div style={{ display: 'flex', gap: 12 }}>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   setDemoExpiredAlert(false);
-                  loginDemo();
+                  await handleDemoLogin();
                 }}
                 style={{
                   flex: 1,
