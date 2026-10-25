@@ -218,6 +218,7 @@ export const LoansEmiView: React.FC = () => {
 
   // Pay EMI Modal
   const [isPayEmiOpen, setIsPayEmiOpen] = useState<boolean>(false);
+  const [loanToDelete, setLoanToDelete] = useState<LoanModel | null>(null);
   const [payingLoan, setPayingLoan] = useState<LoanModel | null>(null);
   const [payEmiAmount, setPayEmiAmount] = useState<string>('');
   const [payEmiDate, setPayEmiDate] = useState<string>(new Date().toISOString().substring(0, 10));
@@ -812,16 +813,30 @@ export const LoansEmiView: React.FC = () => {
     setTimeout(() => setBannerMsg(null), 3500);
   };
 
-  // Delete Loan
+  // Open Delete Confirmation Modal on screen (No browser popup)
   const handleDeleteLoan = (loanId: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to remove "${name}" from your active loans list?`)) {
-      return;
+    const loan = loans.find(l => l.id === loanId);
+    if (loan) {
+      setLoanToDelete(loan);
+    } else {
+      setLoanToDelete({ id: loanId, name } as any);
     }
-    const updated = loans.filter(l => l.id !== loanId);
+  };
+
+  const confirmDeleteLoan = () => {
+    if (!loanToDelete) return;
+    const updated = loans.filter(l => l.id !== loanToDelete.id);
     saveLoans(updated);
-    if (selectedLoanId === loanId) {
+    if (selectedLoanId === loanToDelete.id) {
       setSelectedLoanId(null);
     }
+    setBannerMsg({
+      type: 'success',
+      text: `Loan "${loanToDelete.name}" removed successfully.`
+    });
+    playNotificationChime();
+    setLoanToDelete(null);
+    setTimeout(() => setBannerMsg(null), 3500);
   };
 
   // Dispatch Official Email Reminder for Loan EMI
@@ -3595,7 +3610,107 @@ export const LoansEmiView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Pay Monthly EMI */}
+      {/* Modal: Center Display Custom Confirmation for Loan Deletion (On-Screen, No Browser Popup) */}
+      {loanToDelete && (
+        <div className="modal-overlay" onClick={() => setLoanToDelete(null)}>
+          <div
+            className="modal-container"
+            style={{
+              maxWidth: 440,
+              width: '90vw',
+              textAlign: 'center',
+              padding: '28px 24px',
+              borderRadius: 18,
+              border: '1px solid rgba(239, 68, 68, 0.35)',
+              boxShadow: '0 20px 45px rgba(0, 0, 0, 0.7), 0 0 30px rgba(239, 68, 68, 0.12)'
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div
+              style={{
+                width: 56,
+                height: 56,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.15)',
+                color: '#EF4444',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px'
+              }}
+            >
+              <AlertCircle size={30} />
+            </div>
+
+            <h3 style={{ fontSize: 18, fontWeight: 800, margin: '0 0 8px', color: 'var(--text-primary)' }}>
+              Remove Active Loan?
+            </h3>
+
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 16px' }}>
+              Are you sure you want to delete this loan from your dashboard? This will remove its EMI schedule and net worth liability tracking.
+            </p>
+
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 12,
+                padding: '14px 16px',
+                margin: '14px 0 20px',
+                textAlign: 'left'
+              }}
+            >
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                {loanToDelete.name}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                Lender: <strong>{loanToDelete.lender}</strong>
+              </div>
+              {loanToDelete.principal && (
+                <div style={{ fontSize: 12, color: '#10B981', fontWeight: 600, marginTop: 4 }}>
+                  Principal Amount: {currencyService.format(loanToDelete.principal)}
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-secondary)',
+                  padding: '10px 20px',
+                  borderRadius: 10,
+                  fontWeight: 600
+                }}
+                onClick={() => setLoanToDelete(null)}
+              >
+                Keep Loan
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{
+                  background: '#EF4444',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  padding: '10px 22px',
+                  borderRadius: 10,
+                  fontWeight: 700,
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.35)'
+                }}
+                onClick={confirmDeleteLoan}
+              >
+                Yes, Delete Loan
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+            {/* Modal: Pay Monthly EMI */}
       {isPayEmiOpen && payingLoan && (
         <div className="modal-overlay">
           <div className="modal-container" style={{ width: '100%', maxWidth: 440 }}>
