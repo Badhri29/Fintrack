@@ -43,6 +43,7 @@ export interface LoanModel {
   interestRate?: number; // Optional Annual %
   tenureMonths?: number;
   paidMonths?: number;
+  paidScheduleIndices?: number[]; // Specific month indices (1, 2, ...) marked paid
   dueDay?: number; // Monthly EMI Due Day (1-31, default: 5)
   description?: string; // Description / Purpose
   status?: 'active' | 'closed'; // Active or Closed status
@@ -156,19 +157,26 @@ export const calculateLoanEMIs = (loan: LoanModel) => {
     ? loan.emiAmount
     : calculateEMI(loan.principal, loan.interestRate || 0, tenureMonths);
 
-  const remaining = typeof loan.remainingAmount === 'number' && !isNaN(loan.remainingAmount)
-    ? loan.remainingAmount
-    : Math.max(0, loan.principal - ((loan.paidMonths || 0) * emi));
-
-  const isClosed = loan.status === 'closed' || remaining <= 0;
   const totalEmis = tenureMonths;
-  let completedEmis = loan.paidMonths !== undefined && loan.paidMonths !== null
-    ? loan.paidMonths
-    : (emi > 0 ? Math.min(totalEmis, Math.max(0, Math.round((loan.principal - remaining) / emi))) : 0);
+  let completedEmis = 0;
+  if (Array.isArray(loan.paidScheduleIndices)) {
+    completedEmis = loan.paidScheduleIndices.length;
+  } else if (loan.paidMonths !== undefined && loan.paidMonths !== null) {
+    completedEmis = loan.paidMonths;
+  } else if (emi > 0 && typeof loan.remainingAmount === 'number') {
+    completedEmis = Math.min(totalEmis, Math.max(0, Math.round((loan.principal - loan.remainingAmount) / emi)));
+  }
+
+  const isClosed = loan.status === 'closed' || (typeof loan.remainingAmount === 'number' && loan.remainingAmount <= 0) || (totalEmis > 0 && completedEmis >= totalEmis);
 
   if (isClosed) {
     completedEmis = totalEmis;
   }
+
+  const remaining = typeof loan.remainingAmount === 'number' && !isNaN(loan.remainingAmount)
+    ? loan.remainingAmount
+    : Math.max(0, loan.principal - (completedEmis * emi));
+
   const remainingEmis = Math.max(0, totalEmis - completedEmis);
   const totalInterest = calculateLoanInterestAmount(loan.principal, emi, totalEmis);
   const totalPayable = loan.principal + totalInterest;
@@ -205,6 +213,7 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
     const itemDate = new Date(sDate.getFullYear(), sDate.getMonth() + i, dueDay);
     const itemYear = itemDate.getFullYear();
     const itemMonth = itemDate.getMonth();
+    const index = i + 1;
 
     const isCurrent = itemYear === currentYear && itemMonth === currentMonth;
     const isPast = (itemYear < currentYear) || (itemYear === currentYear && itemMonth < currentMonth);
@@ -214,6 +223,8 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
     let isMonthPaid = false;
     if (emiMetrics.isClosed) {
       isMonthPaid = true;
+    } else if (Array.isArray(loan.paidScheduleIndices)) {
+      isMonthPaid = loan.paidScheduleIndices.includes(index);
     } else if (i < emiMetrics.completedEmis) {
       isMonthPaid = true;
     }
@@ -234,7 +245,7 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
     }
 
     schedule.push({
-      index: i + 1,
+      index,
       monthStr,
       monthName,
       year: itemYear,
@@ -290,6 +301,7 @@ export const LoansEmiView: React.FC = () => {
   const [loanEndDate, setLoanEndDate] = useState<string>('');
   const [loanDescription, setLoanDescription] = useState<string>('');
   const [loanIncludeNetWorth, setLoanIncludeNetWorth] = useState<boolean>(true);
+  const [loanPaidMonths, setLoanPaidMonths] = useState<number>(0);
 
   // Edit Loan Modal State
   const [isEditLoanOpen, setIsEditLoanOpen] = useState<boolean>(false);
@@ -306,6 +318,7 @@ export const LoansEmiView: React.FC = () => {
   const [editDescription, setEditDescription] = useState<string>('');
   const [editStatus, setEditStatus] = useState<'active' | 'closed'>('active');
   const [editIncludeNetWorth, setEditIncludeNetWorth] = useState<boolean>(true);
+  const [editPaidMonths, setEditPaidMonths] = useState<number>(0);
 
   // Sending email reminder loader
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
@@ -314,8 +327,33 @@ export const LoansEmiView: React.FC = () => {
   const [isPayEmiOpen, setIsPayEmiOpen] = useState<boolean>(false);
   const [payingLoan, setPayingLoan] = useState<LoanModel | null>(null);
   const [payEmiAmount, setPayEmiAmount] = useState<string>('');
+  const [payEmiDate, setPayEmiDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [recordTransaction, setRecordTransaction] = useState<boolean>(true);
   const [payEmiMode, setPayEmiMode] = useState<string>('upi');
   const [paySaving, setPaySaving] = useState<boolean>(false);
+
+  // Dynamic height tracking for Loan Cards Section
+  const loanCardsContainerRef = useRef<HTMLDivElement>(null);
+  const [cardsContainerHeight, setCardsContainerHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!loanCardsContainerRef.current) return;
+    const updateHeight = () => {
+      if (loanCardsContainerRef.current) {
+        setCardsContainerHeight(loanCardsContainerRef.current.offsetHeight);
+      }
+    };
+    updateHeight();
+    const ro = new ResizeObserver(() => {
+      updateHeight();
+    });
+    ro.observe(loanCardsContainerRef.current);
+    window.addEventListener('resize', updateHeight);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', updateHeight);
+    };
+  }, [loans, selectedLoanId]);
 
   // Interactive EMI Calculator State
   const [calcPrincipal, setCalcPrincipal] = useState<number>(1000000);
@@ -653,6 +691,12 @@ export const LoansEmiView: React.FC = () => {
       tenureMonths = calculateLoanTenureMonths(loanStartDate, loanEndDate);
     }
 
+    const initialPaidCount = Math.max(0, Number(loanPaidMonths) || 0);
+    const initialPaidIndices = Array.from({ length: initialPaidCount }, (_, i) => i + 1);
+    const calculatedRem = !isNaN(remaining) && remaining >= 0
+      ? remaining
+      : Math.max(0, principal - (initialPaidCount * (!isNaN(emi) && emi >= 0 ? emi : 0)));
+
     const newLoan: LoanModel = {
       id: `loan-${Date.now()}`,
       name: loanName.trim(),
@@ -661,7 +705,7 @@ export const LoansEmiView: React.FC = () => {
       dueDay: Number(loanDueDay) || 5,
       principal: principal,
       emiAmount: !isNaN(emi) && emi >= 0 ? emi : 0,
-      remainingAmount: !isNaN(remaining) && remaining >= 0 ? remaining : principal,
+      remainingAmount: calculatedRem,
       startDate: loanStartDate,
       endDate: loanEndDate,
       description: loanDescription.trim(),
@@ -669,8 +713,9 @@ export const LoansEmiView: React.FC = () => {
       type: 'Other',
       interestRate: 0,
       tenureMonths: tenureMonths,
-      paidMonths: 0,
-      status: (remaining <= 0) ? 'closed' : 'active'
+      paidMonths: initialPaidCount,
+      paidScheduleIndices: initialPaidIndices,
+      status: (calculatedRem <= 0 || (tenureMonths > 0 && initialPaidCount >= tenureMonths)) ? 'closed' : 'active'
     };
 
     const updated = [...loans, newLoan];
@@ -687,6 +732,7 @@ export const LoansEmiView: React.FC = () => {
     setLoanEndDate('');
     setLoanDescription('');
     setLoanIncludeNetWorth(true);
+    setLoanPaidMonths(0);
     setBannerMsg({ type: 'success', text: `Loan "${newLoan.name}" added to tracker successfully!` });
     playNotificationChime();
     setTimeout(() => setBannerMsg(null), 3500);
@@ -707,6 +753,7 @@ export const LoansEmiView: React.FC = () => {
     setEditDescription(loan.description || '');
     setEditStatus(loan.status || (loan.remainingAmount <= 0 ? 'closed' : 'active'));
     setEditIncludeNetWorth(loan.includeInNetWorth !== false);
+    setEditPaidMonths(loan.paidMonths || (Array.isArray(loan.paidScheduleIndices) ? loan.paidScheduleIndices.length : 0));
     setIsEditLoanOpen(true);
   };
 
@@ -723,9 +770,15 @@ export const LoansEmiView: React.FC = () => {
     if (isNaN(principal) || principal <= 0) return;
 
     const tenureMonths = calculateLoanTenureMonths(editStartDate, editEndDate, editingLoan.tenureMonths);
+    const newPaidCount = Math.max(0, Number(editPaidMonths) || 0);
 
     const updatedLoans = loans.map(l => {
       if (l.id === editingLoan.id) {
+        let indices = Array.isArray(l.paidScheduleIndices) ? [...l.paidScheduleIndices] : [];
+        if (newPaidCount !== l.paidMonths || indices.length !== newPaidCount) {
+          indices = Array.from({ length: newPaidCount }, (_, i) => i + 1);
+        }
+        const isNowClosed = editStatus === 'closed' || remaining <= 0 || (tenureMonths > 0 && newPaidCount >= tenureMonths);
         return {
           ...l,
           name: editName.trim(),
@@ -740,7 +793,9 @@ export const LoansEmiView: React.FC = () => {
           description: editDescription.trim(),
           includeInNetWorth: editIncludeNetWorth,
           tenureMonths: tenureMonths,
-          status: editStatus
+          paidMonths: newPaidCount,
+          paidScheduleIndices: indices,
+          status: isNowClosed ? ('closed' as const) : ('active' as const)
         };
       }
       return l;
@@ -750,6 +805,102 @@ export const LoansEmiView: React.FC = () => {
     setIsEditLoanOpen(false);
     setEditingLoan(null);
     setBannerMsg({ type: 'success', text: `Loan "${editName}" updated successfully!` });
+    playNotificationChime();
+    setTimeout(() => setBannerMsg(null), 3500);
+  };
+
+  // Mark / Unmark individual schedule item as Paid without creating any expense transaction in the ledger
+  const handleToggleSchedulePaid = (loanId: string, monthIndex: number) => {
+    const targetLoan = loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    const metrics = calculateLoanEMIs(targetLoan);
+    let currentIndices: number[] = [];
+    if (Array.isArray(targetLoan.paidScheduleIndices)) {
+      currentIndices = [...targetLoan.paidScheduleIndices];
+    } else {
+      currentIndices = Array.from({ length: metrics.completedEmis }, (_, i) => i + 1);
+    }
+
+    let newIndices: number[];
+    const isAlreadyPaid = currentIndices.includes(monthIndex);
+    if (isAlreadyPaid) {
+      newIndices = currentIndices.filter(idx => idx !== monthIndex);
+    } else {
+      newIndices = [...currentIndices, monthIndex].sort((a, b) => a - b);
+    }
+
+    const newPaidCount = newIndices.length;
+    const newRemaining = Math.max(0, targetLoan.principal - (newPaidCount * metrics.emi));
+    const isNowClosed = newRemaining <= 0 || (metrics.totalEmis > 0 && newPaidCount >= metrics.totalEmis);
+
+    const updated = loans.map(l => {
+      if (l.id === loanId) {
+        return {
+          ...l,
+          paidMonths: newPaidCount,
+          paidScheduleIndices: newIndices,
+          remainingAmount: newRemaining,
+          status: isNowClosed ? ('closed' as const) : ('active' as const)
+        };
+      }
+      return l;
+    });
+
+    saveLoans(updated);
+    setBannerMsg({
+      type: 'success',
+      text: isAlreadyPaid
+        ? `Month #${monthIndex} marked as pending.`
+        : `Month #${monthIndex} marked as Paid (No transaction added to ledger).`
+    });
+    playNotificationChime();
+    setTimeout(() => setBannerMsg(null), 3000);
+  };
+
+  // Mark all past pending EMIs as Paid in bulk without creating expense transactions in the ledger
+  const handleMarkAllPastDueAsPaid = (loanId: string) => {
+    const targetLoan = loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    const metrics = calculateLoanEMIs(targetLoan);
+    const schedule = generateEmiSchedule(targetLoan, metrics);
+    const pastPendingIndices = schedule.filter(s => s.status === 'pending').map(s => s.index);
+
+    if (pastPendingIndices.length === 0) return;
+
+    let currentIndices: number[] = [];
+    if (Array.isArray(targetLoan.paidScheduleIndices)) {
+      currentIndices = [...targetLoan.paidScheduleIndices];
+    } else {
+      currentIndices = Array.from({ length: metrics.completedEmis }, (_, i) => i + 1);
+    }
+
+    const setUnion = new Set([...currentIndices, ...pastPendingIndices]);
+    const newIndices = Array.from(setUnion).sort((a, b) => a - b);
+
+    const newPaidCount = newIndices.length;
+    const newRemaining = Math.max(0, targetLoan.principal - (newPaidCount * metrics.emi));
+    const isNowClosed = newRemaining <= 0 || (metrics.totalEmis > 0 && newPaidCount >= metrics.totalEmis);
+
+    const updated = loans.map(l => {
+      if (l.id === loanId) {
+        return {
+          ...l,
+          paidMonths: newPaidCount,
+          paidScheduleIndices: newIndices,
+          remainingAmount: newRemaining,
+          status: isNowClosed ? ('closed' as const) : ('active' as const)
+        };
+      }
+      return l;
+    });
+
+    saveLoans(updated);
+    setBannerMsg({
+      type: 'success',
+      text: `Marked ${pastPendingIndices.length} pending EMI(s) as Paid without logging transactions!`
+    });
     playNotificationChime();
     setTimeout(() => setBannerMsg(null), 3500);
   };
@@ -793,7 +944,7 @@ export const LoansEmiView: React.FC = () => {
     }
   };
 
-  // Pay EMI Submission -> Records to actual database /api/transactions
+  // Pay EMI Submission -> Records to actual database /api/transactions (or marks paid only)
   const handlePayEmiSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!payingLoan) return;
@@ -803,46 +954,72 @@ export const LoansEmiView: React.FC = () => {
 
     setPaySaving(true);
     try {
-      const baseAmount = currencyService.convertToBase(amt);
+      if (recordTransaction) {
+        const baseAmount = currencyService.convertToBase(amt);
 
-      const payload = {
-        date: new Date().toISOString().substring(0, 10),
-        type: 'expense',
-        category: 'Debt Repayment',
-        subcategory: `${payingLoan.type || 'Loan'} EMI`,
-        description: `EMI payment for ${payingLoan.name} (${payingLoan.lender})`,
-        amount: baseAmount,
-        paymentMode: payEmiMode
-      };
+        const payload = {
+          date: payEmiDate || new Date().toISOString().substring(0, 10),
+          type: 'expense',
+          category: 'Debt Repayment',
+          subcategory: `${payingLoan.type || 'Loan'} EMI`,
+          description: `EMI payment for ${payingLoan.name} (${payingLoan.lender})`,
+          amount: baseAmount,
+          paymentMode: payEmiMode
+        };
 
-      const res = await api.post('/transactions', payload);
-      if (res.data && res.data.success) {
-        const updated = loans.map(l => {
-          if (l.id === payingLoan.id) {
-            const currentRem = typeof l.remainingAmount === 'number' && !isNaN(l.remainingAmount)
-              ? l.remainingAmount
-              : l.principal;
-            const newRemaining = Math.max(0, currentRem - amt);
-            const isNowClosed = newRemaining <= 0;
-            return {
-              ...l,
-              paidMonths: (l.paidMonths || 0) + 1,
-              remainingAmount: newRemaining,
-              status: isNowClosed ? ('closed' as const) : l.status
-            };
-          }
-          return l;
-        });
-        saveLoans(updated);
+        const res = await api.post('/transactions', payload);
+        if (!res.data || !res.data.success) {
+          throw new Error('Failed to record transaction');
+        }
+      }
 
-        setBannerMsg({
-          type: 'success',
-          text: `EMI payment of ${currencyService.format(baseAmount)} for "${payingLoan.name}" recorded in database and loan balance updated!`
-        });
-        playNotificationChime();
-        setTimeout(() => setBannerMsg(null), 4000);
-        setIsPayEmiOpen(false);
-        setPayingLoan(null);
+      const metrics = calculateLoanEMIs(payingLoan);
+      let currentIndices: number[] = [];
+      if (Array.isArray(payingLoan.paidScheduleIndices)) {
+        currentIndices = [...payingLoan.paidScheduleIndices];
+      } else {
+        currentIndices = Array.from({ length: metrics.completedEmis }, (_, i) => i + 1);
+      }
+
+      const schedule = generateEmiSchedule(payingLoan, metrics);
+      const nextPendingItem = schedule.find(s => s.status !== 'paid');
+      const nextIndex = nextPendingItem ? nextPendingItem.index : (metrics.completedEmis + 1);
+
+      if (!currentIndices.includes(nextIndex) && nextIndex <= metrics.totalEmis) {
+        currentIndices.push(nextIndex);
+        currentIndices.sort((a, b) => a - b);
+      }
+
+      const updated = loans.map(l => {
+        if (l.id === payingLoan.id) {
+          const currentRem = typeof l.remainingAmount === 'number' && !isNaN(l.remainingAmount)
+            ? l.remainingAmount
+            : l.principal;
+          const newRemaining = Math.max(0, currentRem - amt);
+          const isNowClosed = newRemaining <= 0 || currentIndices.length >= metrics.totalEmis;
+          return {
+            ...l,
+            paidMonths: currentIndices.length,
+            paidScheduleIndices: currentIndices,
+            remainingAmount: newRemaining,
+            status: isNowClosed ? ('closed' as const) : l.status
+          };
+        }
+        return l;
+      });
+      saveLoans(updated);
+
+      setBannerMsg({
+        type: 'success',
+        text: recordTransaction
+          ? `EMI payment of ${currencyService.format(amt)} for "${payingLoan.name}" recorded on ${payEmiDate} and loan balance updated!`
+          : `EMI marked as Paid for "${payingLoan.name}". Balance updated without creating a transaction!`
+      });
+      playNotificationChime();
+      setTimeout(() => setBannerMsg(null), 4000);
+      setIsPayEmiOpen(false);
+      setPayingLoan(null);
+      if (recordTransaction) {
         await fetchTransactions();
       }
     } catch {
@@ -1117,6 +1294,7 @@ export const LoansEmiView: React.FC = () => {
           <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {/* Left Box: Loans Cards Grid */}
             <div
+              ref={loanCardsContainerRef}
               style={{
                 flex: selectedLoanId ? '1 1 56%' : '1 1 100%',
                 minWidth: 320,
@@ -1446,15 +1624,16 @@ export const LoansEmiView: React.FC = () => {
                   padding: 22,
                   display: 'flex',
                   flexDirection: 'column',
-                  maxHeight: 'calc(100vh - 120px)',
-                  overflowY: 'auto',
+                  maxHeight: cardsContainerHeight ? `${Math.max(cardsContainerHeight, 520)}px` : 'calc(100vh - 120px)',
+                  height: 'auto',
+                  alignSelf: 'flex-start',
                   boxShadow: isLight ? '0 8px 24px rgba(0,0,0,0.06)' : '0 16px 40px rgba(0,0,0,0.5)',
                   position: 'sticky',
                   top: 20
                 }}
               >
                 {/* Split Screen Header */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14, borderBottom: '1px solid var(--border-color)', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: 14, borderBottom: '1px solid var(--border-color)', marginBottom: 16, flexShrink: 0 }}>
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {!selectedLoanMetrics.isClosed ? (
@@ -1497,7 +1676,7 @@ export const LoansEmiView: React.FC = () => {
                 </div>
 
                 {/* Key Loan Figures Overview */}
-                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14, marginBottom: 16, flexShrink: 0 }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                     <div>
                       <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>PRINCIPAL AMOUNT</span>
@@ -1532,7 +1711,7 @@ export const LoansEmiView: React.FC = () => {
                 </div>
 
                 {/* Current & Next Month EMI Payment Status Box (Requirement 9) */}
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 16, flexShrink: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, letterSpacing: '0.03em', textTransform: 'uppercase' }}>
                     Current & Next Month Status
                   </div>
@@ -1593,8 +1772,8 @@ export const LoansEmiView: React.FC = () => {
                 </div>
 
                 {/* Month-by-Month Amortization Schedule (Start Date to End Date) */}
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
                       Schedule ({selectedLoan.startDate || 'Start'} to {selectedLoan.endDate || 'End'})
                     </span>
@@ -1603,7 +1782,43 @@ export const LoansEmiView: React.FC = () => {
                     </span>
                   </div>
 
-                  <div style={{ flex: 1, maxHeight: 250, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 4 }}>
+                  {/* Bulk action if past pending EMIs exist */}
+                  {(() => {
+                    const pendingPastCount = selectedLoanSchedule.filter(s => s.status === 'pending').length;
+                    if (pendingPastCount > 0 && !isViewOnly) {
+                      return (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, padding: '6px 10px', borderRadius: 8, background: 'rgba(245, 158, 11, 0.08)', border: '1px solid rgba(245, 158, 11, 0.25)', flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>
+                            {pendingPastCount} Pending Due EMI{pendingPastCount > 1 ? 's' : ''}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleMarkAllPastDueAsPaid(selectedLoan.id)}
+                            style={{
+                              background: '#10B981',
+                              border: 'none',
+                              color: '#FFFFFF',
+                              borderRadius: 6,
+                              padding: '3px 8px',
+                              fontSize: 10.5,
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            title="Mark all pending dues as paid without creating transactions in your ledger"
+                          >
+                            <Check size={11} />
+                            <span>Mark All Paid (No Txn)</span>
+                          </button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 4 }}>
                     {selectedLoanSchedule.map(s => {
                       return (
                         <div
@@ -1632,19 +1847,121 @@ export const LoansEmiView: React.FC = () => {
                             </div>
                           </div>
 
-                          <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                             {s.status === 'paid' ? (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}>
-                                ✓ PAID
-                              </span>
+                              <>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}>
+                                  ✓ PAID
+                                </span>
+                                {!isViewOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSchedulePaid(selectedLoan.id, s.index)}
+                                    title="Revert to pending"
+                                    style={{
+                                      background: 'transparent',
+                                      border: 'none',
+                                      color: 'var(--text-muted)',
+                                      cursor: 'pointer',
+                                      padding: '2px 4px',
+                                      fontSize: 10,
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      opacity: 0.7
+                                    }}
+                                  >
+                                    <RotateCcw size={11} />
+                                  </button>
+                                )}
+                              </>
                             ) : s.status === 'pending' ? (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
-                                PENDING DUE
-                              </span>
+                              <>
+                                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
+                                  PENDING DUE
+                                </span>
+                                {!isViewOnly && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleSchedulePaid(selectedLoan.id, s.index)}
+                                      title="Mark as Paid without creating an expense transaction in the ledger"
+                                      style={{
+                                        background: 'rgba(16, 185, 129, 0.15)',
+                                        border: '1px solid rgba(16, 185, 129, 0.35)',
+                                        color: '#10B981',
+                                        padding: '3px 8px',
+                                        borderRadius: 6,
+                                        fontSize: 10.5,
+                                        fontWeight: 700,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 3
+                                      }}
+                                    >
+                                      <Check size={11} />
+                                      <span>Mark Paid</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPayingLoan(selectedLoan);
+                                        setPayEmiAmount(String(s.emiAmount));
+                                        const todayStr = new Date().toISOString().substring(0, 10);
+                                        setPayEmiDate(s.dateStr <= todayStr ? todayStr : s.dateStr);
+                                        setRecordTransaction(true);
+                                        setIsPayEmiOpen(true);
+                                      }}
+                                      title="Pay now & record as expense transaction in your ledger"
+                                      style={{
+                                        background: 'rgba(99, 102, 241, 0.15)',
+                                        border: '1px solid rgba(99, 102, 241, 0.35)',
+                                        color: '#6366F1',
+                                        padding: '3px 7px',
+                                        borderRadius: 6,
+                                        fontSize: 10.5,
+                                        fontWeight: 600,
+                                        cursor: 'pointer',
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 2
+                                      }}
+                                    >
+                                      <DollarSign size={11} />
+                                      <span>Pay</span>
+                                    </button>
+                                  </>
+                                )}
+                              </>
                             ) : (
-                              <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)' }}>
-                                UPCOMING
-                              </span>
+                              <>
+                                <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 999, background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)' }}>
+                                  UPCOMING
+                                </span>
+                                {!isViewOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSchedulePaid(selectedLoan.id, s.index)}
+                                    title="Prepay & mark as paid without transaction"
+                                    style={{
+                                      background: 'transparent',
+                                      border: '1px solid var(--border-color)',
+                                      color: 'var(--text-muted)',
+                                      padding: '2px 6px',
+                                      borderRadius: 5,
+                                      fontSize: 10,
+                                      fontWeight: 600,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 2
+                                    }}
+                                  >
+                                    <Check size={10} />
+                                    <span>Mark Paid</span>
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -1654,21 +1971,54 @@ export const LoansEmiView: React.FC = () => {
                 </div>
 
                 {/* Actions in Split View */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-color)' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--border-color)', flexShrink: 0 }}>
                   {!isViewOnly && (
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      style={{ width: '100%', justifyContent: 'center' }}
-                      onClick={() => {
-                        setPayingLoan(selectedLoan);
-                        setPayEmiAmount(String(selectedLoanMetrics.emi));
-                        setIsPayEmiOpen(true);
-                      }}
-                    >
-                      <DollarSign size={15} />
-                      <span>Record Monthly EMI Payment</span>
-                    </button>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        style={{ width: '100%', justifyContent: 'center' }}
+                        onClick={() => {
+                          setPayingLoan(selectedLoan);
+                          setPayEmiAmount(String(selectedLoanMetrics.emi));
+                          setPayEmiDate(new Date().toISOString().substring(0, 10));
+                          setRecordTransaction(true);
+                          setIsPayEmiOpen(true);
+                        }}
+                      >
+                        <DollarSign size={15} />
+                        <span>Pay EMI & Record Transaction</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayingLoan(selectedLoan);
+                          setPayEmiAmount(String(selectedLoanMetrics.emi));
+                          setPayEmiDate(new Date().toISOString().substring(0, 10));
+                          setRecordTransaction(false);
+                          setIsPayEmiOpen(true);
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '8px 12px',
+                          borderRadius: 8,
+                          background: 'rgba(16, 185, 129, 0.1)',
+                          border: '1px solid rgba(16, 185, 129, 0.3)',
+                          color: '#10B981',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <CheckCircle2 size={14} />
+                        <span>Mark Next EMI Paid (No Transaction)</span>
+                      </button>
+                    </div>
                   )}
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1726,142 +2076,8 @@ export const LoansEmiView: React.FC = () => {
         )}
       </div>
 
-      {/* Interactive EMI Calculator Tool */}
-      <div className="summary-card" style={{ padding: 26, marginBottom: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
-            <Calculator size={20} />
-          </div>
-          <div>
-            <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Interactive EMI & Loan Calculator
-            </h3>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Estimate monthly payments, interest vs principal breakdown & plan repayments
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, alignItems: 'center' }}>
-          {/* Controls */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Principal */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>LOAN PRINCIPAL</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{currencyService.format(calcPrincipal)}</span>
-              </div>
-              <input
-                type="range"
-                min={50000}
-                max={10000000}
-                step={25000}
-                value={calcPrincipal}
-                onChange={e => setCalcPrincipal(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-
-            {/* Interest Rate */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>INTEREST RATE (% P.A.)</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcRate}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={24}
-                step={0.1}
-                value={calcRate}
-                onChange={e => setCalcRate(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-
-            {/* Tenure */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>TENURE (YEARS)</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcTenureYears} Years ({calcTenureYears * 12} Months)</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={30}
-                step={1}
-                value={calcTenureYears}
-                onChange={e => setCalcTenureYears(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-          </div>
-
-          {/* Calculator Output Display */}
-          <div
-            style={{
-              padding: 22,
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14
-            }}
-          >
-            <div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                ESTIMATED MONTHLY EMI
-              </span>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#6366F1', marginTop: 4 }}>
-                {currencyService.format(calcResults.monthlyEmi)}
-                <span style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 500 }}> / month</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, paddingTop: 10, borderTop: '1px solid rgba(99, 102, 241, 0.2)' }}>
-              <div>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL INTEREST</span>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
-                  {currencyService.format(calcResults.totalInterest)}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL PAYMENT</span>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {currencyService.format(calcResults.totalPayment)}
-                </div>
-              </div>
-            </div>
-
-            {/* Ratio Breakdown Bar */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                <span>Principal: {calcResults.principalPct.toFixed(0)}%</span>
-                <span>Interest: {calcResults.interestPct.toFixed(0)}%</span>
-              </div>
-              <div style={{ width: '100%', height: 8, background: '#EF4444', borderRadius: 999, overflow: 'hidden', display: 'flex' }}>
-                <div style={{ width: `${calcResults.principalPct}%`, height: '100%', background: '#6366F1' }} />
-              </div>
-            </div>
-
-            {!isViewOnly && (
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
-                onClick={handleAddFromCalculator}
-              >
-                <Plus size={16} />
-                <span>Add as Tracked Loan</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
       {/* Actual EMI Payment History Ledger with Full Filtering, Limits & Pagination (Budget & Transactions style) */}
-      <div className="summary-card" style={{ padding: 24, borderRadius: 16 }}>
+      <div className="summary-card" style={{ padding: 24, borderRadius: 16, marginBottom: 30 }}>
         {/* Table Header Controls */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
           <div>
@@ -2587,6 +2803,140 @@ export const LoansEmiView: React.FC = () => {
         )}
       </div>
 
+      {/* Interactive EMI Calculator Tool (Moved to the last of the page) */}
+      <div className="summary-card" style={{ padding: 26, marginBottom: 30 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
+            <Calculator size={20} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+              Interactive EMI & Loan Calculator
+            </h3>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+              Estimate monthly payments, interest vs principal breakdown & plan repayments
+            </span>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, alignItems: 'center' }}>
+          {/* Controls */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Principal */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                <span>LOAN PRINCIPAL</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{currencyService.format(calcPrincipal)}</span>
+              </div>
+              <input
+                type="range"
+                min={50000}
+                max={10000000}
+                step={25000}
+                value={calcPrincipal}
+                onChange={e => setCalcPrincipal(Number(e.target.value))}
+                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
+              />
+            </div>
+
+            {/* Interest Rate */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                <span>INTEREST RATE (% P.A.)</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcRate}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={24}
+                step={0.1}
+                value={calcRate}
+                onChange={e => setCalcRate(Number(e.target.value))}
+                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
+              />
+            </div>
+
+            {/* Tenure */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                <span>TENURE (YEARS)</span>
+                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcTenureYears} Years ({calcTenureYears * 12} Months)</span>
+              </div>
+              <input
+                type="range"
+                min={1}
+                max={30}
+                step={1}
+                value={calcTenureYears}
+                onChange={e => setCalcTenureYears(Number(e.target.value))}
+                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
+              />
+            </div>
+          </div>
+
+          {/* Calculator Output Display */}
+          <div
+            style={{
+              padding: 22,
+              borderRadius: 14,
+              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
+              border: '1px solid rgba(99, 102, 241, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14
+            }}
+          >
+            <div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                ESTIMATED MONTHLY EMI
+              </span>
+              <div style={{ fontSize: 28, fontWeight: 800, color: '#6366F1', marginTop: 4 }}>
+                {currencyService.format(calcResults.monthlyEmi)}
+                <span style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 500 }}> / month</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, paddingTop: 10, borderTop: '1px solid rgba(99, 102, 241, 0.2)' }}>
+              <div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL INTEREST</span>
+                <div style={{ fontSize: 15, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
+                  {currencyService.format(calcResults.totalInterest)}
+                </div>
+              </div>
+              <div>
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL PAYMENT</span>
+                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+                  {currencyService.format(calcResults.totalPayment)}
+                </div>
+              </div>
+            </div>
+
+            {/* Ratio Breakdown Bar */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+                <span>Principal: {calcResults.principalPct.toFixed(0)}%</span>
+                <span>Interest: {calcResults.interestPct.toFixed(0)}%</span>
+              </div>
+              <div style={{ width: '100%', height: 8, background: '#EF4444', borderRadius: 999, overflow: 'hidden', display: 'flex' }}>
+                <div style={{ width: `${calcResults.principalPct}%`, height: '100%', background: '#6366F1' }} />
+              </div>
+            </div>
+
+            {!isViewOnly && (
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
+                onClick={handleAddFromCalculator}
+              >
+                <Plus size={16} />
+                <span>Add as Tracked Loan</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Modal: Add New Loan (Requirements 2 & 8: Name, Loan Number, Lender, Due Day, Principal, EMI, Remaining, Start Date, End Date, Description, Net Worth) */}
       {isAddLoanOpen && (
         <div className="modal-overlay">
@@ -2749,6 +3099,24 @@ export const LoansEmiView: React.FC = () => {
                     required
                   />
                 </div>
+              </div>
+
+              {/* Row 4.5: Already Paid EMIs (for loans started in the past) */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  ALREADY PAID EMIs (PREVIOUS MONTHS)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="e.g. 12 (if loan started previously)"
+                  value={loanPaidMonths || ''}
+                  onChange={e => setLoanPaidMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="modal-input"
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  If you already paid past EMIs before entering this loan, enter the months count here so they are marked Paid without creating duplicate transactions.
+                </span>
               </div>
 
               {/* Row 5: Description */}
@@ -2983,6 +3351,23 @@ export const LoansEmiView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Row 4.5: Already Paid EMIs */}
+              <div>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  ALREADY PAID EMIs (MONTHS)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editPaidMonths}
+                  onChange={e => setEditPaidMonths(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="modal-input"
+                />
+                <span style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, display: 'block' }}>
+                  Total EMIs marked as paid. Adjusting this updates the schedule and remaining balance without creating extra transactions.
+                </span>
+              </div>
+
               {/* Row 5: Description */}
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
@@ -3067,38 +3452,126 @@ export const LoansEmiView: React.FC = () => {
             </div>
 
             <form onSubmit={handlePayEmiSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Payment Action: Record Transaction vs Mark Paid Only */}
               <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  EMI AMOUNT ({currencyService.getActiveCurrencyCode()})
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  PAYMENT ACTION
                 </label>
-                <input
-                  type="number"
-                  step="any"
-                  value={payEmiAmount}
-                  onChange={e => setPayEmiAmount(e.target.value)}
-                  className="modal-input"
-                  required
-                />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setRecordTransaction(true)}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: recordTransaction ? '2px solid #6366F1' : '1px solid var(--border-color)',
+                      background: recordTransaction ? 'rgba(99, 102, 241, 0.12)' : 'var(--bg-secondary)',
+                      color: recordTransaction ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: recordTransaction ? '#6366F1' : 'var(--text-primary)' }}>
+                      💳 Record Transaction
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                      Adds expense to ledger & updates loan balance
+                    </div>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setRecordTransaction(false)}
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      border: !recordTransaction ? '2px solid #10B981' : '1px solid var(--border-color)',
+                      background: !recordTransaction ? 'rgba(16, 185, 129, 0.12)' : 'var(--bg-secondary)',
+                      color: !recordTransaction ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 700, color: !recordTransaction ? '#10B981' : 'var(--text-primary)' }}>
+                      ✓ Mark Paid Only
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--text-muted)', marginTop: 2 }}>
+                      No transaction added (for past / offline EMIs)
+                    </div>
+                  </button>
+                </div>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  PAYMENT MODE
-                </label>
-                <select
-                  value={payEmiMode}
-                  onChange={e => setPayEmiMode(e.target.value)}
-                  className="modal-select"
-                >
-                  <option value="bank_transfer">Bank Auto-Debit / ECS</option>
-                  <option value="netbanking">Net Banking</option>
-                  <option value="upi">UPI / GPay</option>
-                  <option value="debit">Debit Card</option>
-                </select>
+              {/* Row: EMI Amount & Payment Date */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    EMI AMOUNT ({currencyService.getActiveCurrencyCode()}) *
+                  </label>
+                  <input
+                    type="number"
+                    step="any"
+                    value={payEmiAmount}
+                    onChange={e => setPayEmiAmount(e.target.value)}
+                    className="modal-input"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    PAYMENT DATE *
+                  </label>
+                  <input
+                    type="date"
+                    value={payEmiDate}
+                    onChange={e => setPayEmiDate(e.target.value)}
+                    className="modal-input"
+                    required
+                  />
+                </div>
               </div>
 
-              <div style={{ padding: '10px 14px', borderRadius: 8, background: 'rgba(99, 102, 241, 0.08)', border: '1px solid rgba(99, 102, 241, 0.2)', fontSize: 12, color: 'var(--text-secondary)' }}>
-                This logs an expense to your actual database transactions and marks 1 additional month paid on this loan.
+              {/* Payment Mode (only when recording transaction) */}
+              {recordTransaction && (
+                <div>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                    PAYMENT MODE
+                  </label>
+                  <select
+                    value={payEmiMode}
+                    onChange={e => setPayEmiMode(e.target.value)}
+                    className="modal-select"
+                  >
+                    <option value="bank_transfer">Bank Auto-Debit / ECS</option>
+                    <option value="netbanking">Net Banking</option>
+                    <option value="upi">UPI / GPay</option>
+                    <option value="debit">Debit Card</option>
+                  </select>
+                </div>
+              )}
+
+              <div
+                style={{
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  background: recordTransaction ? 'rgba(99, 102, 241, 0.08)' : 'rgba(16, 185, 129, 0.08)',
+                  border: recordTransaction ? '1px solid rgba(99, 102, 241, 0.2)' : '1px solid rgba(16, 185, 129, 0.25)',
+                  fontSize: 12,
+                  color: 'var(--text-secondary)'
+                }}
+              >
+                {recordTransaction ? (
+                  <span>
+                    ℹ️ This logs an expense transaction dated <strong>{payEmiDate}</strong> to your database ledger and marks the EMI as paid.
+                  </span>
+                ) : (
+                  <span>
+                    ✓ <strong>Mark Paid Only:</strong> Updates loan balance and marks the schedule month as paid. No transaction will be added to your expense records.
+                  </span>
+                )}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
@@ -3115,7 +3588,7 @@ export const LoansEmiView: React.FC = () => {
                   className="btn-primary"
                   disabled={paySaving}
                 >
-                  {paySaving ? 'Recording...' : 'Confirm EMI Payment'}
+                  {paySaving ? 'Processing...' : (recordTransaction ? 'Confirm Payment & Log Txn' : 'Mark as Paid')}
                 </button>
               </div>
             </form>
