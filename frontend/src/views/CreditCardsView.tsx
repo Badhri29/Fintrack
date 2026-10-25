@@ -188,6 +188,7 @@ export const CreditCardsView: React.FC = () => {
   const [cardToAccLast4, setCardToAccLast4] = useState<string>('');
   const [cardToAccExpiry, setCardToAccExpiry] = useState<string>('');
   const [cardToAccLimit, setCardToAccLimit] = useState<string>('');
+  const [selectExistingCreditCardId, setSelectExistingCreditCardId] = useState<string>('');
   const [newBankName, setNewBankName] = useState<string>('');
   const [newAccountType, setNewAccountType] = useState<'Savings' | 'Current' | 'Salary'>('Savings');
   const [newAccountNumberLast4, setNewAccountNumberLast4] = useState<string>('');
@@ -620,7 +621,18 @@ export const CreditCardsView: React.FC = () => {
   const doesTxMatchCard = (t: any, card: CardModel): boolean => {
     const tCard = String(t.card || '').toLowerCase().trim();
     const cName = card.name.toLowerCase().trim();
+    const cLast4 = card.last4 ? card.last4.trim() : '';
 
+    // If card is an Add-on card, strictly match only transactions specifically tagged with this add-on card
+    if (card.isAddon) {
+      if (tCard && (tCard === cName || (cLast4 && tCard.includes(cLast4)))) return true;
+      const tDesc = String(t.description || '').toLowerCase();
+      if (tDesc.includes(cName) || (cLast4 && tDesc.includes(cLast4))) return true;
+      if (card.holderName && tDesc.includes(card.holderName.toLowerCase().trim())) return true;
+      return false;
+    }
+
+    // For Primary cards: exact card name or last 4 match
     if (tCard && (tCard === cName || tCard.includes(cName) || cName.includes(tCard))) {
       return true;
     }
@@ -628,16 +640,17 @@ export const CreditCardsView: React.FC = () => {
     const tDesc = String(t.description || '').toLowerCase();
     if (tDesc.includes(cName)) return true;
 
-    // Specific bank/brand matching
+    // Specific bank/brand matching (only for primary cards)
     if (card.name.includes('Regalia') && (tCard.includes('regalia') || tDesc.includes('regalia'))) return true;
     if (card.name.includes('Amazon') && (tCard.includes('amazon') || tDesc.includes('amazon'))) return true;
     if (card.name.includes('Cashback') && (tCard.includes('sbi') || tDesc.includes('sbi'))) return true;
     if (card.name.includes('Magnus') && (tCard.includes('magnus') || tDesc.includes('magnus'))) return true;
 
-    // Fallback: If payment mode is credit and no card specified, attribute to first card
+    // Fallback: If payment mode is credit and no card specified, attribute to first primary card
     const pm = String(t.paymentMode || '').toLowerCase().trim();
     const isCreditMode = pm === 'credit' || pm === 'credit card' || pm === 'card';
-    if (isCreditMode && !tCard && card.id === cards[0]?.id) {
+    const firstPrimary = cards.find(c => !c.isAddon);
+    if (isCreditMode && !tCard && firstPrimary && card.id === firstPrimary.id) {
       return true;
     }
 
@@ -777,7 +790,7 @@ export const CreditCardsView: React.FC = () => {
       };
     });
 
-    allCreditTransactions.forEach(t => {
+    yearCreditTransactions.forEach(t => {
       const amt = Number(t.amount) || 0;
       const isPayment = isBillPaymentTx(t);
 
@@ -792,11 +805,11 @@ export const CreditCardsView: React.FC = () => {
       });
     });
 
+    // First pass: compute primary card metrics
     cards.forEach(c => {
       const p = map[c.name].purchases;
       const pay = map[c.name].payments;
       const loanBlocked = map[c.name].blockedLoanPrincipal || 0;
-      // Net outstanding on card includes general purchases minus payments plus any loan principal blocked against card limit
       const net = Math.max(0, p + loanBlocked - pay);
       const avail = Math.max(0, c.limit - net);
       const util = c.limit > 0 ? (net / c.limit) * 100 : 0;
@@ -806,8 +819,24 @@ export const CreditCardsView: React.FC = () => {
       map[c.name].util = util;
     });
 
+    // Second pass: Add-on cards inherit parent card's shared available limit and credit limit, but keep their own 0% or independent usage!
+    cards.forEach(c => {
+      if (c.isAddon && c.primaryCardId) {
+        const parent = cards.find(p => p.id === c.primaryCardId);
+        if (parent && map[parent.name]) {
+          const parentAvail = map[parent.name].avail;
+          const parentLimit = parent.limit;
+          map[c.name].avail = parentAvail;
+          c.limit = parentLimit;
+          // Util on add-on card represents only its own direct purchases against shared limit
+          const ownPurchases = map[c.name].purchases;
+          map[c.name].util = parentLimit > 0 ? (ownPurchases / parentLimit) * 100 : 0;
+        }
+      }
+    });
+
     return map;
-  }, [allCreditTransactions, cards, allLoans]);
+  }, [yearCreditTransactions, cards, allLoans]);
 
   // Aggregate Metrics Across Cards (Add-on cards share primary limit; no duplicate limit added)
   const totalCreditLimit = useMemo(() => {
@@ -1119,6 +1148,7 @@ export const CreditCardsView: React.FC = () => {
   const handleOpenAddCardToAcc = (accountId: string, type: 'debit' | 'credit') => {
     const acc = bankAccounts.find(a => a.id === accountId);
     setCardToAccTarget({ accountId, type });
+    setSelectExistingCreditCardId('');
     setCardToAccName(acc ? `${acc.bankName} ${type === 'debit' ? 'Debit' : 'Credit'} Card` : '');
     setCardToAccLast4('');
     setCardToAccExpiry('12/28');
@@ -2284,14 +2314,16 @@ export const CreditCardsView: React.FC = () => {
                   }}
                   style={{
                     background: c.gradient,
-                    padding: '24px 26px 18px',
+                    padding: '22px 24px 16px',
                     color: '#FFFFFF',
                     position: 'relative',
                     cursor: 'pointer',
                     display: 'flex',
                     flexDirection: 'column',
                     justifyContent: 'space-between',
-                    minHeight: 215
+                    minHeight: 228,
+                    height: '100%',
+                    boxSizing: 'border-box'
                   }}
                 >
                   {/* Decorative circles */}
@@ -2386,21 +2418,23 @@ export const CreditCardsView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Chip and Contactless Icon */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '14px 0 10px' }}>
-                    <div style={{ width: 34, height: 26, borderRadius: 5, background: 'linear-gradient(135deg, #FDE68A 0%, #D97706 100%)', border: '1px solid #B45309', position: 'relative', overflow: 'hidden' }}>
-                      <div style={{ position: 'absolute', top: 6, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
-                      <div style={{ position: 'absolute', top: 12, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
-                      <div style={{ position: 'absolute', top: 18, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                  {/* Chip, Contactless Icon and 16-Digit Number aligned side-by-side */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, margin: '14px 0 8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div style={{ width: 34, height: 26, borderRadius: 5, background: 'linear-gradient(135deg, #FDE68A 0%, #D97706 100%)', border: '1px solid #B45309', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+                        <div style={{ position: 'absolute', top: 6, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                        <div style={{ position: 'absolute', top: 12, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                        <div style={{ position: 'absolute', top: 18, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                      </div>
+                      <div style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.75)' }}>
+                        <span style={{ transform: 'rotate(90deg)', display: 'inline-block' }}>)))</span>
+                      </div>
                     </div>
-                    <div style={{ fontSize: 14, color: 'rgba(255, 255, 255, 0.7)' }}>
-                      <span style={{ transform: 'rotate(90deg)', display: 'inline-block' }}>)))</span>
-                    </div>
-                  </div>
 
-                  {/* Card Number */}
-                  <div style={{ fontSize: 16, letterSpacing: '0.2em', fontFamily: 'monospace', fontWeight: 700, color: '#FFF', textShadow: '0 2px 4px rgba(0,0,0,0.4)' }}>
-                    {displayedNumber}
+                    {/* 16-Digit Card Number right next to SIM Chip */}
+                    <div style={{ fontSize: 15, letterSpacing: '0.14em', fontFamily: 'monospace', fontWeight: 700, color: '#FFF', textShadow: '0 2px 4px rgba(0,0,0,0.5)', whiteSpace: 'nowrap' }}>
+                      {displayedNumber}
+                    </div>
                   </div>
 
                   {/* Cardholder, Expiry & CVV */}
@@ -2468,15 +2502,17 @@ export const CreditCardsView: React.FC = () => {
                     </div>
 
                     {/* Card Due Day, Bill Day & Expand Trigger */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, minHeight: 38 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'center' }}>
                         <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.75)' }}>
                           Bill day: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
                         </span>
-                        {cardStats.activeLoanEmis > 0 && (
-                          <span style={{ fontSize: 10, fontWeight: 700, color: '#38BDF8', background: 'rgba(56, 189, 248, 0.2)', padding: '2px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}>
+                        {cardStats.activeLoanEmis > 0 ? (
+                          <span style={{ fontSize: 10, fontWeight: 800, color: '#38BDF8', background: 'rgba(56, 189, 248, 0.22)', border: '1px solid rgba(56, 189, 248, 0.45)', padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}>
                             💳 Loan EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
                           </span>
+                        ) : (
+                          <span style={{ height: 18 }} />
                         )}
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -2560,9 +2596,16 @@ export const CreditCardsView: React.FC = () => {
                         </div>
 
                         {cardCatData.categories.length === 0 ? (
-                          <div style={{ padding: '8px 0', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 11 }}>
-                            No spending recorded on this card for the selected period.
-                          </div>
+                          c.isAddon ? (
+                            <div style={{ padding: '12px 14px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.25)', fontSize: 11, color: 'var(--text-secondary)' }}>
+                              <div style={{ fontWeight: 800, color: '#818CF8', marginBottom: 3 }}>🔗 Independent Add-on Card Activity</div>
+                              <div>No direct spending recorded on this add-on card. Transactions from the parent card do not mix here — only purchases made with this add-on card appear in its breakdown.</div>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '8px 0', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 11 }}>
+                              No spending recorded on this card for the selected period.
+                            </div>
+                          )
                         ) : (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {cardCatData.categories.map(cat => (
@@ -2600,31 +2643,15 @@ export const CreditCardsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Chain Reaction Linked Add-on Cards Block (Requirement 4) */}
+              {/* Simplified Linked Add-on Card Indicator */}
               {linkedAddons.length > 0 && (
-                <div style={{ padding: '10px 14px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: 12, border: '1px dashed rgba(99, 102, 241, 0.35)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 800, color: '#818CF8', letterSpacing: '0.04em' }}>
-                    <span>🔗 CHAIN REACTION • {linkedAddons.length} ADD-ON CARD{linkedAddons.length > 1 ? 'S' : ''} LINKED</span>
+                <div style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: '#818CF8' }}>
+                    <span>🔗 {linkedAddons.length} Add-on Card{linkedAddons.length > 1 ? 's' : ''} Linked</span>
                   </div>
-                  {linkedAddons.map(addon => (
-                    <div key={addon.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: 12 }}>
-                      <div>
-                        <div style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                          {addon.name} <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace' }}>•••• {addon.last4}</span>
-                        </div>
-                        {addon.holderName && (
-                          <div style={{ fontSize: 11, color: '#818CF8', marginTop: 2 }}>
-                            Cardholder: <strong>{addon.holderName}</strong>
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#10B981', background: 'rgba(16, 185, 129, 0.12)', padding: '2px 8px', borderRadius: 4 }}>
-                          Shared Limit
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                  <span style={{ fontSize: 10.5, fontWeight: 800, color: '#10B981', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 8px', borderRadius: 4 }}>
+                    Shared Limit
+                  </span>
                 </div>
               )}
               </div>
@@ -4314,6 +4341,36 @@ export const CreditCardsView: React.FC = () => {
             </div>
 
             <form onSubmit={handleSaveCardToAcc} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {cardToAccTarget.type === 'credit' && cards.length > 0 && (
+                <div style={{ padding: '10px 12px', background: 'rgba(168, 85, 247, 0.1)', borderRadius: 10, border: '1px solid rgba(168, 85, 247, 0.3)' }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#C084FC', marginBottom: 5 }}>
+                    SELECT FROM EXISTING CREDIT CARDS (QUICK LINK)
+                  </label>
+                  <select
+                    value={selectExistingCreditCardId}
+                    onChange={e => {
+                      const id = e.target.value;
+                      setSelectExistingCreditCardId(id);
+                      const chosen = cards.find(c => c.id === id);
+                      if (chosen) {
+                        setCardToAccName(chosen.name + (chosen.isAddon ? ' (Add-on)' : ''));
+                        setCardToAccLast4(chosen.last4);
+                        setCardToAccLimit(String(chosen.limit));
+                      }
+                    }}
+                    className="modal-select"
+                    style={{ fontSize: 12.5 }}
+                  >
+                    <option value="">-- Choose an existing card or enter new --</option>
+                    {cards.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.bank} •••• {c.last4}) {c.isAddon ? '• [Add-on Card]' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   CARD NAME *
