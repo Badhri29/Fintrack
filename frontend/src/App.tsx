@@ -4,6 +4,8 @@ import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './views/DashboardView';
 import { BudgetTransactionsView } from './views/BudgetTransactionsView';
+import { CalendarView } from './views/CalendarView';
+import { AccountsView } from './views/AccountsView';
 import { CreditCardsView } from './views/CreditCardsView';
 import { LoansEmiView } from './views/LoansEmiView';
 import { SettingsView } from './views/SettingsView';
@@ -307,8 +309,19 @@ function AppContent() {
         />
       )}
 
+      {activeTab === 'Calendar' && (
+        <CalendarView
+          key={refreshKey}
+          onOpenNewTransaction={openTransactionModal}
+        />
+      )}
+
       {activeTab === 'Credit Cards' && (
         <CreditCardsView key={refreshKey} />
+      )}
+
+      {activeTab === 'Accounts' && (
+        <AccountsView key={refreshKey} />
       )}
 
       {activeTab === 'Loans & EMI' && (

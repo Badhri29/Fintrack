@@ -426,6 +426,44 @@ public class EmailService {
         return sendHtmlEmail(toEmail, subject, html);
     }
 
+    public boolean sendCreditCardDueReminderEmail(String toEmail, String name, String cardName, String bank, int dueDay, double dueAmount, int daysRemaining) {
+        String urgency = daysRemaining == 0 ? "DUE TODAY" : (daysRemaining == 1 ? "Due Tomorrow" : "Due in " + daysRemaining + " Days");
+        String subject = "FinTrack Alert: Credit Card Bill for " + cardName + " is " + urgency + " (Rs. " + String.format("%.2f", dueAmount) + ")";
+        String html = "<!DOCTYPE html><html><body style='margin:0;padding:24px;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#1E293B;'>"
+                + "<div style='max-width:540px;margin:0 auto;background:#FFFFFF;border-radius:16px;border:1px solid #E2E8F0;box-shadow:0 8px 24px rgba(0,0,0,0.05);overflow:hidden;'>"
+                + "  <div style='background:linear-gradient(135deg,#DC2626 0%,#EA580C 100%);padding:28px 32px;color:#FFFFFF;'>"
+                + "    <div style='font-size:11px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:#FED7AA;'>FinTrack Card Alert</div>"
+                + "    <h2 style='margin:8px 0 0;font-size:22px;font-weight:800;color:#FFFFFF;'>Credit Card Payment Reminder</h2>"
+                + "    <p style='margin:4px 0 0;font-size:13px;color:#FFEDD5;'>Timely bill payment preserves your credit score and avoids finance charges</p>"
+                + "  </div>"
+                + "  <div style='padding:28px 32px;'>"
+                + "    <p style='font-size:15px;margin:0 0 14px;color:#334155;'>Hello <strong>" + (name != null ? name : "User") + "</strong>,</p>"
+                + "    <p style='font-size:14px;line-height:1.6;color:#64748B;margin:0 0 20px;'>Your credit card statement balance has an upcoming payment due date:</p>"
+                + "    <div style='background:#FFF1F2;border:1px solid #FECDD3;border-radius:12px;padding:20px;margin-bottom:20px;'>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #FFE4E6;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Card Name</span>"
+                + "        <strong style='font-size:14px;color:#1E293B;'>" + cardName + "</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #FFE4E6;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Issuing Bank</span>"
+                + "        <strong style='font-size:14px;color:#1E293B;'>" + (bank != null ? bank : "Bank") + "</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;margin-bottom:12px;border-bottom:1px solid #FFE4E6;padding-bottom:10px;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Payment Due Date</span>"
+                + "        <strong style='font-size:14px;color:#DC2626;'>" + dueDay + "th of this month (" + urgency + ")</strong>"
+                + "      </div>"
+                + "      <div style='display:flex;justify-content:space-between;'>"
+                + "        <span style='font-size:13px;color:#64748B;'>Total Bill Due Amount</span>"
+                + "        <strong style='font-size:18px;color:#B91C1C;'>Rs. " + String.format("%.2f", dueAmount) + "</strong>"
+                + "      </div>"
+                + "    </div>"
+                + "    <p style='font-size:13px;color:#64748B;line-height:1.6;margin:0 0 20px;'>Log in to FinTrack or use your net banking app to settle the balance before the due date.</p>"
+                + "    <div style='border-top:1px solid #E2E8F0;padding-top:16px;margin-top:20px;font-size:11px;color:#94A3B8;text-align:center;'>FinTrack Automated Notifications Desk &bull; fintracktool@gmail.com</div>"
+                + "  </div>"
+                + "</div></body></html>";
+        return sendHtmlEmail(toEmail, subject, html);
+    }
+
     private String buildOtpHtml(String email, String otpCode, String purpose) {
         return "<!DOCTYPE html><html>"
                 + "<head><meta charset='UTF-8'></head>"

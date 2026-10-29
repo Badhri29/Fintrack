@@ -11,6 +11,8 @@ import {
   PiggyBank,
   CreditCard,
   Coins,
+  Calendar,
+  Landmark,
   Settings,
   Clock,
   ShieldCheck,
@@ -32,16 +34,19 @@ interface NavbarProps {
 }
 
 interface NotificationItem {
-  id: number;
+  id: number | string;
   color: string;
   title: string;
   time: string;
+  type?: 'due' | 'tx';
 }
 
 const TABS = [
   'Dashboard',
   'Budget & Transactions',
+  'Calendar',
   'Credit Cards',
+  'Accounts',
   'Loans & EMI',
   'Access',
   'Settings'
@@ -50,7 +55,9 @@ const TABS = [
 const TAB_ICONS: Record<string, React.FC<any>> = {
   'Dashboard': LayoutDashboard,
   'Budget & Transactions': PiggyBank,
+  'Calendar': Calendar,
   'Credit Cards': CreditCard,
+  'Accounts': Landmark,
   'Loans & EMI': Coins,
   'Access': Users,
   'Settings': Settings
@@ -62,6 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
   const visibleTabs = TABS.filter(t => !((t === 'Access' || t === 'Settings') && isMember));
   const [showNotifications, setShowNotifications] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifTab, setNotifTab] = useState<'all' | 'dues' | 'transactions'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
 
@@ -102,9 +110,13 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
 
   const fetchUserData = async () => {
     try {
-      // 1. Calculate Credit Card Bill Due Alerts & Loan EMI Due Alerts
+      // Fetch all transactions first to accurately calculate dues
+      const res = await api.get('/transactions');
+      const allTx: any[] = (res.data && res.data.success && Array.isArray(res.data.data)) ? res.data.data : [];
+
       const dueAlerts: NotificationItem[] = [];
       const today = new Date().getDate();
+      const currentMonth = new Date().getMonth();
 
       let ccDaysBefore = 3;
       let emiDaysBefore = 3;
@@ -122,19 +134,47 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         }
       } catch {}
 
-      // Check Credit Cards
+      // Check Credit Cards: ONLY notify if due amount > 0!
       if (ccAlertEnabled) {
         try {
           const cards = cardService.getCards(user?.email);
           cards.forEach((card, idx) => {
             const diff = card.dueDay - today;
             if (diff >= 0 && diff <= ccDaysBefore) {
+              // Calculate actual net due for this card
+              const cardTx = allTx.filter((t: any) => {
+                const mode = (t.paymentMode || '').toLowerCase();
+                const cardMatch = (t.card || '').toLowerCase();
+                const descMatch = (t.description || '').toLowerCase();
+                const cName = card.name.toLowerCase();
+                return mode.includes(cName) || cardMatch.includes(cName) || descMatch.includes(cName);
+              });
+
+              let spend = 0;
+              let paid = 0;
+              cardTx.forEach((t: any) => {
+                const amt = Number(t.amount) || 0;
+                const cat = (t.category || '').toLowerCase();
+                const desc = (t.description || '').toLowerCase();
+                if (cat.includes('credit card bill') || desc.includes('bill payment')) {
+                  paid += amt;
+                } else if (t.type !== 'income') {
+                  spend += amt;
+                }
+              });
+
+              const netDue = Math.max(0, spend - paid);
+
+              // REQUIREMENT: If due amount is 0, DO NOT notify!
+              if (netDue <= 0) return;
+
               const label = diff === 0 ? 'DUE TODAY' : `Due in ${diff} day${diff > 1 ? 's' : ''}`;
               dueAlerts.push({
                 id: 9000 + idx,
                 color: diff === 0 ? '#EF4444' : '#F59E0B',
-                title: `Card Due: ${card.name} (${card.bank}) ${label} on ${card.dueDay}th`,
-                time: label
+                title: `Card Due: ${card.name} (${card.bank}) ${label} on ${card.dueDay}th • Due: ${currencyService.format(netDue)}`,
+                time: label,
+                type: 'due'
               });
 
               // Trigger floating toast and chime once per session
@@ -144,9 +184,22 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                 showToast({
                   type: diff === 0 ? 'error' : 'warning',
                   title: 'Credit Card Bill Due Alert',
-                  message: `${card.name} bill is ${label.toLowerCase()} (${card.dueDay}th of this month).`
+                  message: `${card.name} bill (${currencyService.format(netDue)}) is ${label.toLowerCase()} (${card.dueDay}th of this month).`
                 });
                 playNotificationChime();
+              }
+
+              // Send email notification for credit card due (once per day/month)
+              const emailSentKey = `email_due_sent_card_${card.id}_${today}_${currentMonth}`;
+              if (!localStorage.getItem(emailSentKey)) {
+                localStorage.setItem(emailSentKey, 'true');
+                api.post('/notifications/card-due-alert', {
+                  cardName: card.name,
+                  bank: card.bank,
+                  dueDay: card.dueDay,
+                  dueAmount: netDue,
+                  daysRemaining: diff
+                }).catch(() => {});
               }
             }
           });
@@ -169,7 +222,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                     id: 8000 + idx,
                     color: diff === 0 ? '#EF4444' : '#F59E0B',
                     title: `EMI Due: ${loan.name} ${label} on ${dueDay}th`,
-                    time: label
+                    time: label,
+                    type: 'due'
                   });
 
                   // Trigger floating toast and chime once per session
@@ -183,6 +237,20 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                     });
                     playNotificationChime();
                   }
+
+                  // Send email notification for loan EMI
+                  const loanEmailKey = `email_due_sent_loan_${loan.id || idx}_${today}_${currentMonth}`;
+                  if (!localStorage.getItem(loanEmailKey)) {
+                    localStorage.setItem(loanEmailKey, 'true');
+                    api.post('/notifications/loan-due-alert', {
+                      loanName: loan.name,
+                      lender: loan.lender,
+                      loanNumber: loan.accountNumber || '',
+                      emiAmount: Number(loan.emi) || 0,
+                      dueDay: dueDay,
+                      remainingAmount: Number(loan.remaining) || 0
+                    }).catch(() => {});
+                  }
                 }
               });
             }
@@ -190,11 +258,10 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         } catch {}
       }
 
-      const res = await api.get('/transactions');
+      // Map transactions (up to 40 entries for rich scroll history!)
       let txItems: NotificationItem[] = [];
-      if (res.data && res.data.success && Array.isArray(res.data.data)) {
-        const txs = res.data.data;
-        txItems = txs.slice(0, 5).map((t: any, index: number) => {
+      if (allTx.length > 0) {
+        txItems = allTx.slice(0, 40).map((t: any, index: number) => {
           let color = '#3B82F6';
           if (t.type === 'income') color = '#10B981';
           else if (t.type === 'expense') color = '#EF4444';
@@ -207,7 +274,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             id: t.id || index,
             color,
             title: `${t.type ? t.type.toUpperCase() : 'ENTRY'}: ${formattedAmt} — ${cat}`,
-            time: t.date ? new Date(t.date).toLocaleDateString() : 'Recent'
+            time: t.date ? new Date(t.date).toLocaleDateString() : 'Recent',
+            type: 'tx'
           };
         });
       }
@@ -219,7 +287,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             id: 1,
             color: '#3B82F6',
             title: 'No pending dues or recent transactions.',
-            time: 'Synced'
+            time: 'Synced',
+            type: 'tx'
           }
         ]);
       } else {
@@ -231,7 +300,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
           id: 1,
           color: '#10B981',
           title: 'FinTrack System Active & Synced.',
-          time: 'Online'
+          time: 'Online',
+          type: 'tx'
         }
       ]);
     }
@@ -446,11 +516,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                 position: 'absolute',
                 top: 'calc(100% + 10px)',
                 right: 0,
-                width: 330,
-                background: '#131824', // SOLID background eliminates transparent mirror effect!
+                width: 380,
+                background: '#131824',
                 border: '1px solid #2A364F',
-                borderRadius: 12,
-                boxShadow: '0 16px 36px rgba(0,0,0,0.7)',
+                borderRadius: 14,
+                boxShadow: '0 16px 40px rgba(0,0,0,0.8)',
                 padding: 16,
                 zIndex: 1000,
                 display: 'flex',
@@ -458,50 +528,93 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                 gap: 12
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1E2638', paddingBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #1E2638', paddingBottom: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#F8FAFC' }}>
-                  Notifications
+                  Notifications &amp; Activity
                 </span>
-                <span style={{ fontSize: 11, color: '#60A5FA', fontWeight: 600 }}>
-                  Live Data
+                <span style={{ fontSize: 11, color: '#60A5FA', fontWeight: 700, background: 'rgba(59, 130, 246, 0.15)', padding: '2px 8px', borderRadius: 6 }}>
+                  {notifications.length} Total
                 </span>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 260, overflowY: 'auto' }}>
-                {notifications.map(item => (
-                  <div
-                    key={item.id}
+              {/* Filter Tabs */}
+              <div style={{ display: 'flex', gap: 6 }}>
+                {[
+                  { id: 'all', label: `All (${notifications.length})` },
+                  { id: 'dues', label: `Dues (${notifications.filter(n => n.type === 'due').length})` },
+                  { id: 'transactions', label: `Transactions (${notifications.filter(n => n.type === 'tx').length})` }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setNotifTab(tab.id as any)}
                     style={{
-                      display: 'flex',
-                      gap: 10,
-                      alignItems: 'flex-start',
-                      fontSize: 12,
-                      background: 'rgba(255, 255, 255, 0.03)',
-                      padding: '8px 10px',
-                      borderRadius: 8,
-                      border: '1px solid rgba(255, 255, 255, 0.05)'
+                      padding: '4px 10px',
+                      borderRadius: 6,
+                      border: notifTab === tab.id ? '1px solid #3B82F6' : '1px solid #2A364F',
+                      background: notifTab === tab.id ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
+                      color: notifTab === tab.id ? '#60A5FA' : '#94A3B8',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: 'pointer'
                     }}
                   >
-                    <span
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Scrollable Container with Custom Scrollbar */}
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 8,
+                  maxHeight: 380,
+                  overflowY: 'auto',
+                  paddingRight: 4
+                }}
+              >
+                {notifications
+                  .filter(n => {
+                    if (notifTab === 'dues') return n.type === 'due';
+                    if (notifTab === 'transactions') return n.type === 'tx';
+                    return true;
+                  })
+                  .map(item => (
+                    <div
+                      key={item.id}
                       style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: '50%',
-                        background: item.color,
-                        marginTop: 4,
-                        flexShrink: 0
+                        display: 'flex',
+                        gap: 10,
+                        alignItems: 'flex-start',
+                        fontSize: 12,
+                        background: item.type === 'due' ? 'rgba(239, 68, 68, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: item.type === 'due' ? '1px solid rgba(239, 68, 68, 0.25)' : '1px solid rgba(255, 255, 255, 0.06)'
                       }}
-                    />
-                    <div>
-                      <div style={{ color: '#F8FAFC', fontWeight: 600 }}>
-                        {item.title}
-                      </div>
-                      <div style={{ color: '#94A3B8', fontSize: 11, marginTop: 2 }}>
-                        {item.time}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: '50%',
+                          background: item.color,
+                          marginTop: 4,
+                          flexShrink: 0
+                        }}
+                      />
+                      <div style={{ flexGrow: 1 }}>
+                        <div style={{ color: '#F8FAFC', fontWeight: 600, lineHeight: 1.4 }}>
+                          {item.title}
+                        </div>
+                        <div style={{ color: '#94A3B8', fontSize: 11, marginTop: 4 }}>
+                          {item.time}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </div>
           )}
