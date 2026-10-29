@@ -19,6 +19,8 @@ com\networth\repository\DefaultSubCategoryRepository.class
 com\networth\repository\SystemSettingRepository.class
 com\networth\repository\WorkspaceMemberRepository.class
 com\networth\entity\Asset.class
+com\networth\service\ScheduledReportService.class
+com\networth\controller\ReportController.class
 com\networth\repository\OtpVerificationRepository.class
 com\networth\entity\Category.class
 com\networth\entity\AccessRequest$AccessRequestBuilder.class

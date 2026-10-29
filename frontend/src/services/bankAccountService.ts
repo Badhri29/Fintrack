@@ -33,6 +33,12 @@ export interface BankAccountModel {
   debitCardLast4?: string;
 }
 
+export interface CashWalletModel {
+  balance: number;
+  lastUpdated: string;
+  notes?: string;
+}
+
 const DEFAULT_ACCOUNTS: BankAccountModel[] = [
   {
     id: 'acc-1',
@@ -75,6 +81,11 @@ const getStorageKey = (email?: string): string => {
   return `fintrack_bank_accounts_${userEmail}`;
 };
 
+const getCashStorageKey = (email?: string): string => {
+  const userEmail = getActiveUserEmail(email);
+  return `fintrack_cash_wallet_${userEmail}`;
+};
+
 export const bankAccountService = {
   getAccounts(email?: string): BankAccountModel[] {
     const userEmail = getActiveUserEmail(email);
@@ -95,6 +106,7 @@ export const bankAccountService = {
             }
             return {
               ...acc,
+              balance: typeof acc.balance === 'number' ? acc.balance : 0,
               debitCards,
               creditCards: acc.creditCards || []
             };
@@ -135,6 +147,7 @@ export const bankAccountService = {
     const newAcc: BankAccountModel = {
       ...data,
       id: `acc-${Date.now()}`,
+      balance: typeof data.balance === 'number' ? data.balance : 0,
       debitCards,
       creditCards: data.creditCards || []
     };
@@ -152,6 +165,7 @@ export const bankAccountService = {
     const updatedAcc: BankAccountModel = {
       ...existing,
       ...updates,
+      balance: updates.balance !== undefined ? updates.balance : existing.balance,
       debitCards: updates.debitCards !== undefined ? updates.debitCards : existing.debitCards,
       creditCards: updates.creditCards !== undefined ? updates.creditCards : existing.creditCards
     };
@@ -159,6 +173,10 @@ export const bankAccountService = {
     current[index] = updatedAcc;
     this.saveAccounts(current, email);
     return updatedAcc;
+  },
+
+  updateAccountBalance(id: string, newBalance: number, email?: string): BankAccountModel | null {
+    return this.updateAccount(id, { balance: Number(newBalance) || 0 }, email);
   },
 
   deleteAccount(id: string, email?: string): boolean {
@@ -212,8 +230,47 @@ export const bankAccountService = {
     return this.updateAccount(accountId, { creditCards }, email);
   },
 
+  // =========================================================================
+  // CASH IN HAND & WALLET MANAGEMENT (Requirement: Cash Option)
+  // =========================================================================
+  getCashBalance(email?: string): CashWalletModel {
+    const userEmail = getActiveUserEmail(email);
+    try {
+      const stored = localStorage.getItem(getCashStorageKey(userEmail));
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (typeof parsed.balance === 'number') {
+          return parsed;
+        }
+      }
+    } catch (err) {
+      console.error('Error reading cash balance:', err);
+    }
+
+    if (userEmail === 'demo@fintrack.io') {
+      return { balance: 15000, lastUpdated: new Date().toISOString(), notes: 'Demo Cash Reserve' };
+    }
+    return { balance: 0, lastUpdated: new Date().toISOString(), notes: 'Cash in Hand' };
+  },
+
+  updateCashBalance(newBalance: number, notes?: string, email?: string): CashWalletModel {
+    const userEmail = getActiveUserEmail(email);
+    const model: CashWalletModel = {
+      balance: Math.max(0, Number(newBalance) || 0),
+      lastUpdated: new Date().toISOString(),
+      notes: notes || 'Updated cash balance'
+    };
+    try {
+      localStorage.setItem(getCashStorageKey(userEmail), JSON.stringify(model));
+      window.dispatchEvent(new CustomEvent('fintrack-cash-updated', { detail: model }));
+    } catch (err) {
+      console.error('Error saving cash balance:', err);
+    }
+    return model;
+  },
+
   /**
-   * Returns formatted dynamic payment modes including all custom Bank Accounts, Debit Cards & Bank Credit Cards
+   * Returns formatted dynamic payment modes including all custom Bank Accounts, Debit Cards, Cash & Bank Credit Cards
    */
   getPaymentModeOptions(email?: string): { value: string; label: string; group?: string }[] {
     const accounts = this.getAccounts(email);
@@ -221,7 +278,7 @@ export const bankAccountService = {
       { value: 'upi', label: '📱 UPI / GPay / PhonePe', group: 'Standard' },
       { value: 'credit', label: '💳 Credit Card', group: 'Standard' },
       { value: 'netbanking', label: '🌐 Net Banking / NEFT', group: 'Standard' },
-      { value: 'cash', label: '💵 Cash', group: 'Standard' }
+      { value: 'cash', label: '💵 Cash in Hand', group: 'Standard' }
     ];
 
     if (accounts.length > 0) {

@@ -205,6 +205,22 @@ export const CreditCardsView: React.FC = () => {
   }, [user]);
   const [allLoans, setAllLoans] = useState<LoanModel[]>(() => loanService.getLoans(user?.email));
 
+  // Utilization calculation toggle: Card Only vs Card + Linked Loans & EMI
+  const [includeLoansInUtilization, setIncludeLoansInUtilization] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('fintrack_util_with_loans_' + (user?.email || '')) === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleLoansUtilization = (withLoans: boolean) => {
+    setIncludeLoansInUtilization(withLoans);
+    try {
+      localStorage.setItem('fintrack_util_with_loans_' + (user?.email || ''), String(withLoans));
+    } catch {}
+  };
+
   useEffect(() => {
     const handleLoansChanged = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
@@ -809,7 +825,7 @@ export const CreditCardsView: React.FC = () => {
     cards.forEach(c => {
       const p = map[c.name].purchases;
       const pay = map[c.name].payments;
-      const loanBlocked = map[c.name].blockedLoanPrincipal || 0;
+      const loanBlocked = includeLoansInUtilization ? (map[c.name].blockedLoanPrincipal || 0) : 0;
       const net = Math.max(0, p + loanBlocked - pay);
       const avail = Math.max(0, c.limit - net);
       const util = c.limit > 0 ? (net / c.limit) * 100 : 0;
@@ -836,7 +852,7 @@ export const CreditCardsView: React.FC = () => {
     });
 
     return map;
-  }, [yearCreditTransactions, cards, allLoans]);
+  }, [yearCreditTransactions, cards, allLoans, includeLoansInUtilization]);
 
   // Aggregate Metrics Across Cards (Add-on cards share primary limit; no duplicate limit added)
   const totalCreditLimit = useMemo(() => {
@@ -1746,6 +1762,82 @@ export const CreditCardsView: React.FC = () => {
         </div>
       )}
 
+      {/* Credit Utilization Toggle Bar (Requirement: Toggle between Card Only vs With Loans/EMI) */}
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '12px 18px',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 14,
+          marginBottom: 20
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <CreditCard size={18} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+              Credit Utilization &amp; Outstanding Calculation Mode
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              {includeLoansInUtilization
+                ? 'Active Mode: Including direct card spend + active linked Loan EMIs & principal'
+                : 'Active Mode: Pure direct credit card transactions only (excluding linked loans)'}
+            </div>
+          </div>
+        </div>
+
+        {/* Segmented Toggle Button */}
+        <div style={{ display: 'inline-flex', background: 'rgba(255, 255, 255, 0.05)', padding: 3, borderRadius: 10, border: '1px solid var(--border-color)' }}>
+          <button
+            type="button"
+            onClick={() => handleToggleLoansUtilization(false)}
+            style={{
+              padding: '7px 15px',
+              borderRadius: 8,
+              border: 'none',
+              background: !includeLoansInUtilization ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)' : 'transparent',
+              color: !includeLoansInUtilization ? '#FFF' : 'var(--text-secondary)',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.2s'
+            }}
+          >
+            <span>💳 Only Credit Card Transactions</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleToggleLoansUtilization(true)}
+            style={{
+              padding: '7px 15px',
+              borderRadius: 8,
+              border: 'none',
+              background: includeLoansInUtilization ? 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)' : 'transparent',
+              color: includeLoansInUtilization ? '#FFF' : 'var(--text-secondary)',
+              fontWeight: 700,
+              fontSize: 12,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              transition: 'all 0.2s'
+            }}
+          >
+            <span>🏦 With Credit Card Loan &amp; EMI</span>
+          </button>
+        </div>
+      </div>
+
       {/* 3. KPI Overview Cards */}
       <div className="kpi-grid" style={{ marginBottom: 24 }}>
         {/* Total Credit Limit */}
@@ -1826,8 +1918,11 @@ export const CreditCardsView: React.FC = () => {
               }}
             />
           </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-            Recommended: Keep utilization below 30%
+<div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Recommended: &lt;30%</span>
+            <span style={{ color: includeLoansInUtilization ? '#A78BFA' : '#60A5FA', fontWeight: 700 }}>
+              {includeLoansInUtilization ? '• Mode: With Loans & EMI' : '• Mode: Card Only'}
+            </span>
           </div>
         </div>
       </div>
