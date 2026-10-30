@@ -21,15 +21,19 @@ import { currencyService } from '../services/currencyService';
 import { cardService, type CardModel } from '../services/cardService';
 import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { isBillPaymentTx } from './CreditCardsView';
+import { yearService } from '../services/yearService';
 import { showToast } from '../components/ToastNotification';
 
 interface CalendarViewProps {
   onOpenNewTransaction?: (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => void;
+  onNavigateToLoan?: (loanId: string) => void;
 }
 
 interface DueItem {
   id: string;
   type: 'card' | 'loan';
+  loanId?: string;
+  cardId?: string;
   name: string;
   subtext: string;
   amount: number;
@@ -88,13 +92,15 @@ const computeDuesForMonth = (
       return tCard.includes(cName) || tDesc.includes(cName) || (cLast4 && (tCard.includes(cLast4) || tDesc.includes(cLast4)));
     });
 
-    // Calculate cumulative spends and payments up to this viewed month
+    let monthSpend = 0;
     let spendUpToMonth = 0;
     let paidUpToMonth = 0;
+    let totalAllTimeSpends = 0;
+    let totalAllTimePayments = 0;
+
     transactionsList.forEach(t => {
       if (!t.date) return;
       const [y, m] = t.date.split('-').map(Number);
-      if (y > year || (y === year && m > (month + 1))) return;
 
       const mode = String(t.paymentMode || '').toLowerCase();
       const tCard = String(t.card || '').toLowerCase();
@@ -105,20 +111,49 @@ const computeDuesForMonth = (
       if (!isThisCard) return;
 
       const amt = Number(t.amount) || 0;
-      if (isBillPaymentTx(t)) {
-        paidUpToMonth += amt;
+      const isPayment = isBillPaymentTx(t);
+
+      if (isPayment) {
+        totalAllTimePayments += amt;
       } else if (t.type !== 'income') {
-        spendUpToMonth += amt;
+        totalAllTimeSpends += amt;
+      }
+
+      if (y < year || (y === year && m <= (month + 1))) {
+        if (isPayment) {
+          paidUpToMonth += amt;
+        } else if (t.type !== 'income') {
+          spendUpToMonth += amt;
+          if (y === year && m === (month + 1)) {
+            monthSpend += amt;
+          }
+        }
       }
     });
 
-    const outstanding = Math.max(0, spendUpToMonth - paidUpToMonth);
-
-    // If card was never used up to this month and has 0 balance, skip displaying empty clutter
+    // If card was never used up to this month and has no payment, skip displaying empty clutter
     if (spendUpToMonth === 0 && !billPaymentInViewedMonth) return;
 
-    const isPaid = Boolean(billPaymentInViewedMonth) || (outstanding === 0 && spendUpToMonth > 0);
-    const displayAmount = billPaymentInViewedMonth ? Number(billPaymentInViewedMonth.amount) : outstanding;
+    // For past months, if this specific month had NO spend and NO payment, skip displaying empty clutter
+    if (isPastMonth && monthSpend === 0 && !billPaymentInViewedMonth) return;
+
+    const outstandingUpToMonth = Math.max(0, spendUpToMonth - paidUpToMonth);
+    const currentAllTimeOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+
+    // Paid status:
+    // - Bill payment made in this viewed month
+    // - Spends up to this month covered by all-time payments
+    // - Card current net outstanding is 0
+    // - Outstanding up to that month was already 0
+    const isPaid =
+      Boolean(billPaymentInViewedMonth) ||
+      (totalAllTimePayments >= spendUpToMonth && spendUpToMonth > 0) ||
+      (currentAllTimeOutstanding === 0 && spendUpToMonth > 0) ||
+      (outstandingUpToMonth === 0 && spendUpToMonth > 0);
+
+    const displayAmount = billPaymentInViewedMonth
+      ? Number(billPaymentInViewedMonth.amount)
+      : (monthSpend > 0 ? monthSpend : (outstandingUpToMonth > 0 ? outstandingUpToMonth : card.limit * 0.1));
 
     const isDueToday = !isPaid && isViewingCurrentMonth && dueDay === todayD;
     const isOverdue = !isPaid && ((isPastMonth && displayAmount > 0) || (isViewingCurrentMonth && dueDay < todayD && displayAmount > 0));
@@ -126,6 +161,7 @@ const computeDuesForMonth = (
 
     const item: DueItem = {
       id: `card-${card.id}-${year}-${month}`,
+      cardId: card.id,
       type: 'card',
       name: card.name,
       subtext: `${card.bank} Credit Card • Due on ${dueDay}th`,
@@ -142,7 +178,7 @@ const computeDuesForMonth = (
     duesByDay[dueDay].push(item);
   });
 
-  // 2. Loans & EMI: Include ALL loans from loan and EMI page (without net worth filtering as user requested)
+  // 2. Loans & EMI: Include ALL loans from loan and EMI page
   loansList.forEach(loan => {
     const emiDay = Number(loan.dueDay) || 5;
     const metrics = calculateLoanEMIs(loan);
@@ -150,6 +186,7 @@ const computeDuesForMonth = (
 
     // Find schedule item matching the viewed month and year
     const scheduleItem = schedule.find(s => {
+      if (s.year === year && s.month === month) return true;
       if (!s.dateStr) return false;
       const [y, m] = s.dateStr.split('-').map(Number);
       return y === year && m === (month + 1);
@@ -172,20 +209,32 @@ const computeDuesForMonth = (
       return isEmi && matches;
     });
 
-    // Paid status: Closed loan, or schedule status paid, or paidScheduleIndices, or actual transaction recorded!
+    // If there is NO scheduled EMI for this month and NO matching payment transaction, skip!
+    if (!scheduleItem && !matchingLoanTx) {
+      return;
+    }
+
+    // Paid status:
+    // 1. Closed loan
+    // 2. Matching loan transaction in this month
+    // 3. scheduleItem.status === 'paid'
+    // 4. scheduleItem.index in paidScheduleIndices
+    // 5. scheduleItem.index <= loan.paidMonths
+    // 6. scheduleItem.index <= metrics.completedEmis
     const isPaid =
       metrics.isClosed ||
       Boolean(matchingLoanTx) ||
       (scheduleItem && scheduleItem.status === 'paid') ||
       Boolean(scheduleItem && loan.paidScheduleIndices?.includes(scheduleItem.index)) ||
-      Boolean(scheduleItem && scheduleItem.index <= (loan.paidMonths || 0));
+      Boolean(scheduleItem && typeof loan.paidMonths === 'number' && scheduleItem.index <= loan.paidMonths) ||
+      Boolean(scheduleItem && scheduleItem.index <= metrics.completedEmis);
 
     const emiAmt = scheduleItem && scheduleItem.emiAmount > 0
       ? scheduleItem.emiAmount
       : (metrics.emi || loan.emiAmount || 0);
 
     // Skip closed loans in future months when they have 0 EMI scheduled
-    if (metrics.isClosed && isFutureMonth) return;
+    if (metrics.isClosed && isFutureMonth && !matchingLoanTx) return;
 
     const isDueToday = !isPaid && isViewingCurrentMonth && emiDay === todayD;
     const isOverdue = !isPaid && (isPastMonth || (isViewingCurrentMonth && emiDay < todayD));
@@ -193,6 +242,7 @@ const computeDuesForMonth = (
 
     const item: DueItem = {
       id: `loan-${loan.id}-${year}-${month}`,
+      loanId: loan.id,
       type: 'loan',
       name: loan.name,
       subtext: `${loan.lender || 'Bank'} EMI • Due on ${emiDay}th`,
@@ -212,11 +262,15 @@ const computeDuesForMonth = (
   return duesByDay;
 };
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction, onNavigateToLoan }) => {
   const { user } = useAuth();
 
   const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
-  const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const yr = yearService.getSelectedYear();
+    const now = new Date();
+    return new Date(yr, now.getMonth(), 1);
+  });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [selectedYearMonth, setSelectedYearMonth] = useState<number>(() => new Date().getMonth());
   const [transactions, setTransactions] = useState<any[]>([]);
@@ -256,6 +310,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     setLoans(loanService.getLoans(user?.email));
   }, [user]);
 
+  // Synchronize year with global yearService
+  useEffect(() => {
+    const handleYearSync = (e: any) => {
+      const yr = Number(e.detail);
+      if (!isNaN(yr) && yr !== currentDate.getFullYear()) {
+        setCurrentDate(new Date(yr, currentDate.getMonth(), 1));
+      }
+    };
+    window.addEventListener('fintrack-year-changed', handleYearSync);
+    return () => window.removeEventListener('fintrack-year-changed', handleYearSync);
+  }, [currentDate]);
+
   // Listen for external updates
   useEffect(() => {
     const handleCards = () => setCards(cardService.getCards(user?.email));
@@ -276,7 +342,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     if (viewMode === 'month') {
       setCurrentDate(new Date(currentYear, currentMonth - 1, 1));
     } else {
-      setCurrentDate(new Date(currentYear - 1, currentMonth, 1));
+      const prevYr = currentYear - 1;
+      setCurrentDate(new Date(prevYr, currentMonth, 1));
+      yearService.setSelectedYear(prevYr);
     }
   };
 
@@ -284,7 +352,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     if (viewMode === 'month') {
       setCurrentDate(new Date(currentYear, currentMonth + 1, 1));
     } else {
-      setCurrentDate(new Date(currentYear + 1, currentMonth, 1));
+      const nextYr = currentYear + 1;
+      setCurrentDate(new Date(nextYr, currentMonth, 1));
+      yearService.setSelectedYear(nextYr);
     }
   };
 
@@ -293,6 +363,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     setCurrentDate(new Date(now.getFullYear(), now.getMonth(), 1));
     setSelectedDate(now);
     setSelectedYearMonth(now.getMonth());
+    yearService.setSelectedYear(now.getFullYear());
+  };
+
+  // Direct year selection handler
+  const handleSelectYear = (yr: number) => {
+    setCurrentDate(new Date(yr, currentMonth, 1));
+    setSelectedDate(new Date(yr, selectedDate.getMonth(), Math.min(selectedDate.getDate(), 28)));
+    yearService.setSelectedYear(yr);
   };
 
   // Build card dues & loan dues for the viewed month
@@ -384,6 +462,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
       const overdueDues = allDues.filter(d => !d.isPaid && d.isOverdue);
       const upcomingDues = allDues.filter(d => !d.isPaid && !d.isOverdue);
 
+      const emiDues = allDues.filter(d => d.type === 'loan');
+      const paidEmis = paidDues.filter(d => d.type === 'loan');
+      const upcomingEmis = upcomingDues.filter(d => d.type === 'loan');
+      const overdueEmis = overdueDues.filter(d => d.type === 'loan');
+
       return {
         monthIndex: mIdx,
         monthName: MONTH_NAMES[mIdx],
@@ -395,6 +478,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
         paidDues,
         overdueDues,
         upcomingDues,
+        emiDues,
+        paidEmis,
+        upcomingEmis,
+        overdueEmis,
+        emiCount: emiDues.length,
+        paidEmiCount: paidEmis.length,
+        upcomingEmiCount: upcomingEmis.length,
+        overdueEmiCount: overdueEmis.length,
         paidCount: paidDues.length,
         paidAmount: paidDues.reduce((s, d) => s + d.amount, 0),
         overdueCount: overdueDues.length,
@@ -408,6 +499,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     const totalYearExpense = monthsData.reduce((s, m) => s + m.expense, 0);
     const totalYearSavings = monthsData.reduce((s, m) => s + m.savings, 0);
     const totalYearNet = totalYearIncome - totalYearExpense;
+
+    const totalYearEmiCount = monthsData.reduce((s, m) => s + m.emiCount, 0);
+    const totalYearEmiPaidCount = monthsData.reduce((s, m) => s + m.paidEmiCount, 0);
+    const totalYearEmiUpcomingCount = monthsData.reduce((s, m) => s + m.upcomingEmiCount, 0);
+    const totalYearEmiOverdueCount = monthsData.reduce((s, m) => s + m.overdueEmiCount, 0);
 
     const totalYearPaidCount = monthsData.reduce((s, m) => s + m.paidCount, 0);
     const totalYearPaidAmount = monthsData.reduce((s, m) => s + m.paidAmount, 0);
@@ -424,6 +520,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
       totalYearExpense,
       totalYearSavings,
       totalYearNet,
+      totalYearEmiCount,
+      totalYearEmiPaidCount,
+      totalYearEmiUpcomingCount,
+      totalYearEmiOverdueCount,
       totalYearPaidCount,
       totalYearPaidAmount,
       totalYearPendingCount,
@@ -432,6 +532,81 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
       totalYearOverdueAmount,
     };
   }, [transactions, cards, loans, currentYear, todayYear, todayMonth, todayDay]);
+
+  // List of available selectable years
+  const availableYears = useMemo(() => {
+    const set = new Set<number>();
+    const nowY = new Date().getFullYear();
+    for (let y = nowY - 2; y <= nowY + 4; y++) {
+      set.add(y);
+    }
+    transactions.forEach(t => {
+      if (t.date) {
+        const y = Number(t.date.split('-')[0]);
+        if (!isNaN(y) && y >= 2000 && y <= 2100) set.add(y);
+      }
+    });
+    loans.forEach(l => {
+      if (l.startDate) {
+        const y = Number(l.startDate.split('-')[0]);
+        if (!isNaN(y)) set.add(y);
+      }
+      if (l.endDate) {
+        const y = Number(l.endDate.split('-')[0]);
+        if (!isNaN(y)) set.add(y);
+      }
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [transactions, loans]);
+
+  // Multi-Year Summary comparison dataset
+  const allYearsSummary = useMemo(() => {
+    return availableYears.map(yr => {
+      let inc = 0;
+      let exp = 0;
+
+      transactions.forEach(t => {
+        if (!t.date) return;
+        const [y] = t.date.split('-').map(Number);
+        if (y === yr) {
+          const amt = Number(t.amount) || 0;
+          const type = (t.type || 'expense').toLowerCase();
+          if (type === 'income') inc += amt;
+          else exp += amt;
+        }
+      });
+
+      let yrEmiCount = 0;
+      let yrPaidEmiCount = 0;
+      let yrUpcomingEmiCount = 0;
+      let yrOverdueEmiCount = 0;
+
+      for (let m = 0; m < 12; m++) {
+        const dMap = computeDuesForMonth(yr, m, cards, loans, transactions, todayYear, todayMonth, todayDay);
+        Object.values(dMap).forEach(arr => {
+          arr.forEach(d => {
+            if (d.type === 'loan') {
+              yrEmiCount++;
+              if (d.isPaid) yrPaidEmiCount++;
+              else if (d.isOverdue) yrOverdueEmiCount++;
+              else yrUpcomingEmiCount++;
+            }
+          });
+        });
+      }
+
+      return {
+        year: yr,
+        income: inc,
+        expense: exp,
+        savings: inc - exp,
+        totalEmiCount: yrEmiCount,
+        paidEmiCount: yrPaidEmiCount,
+        upcomingEmiCount: yrUpcomingEmiCount,
+        overdueEmiCount: yrOverdueEmiCount,
+      };
+    });
+  }, [availableYears, transactions, cards, loans, todayYear, todayMonth, todayDay]);
 
   // Calendar Day Generation (Month View)
   const calendarCells = useMemo(() => {
@@ -689,6 +864,74 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
         </div>
       </div>
 
+      {/* Year Selector Pills Bar (2024, 2025, 2026, 2027, ...) */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          marginBottom: 20,
+          padding: '10px 16px',
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border-color)',
+          borderRadius: 14,
+          overflowX: 'auto',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
+          <CalendarIcon size={15} color="#3B82F6" />
+          <span>Financial Year:</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+          {availableYears.map(yr => {
+            const isSelected = yr === currentYear;
+            const isCurrentRealYear = yr === todayYear;
+            return (
+              <button
+                key={`year-pill-${yr}`}
+                type="button"
+                onClick={() => handleSelectYear(yr)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: 8,
+                  border: isSelected ? '1px solid #3B82F6' : '1px solid var(--border-color)',
+                  background: isSelected
+                    ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)'
+                    : 'rgba(255, 255, 255, 0.04)',
+                  color: isSelected ? '#FFF' : 'var(--text-primary)',
+                  fontWeight: isSelected ? 800 : 600,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  boxShadow: isSelected ? '0 2px 10px rgba(37, 99, 235, 0.4)' : 'none',
+                  transition: 'all 0.15s ease',
+                  whiteSpace: 'nowrap'
+                }}
+              >
+                <span>{yr}</span>
+                {isCurrentRealYear && (
+                  <span
+                    style={{
+                      fontSize: 9,
+                      fontWeight: 800,
+                      padding: '1px 5px',
+                      borderRadius: 4,
+                      background: isSelected ? 'rgba(255, 255, 255, 0.3)' : 'rgba(59, 130, 246, 0.15)',
+                      color: isSelected ? '#FFF' : '#60A5FA'
+                    }}
+                  >
+                    CURRENT
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {/* KPI Overview Bar */}
       {viewMode === 'month' ? (
         /* Monthly KPI Bar */
@@ -766,9 +1009,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
           </div>
         </div>
       ) : (
-        /* Yearly KPI Bar */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
-          {/* Year Inflow */}
+        /* Yearly KPI Bar with Income, Expense, Savings, EMI Count, Paid Count, Upcoming Count */
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
+          {/* Year Inflow (Income) */}
           <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total Inflow</span>
@@ -779,10 +1022,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
             <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 6 }}>
               +{currencyService.format(yearlyData.totalYearIncome)}
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>All 12 months income</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>12 Months Income</span>
           </div>
 
-          {/* Year Outflow */}
+          {/* Year Outflow (Expense) */}
           <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total Outflow</span>
@@ -793,7 +1036,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
             <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444', marginTop: 6 }}>
               -{currencyService.format(yearlyData.totalYearExpense)}
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>All 12 months expenses</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>12 Months Expenses</span>
           </div>
 
           {/* Year Net Savings */}
@@ -807,33 +1050,51 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
             <div style={{ fontSize: 20, fontWeight: 800, color: yearlyData.totalYearNet >= 0 ? '#10B981' : '#EF4444', marginTop: 6 }}>
               {currencyService.format(yearlyData.totalYearNet)}
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Annual retained surplus</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Annual Retained Surplus</span>
           </div>
 
-          {/* Year Paid EMIs */}
+          {/* Total Year EMI Count */}
           <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Year Paid Dues</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total EMIs</span>
+              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(129, 140, 248, 0.15)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Coins size={15} />
+              </div>
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#818CF8', marginTop: 6 }}>
+              {yearlyData.totalYearEmiCount} EMIs
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {yearlyData.totalYearPaidCount + yearlyData.totalYearPendingCount + yearlyData.totalYearOverdueCount} total dues scheduled
+            </span>
+          </div>
+
+          {/* Year Paid EMI Count */}
+          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Year Paid Count</span>
               <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <CheckCircle2 size={15} />
               </div>
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 6 }}>
-              {yearlyData.totalYearPaidCount} Paid
+              {yearlyData.totalYearEmiPaidCount} Paid
             </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{currencyService.format(yearlyData.totalYearPaidAmount)} cleared</span>
+            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+              {currencyService.format(yearlyData.totalYearPaidAmount)} cleared
+            </span>
           </div>
 
-          {/* Year Pending / Overdue */}
+          {/* Year Upcoming EMI Count */}
           <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Pending / Overdue</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: yearlyData.totalYearOverdueCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: yearlyData.totalYearOverdueCount > 0 ? '#EF4444' : '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <AlertTriangle size={15} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Year Upcoming Count</span>
+              <div style={{ width: 28, height: 28, borderRadius: 6, background: yearlyData.totalYearEmiOverdueCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: yearlyData.totalYearEmiOverdueCount > 0 ? '#EF4444' : '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Clock size={15} />
               </div>
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: yearlyData.totalYearOverdueCount > 0 ? '#EF4444' : '#F59E0B', marginTop: 6 }}>
-              {yearlyData.totalYearPendingCount} Pending • {yearlyData.totalYearOverdueCount} Overdue
+            <div style={{ fontSize: 20, fontWeight: 800, color: '#F59E0B', marginTop: 6 }}>
+              {yearlyData.totalYearEmiUpcomingCount} Due {yearlyData.totalYearEmiOverdueCount > 0 ? `• ${yearlyData.totalYearEmiOverdueCount} Overdue` : ''}
             </div>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
               {currencyService.format(yearlyData.totalYearPendingAmount + yearlyData.totalYearOverdueAmount)} outstanding
@@ -1258,162 +1519,244 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
           /* ========================================================================= */
           /* 2. YEAR VIEW (12 Months Calendar Grid with Financial & Dues Summary)       */
           /* ========================================================================= */
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-              gap: 16
-            }}
-          >
-            {yearlyData.monthsData.map(mData => {
-              const mIdx = mData.monthIndex;
-              const isSelected = selectedYearMonth === mIdx;
-              const isCurrent = mIdx === todayMonth && currentYear === todayYear;
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* Multi-Year Overview Comparison Grid */}
+            <div
+              style={{
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 16,
+                padding: '16px 18px',
+                boxShadow: '0 4px 16px rgba(0,0,0,0.06)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Coins size={16} color="#818CF8" />
+                  <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)' }}>
+                    Annual Financial &amp; EMI Performance by Year
+                  </span>
+                </div>
+                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+                  Click any year to view that year's 12-month calendar &amp; EMI breakdown
+                </span>
+              </div>
 
-              return (
-                <div
-                  key={`year-m-${mIdx}`}
-                  onClick={() => setSelectedYearMonth(mIdx)}
-                  style={{
-                    background: isSelected
-                      ? 'rgba(59, 130, 246, 0.08)'
-                      : 'var(--bg-card)',
-                    border: isSelected
-                      ? '2px solid #3B82F6'
-                      : isCurrent
-                      ? '1px solid rgba(59, 130, 246, 0.5)'
-                      : '1px solid var(--border-color)',
-                    borderRadius: 14,
-                    padding: 16,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease',
-                    boxShadow: isSelected ? '0 4px 16px rgba(59, 130, 246, 0.15)' : 'none',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    gap: 12
-                  }}
-                >
-                  {/* Card Header: Month Name + Current Badge */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 15, fontWeight: 800, color: isSelected ? '#3B82F6' : 'var(--text-primary)' }}>
-                        {mData.monthName}
-                      </span>
-                      {isCurrent && (
-                        <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
-                          CURRENT
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10 }}>
+                {allYearsSummary.map(ySum => {
+                  const isSelected = ySum.year === currentYear;
+                  return (
+                    <div
+                      key={`multi-yr-card-${ySum.year}`}
+                      onClick={() => handleSelectYear(ySum.year)}
+                      style={{
+                        padding: '12px 14px',
+                        borderRadius: 10,
+                        background: isSelected ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.02)',
+                        border: isSelected ? '2px solid #3B82F6' : '1px solid var(--border-color)',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        boxShadow: isSelected ? '0 2px 10px rgba(59, 130, 246, 0.2)' : 'none',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 6
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: isSelected ? '#3B82F6' : 'var(--text-primary)' }}>
+                          {ySum.year}
+                        </span>
+                        {isSelected && (
+                          <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
+                            ACTIVE
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Income:</span>
+                          <strong style={{ color: '#10B981' }}>+{currencyService.format(ySum.income)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Expense:</span>
+                          <strong style={{ color: '#EF4444' }}>-{currencyService.format(ySum.expense)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Savings:</span>
+                          <strong style={{ color: ySum.savings >= 0 ? '#10B981' : '#EF4444' }}>{currencyService.format(ySum.savings)}</strong>
+                        </div>
+                        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 5, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontSize: 10.5 }}>
+                          <span style={{ color: 'var(--text-muted)' }}>EMIs:</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+                            {ySum.totalEmiCount} Total • <span style={{ color: '#10B981' }}>{ySum.paidEmiCount} Paid</span> • <span style={{ color: '#F59E0B' }}>{ySum.upcomingEmiCount} Due</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 12 Months Grid */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+                gap: 16
+              }}
+            >
+              {yearlyData.monthsData.map(mData => {
+                const mIdx = mData.monthIndex;
+                const isSelected = selectedYearMonth === mIdx;
+                const isCurrent = mIdx === todayMonth && currentYear === todayYear;
+
+                return (
+                  <div
+                    key={`year-m-${mIdx}`}
+                    onClick={() => setSelectedYearMonth(mIdx)}
+                    style={{
+                      background: isSelected
+                        ? 'rgba(59, 130, 246, 0.08)'
+                        : 'var(--bg-card)',
+                      border: isSelected
+                        ? '2px solid #3B82F6'
+                        : isCurrent
+                        ? '1px solid rgba(59, 130, 246, 0.5)'
+                        : '1px solid var(--border-color)',
+                      borderRadius: 14,
+                      padding: 16,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 4px 16px rgba(59, 130, 246, 0.15)' : 'none',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      gap: 12
+                    }}
+                  >
+                    {/* Card Header: Month Name + Current Badge */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: isSelected ? '#3B82F6' : 'var(--text-primary)' }}>
+                          {mData.monthName}
+                        </span>
+                        {isCurrent && (
+                          <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
+                            CURRENT
+                          </span>
+                        )}
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCurrentDate(new Date(currentYear, mIdx, 1));
+                          setSelectedDate(new Date(currentYear, mIdx, 1));
+                          setViewMode('month');
+                        }}
+                        style={{
+                          padding: '3px 8px',
+                          fontSize: 11,
+                          fontWeight: 700,
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 6,
+                          color: '#60A5FA',
+                          cursor: 'pointer'
+                        }}
+                        title="Open full day calendar for this month"
+                      >
+                        Open Month ↗
+                      </button>
+                    </div>
+
+                    {/* Financial Flow Overview */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(255, 255, 255, 0.02)', padding: '10px 12px', borderRadius: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Inflow:</span>
+                        <strong style={{ color: '#10B981' }}>+{currencyService.format(mData.income)}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Outflow:</span>
+                        <strong style={{ color: '#EF4444' }}>-{currencyService.format(mData.expense)}</strong>
+                      </div>
+                      {mData.savings > 0 && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Savings:</span>
+                          <strong style={{ color: '#818CF8' }}>{currencyService.format(mData.savings)}</strong>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingTop: 4, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Net Flow:</span>
+                        <strong style={{ color: mData.net >= 0 ? '#10B981' : '#EF4444' }}>
+                          {currencyService.format(mData.net)}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* EMI / Bill Due Status Pill Badges */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {mData.paidCount > 0 && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: '#10B981',
+                            border: '1px solid rgba(16, 185, 129, 0.3)'
+                          }}
+                        >
+                          ✓ {mData.paidCount} Paid
+                        </span>
+                      )}
+
+                      {mData.upcomingCount > 0 && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            background: 'rgba(245, 158, 11, 0.15)',
+                            color: '#F59E0B',
+                            border: '1px solid rgba(245, 158, 11, 0.3)'
+                          }}
+                        >
+                          ⏰ {mData.upcomingCount} Due
+                        </span>
+                      )}
+
+                      {mData.overdueCount > 0 && (
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '2px 7px',
+                            borderRadius: 999,
+                            background: 'rgba(239, 68, 68, 0.2)',
+                            color: '#EF4444',
+                            border: '1px solid rgba(239, 68, 68, 0.4)'
+                          }}
+                        >
+                          ⚠ {mData.overdueCount} Overdue
+                        </span>
+                      )}
+
+                      {mData.allDues.length === 0 && (
+                        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          No EMIs or card bills
                         </span>
                       )}
                     </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setCurrentDate(new Date(currentYear, mIdx, 1));
-                        setSelectedDate(new Date(currentYear, mIdx, 1));
-                        setViewMode('month');
-                      }}
-                      style={{
-                        padding: '3px 8px',
-                        fontSize: 11,
-                        fontWeight: 700,
-                        background: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid var(--border-color)',
-                        borderRadius: 6,
-                        color: '#60A5FA',
-                        cursor: 'pointer'
-                      }}
-                      title="Open full day calendar for this month"
-                    >
-                      Open Month ↗
-                    </button>
                   </div>
-
-                  {/* Financial Flow Overview */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(255, 255, 255, 0.02)', padding: '10px 12px', borderRadius: 8 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Inflow:</span>
-                      <strong style={{ color: '#10B981' }}>+{currencyService.format(mData.income)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Outflow:</span>
-                      <strong style={{ color: '#EF4444' }}>-{currencyService.format(mData.expense)}</strong>
-                    </div>
-                    {mData.savings > 0 && (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Savings:</span>
-                        <strong style={{ color: '#818CF8' }}>{currencyService.format(mData.savings)}</strong>
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingTop: 4, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                      <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Net Flow:</span>
-                      <strong style={{ color: mData.net >= 0 ? '#10B981' : '#EF4444' }}>
-                        {currencyService.format(mData.net)}
-                      </strong>
-                    </div>
-                  </div>
-
-                  {/* EMI / Bill Due Status Pill Badges */}
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {mData.paidCount > 0 && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          background: 'rgba(16, 185, 129, 0.15)',
-                          color: '#10B981',
-                          border: '1px solid rgba(16, 185, 129, 0.3)'
-                        }}
-                      >
-                        ✓ {mData.paidCount} Paid
-                      </span>
-                    )}
-
-                    {mData.upcomingCount > 0 && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          background: 'rgba(245, 158, 11, 0.15)',
-                          color: '#F59E0B',
-                          border: '1px solid rgba(245, 158, 11, 0.3)'
-                        }}
-                      >
-                        ⏰ {mData.upcomingCount} Due
-                      </span>
-                    )}
-
-                    {mData.overdueCount > 0 && (
-                      <span
-                        style={{
-                          fontSize: 10,
-                          fontWeight: 800,
-                          padding: '2px 7px',
-                          borderRadius: 999,
-                          background: 'rgba(239, 68, 68, 0.2)',
-                          color: '#EF4444',
-                          border: '1px solid rgba(239, 68, 68, 0.4)'
-                        }}
-                      >
-                        ⚠ {mData.overdueCount} Overdue
-                      </span>
-                    )}
-
-                    {mData.allDues.length === 0 && (
-                      <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                        No EMIs or card bills
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1519,10 +1862,59 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
 
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
                           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Amount Payable:</span>
-                          <strong style={{ fontSize: 14, color: due.isPaid ? '#10B981' : '#EF4444' }}>
-                            {currencyService.format(due.amount)}
-                          </strong>
+                          <div
+                            onClick={() => {
+                              if (due.type === 'loan' && due.loanId && onNavigateToLoan) {
+                                onNavigateToLoan(due.loanId);
+                              }
+                            }}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              cursor: due.type === 'loan' && due.loanId ? 'pointer' : 'default',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              background: due.type === 'loan' && due.loanId ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title={due.type === 'loan' && due.loanId ? 'Click to open and inspect loan details in Loans & EMI' : undefined}
+                          >
+                            <strong style={{ fontSize: 14, color: due.isPaid ? '#10B981' : '#EF4444', textDecoration: due.type === 'loan' && due.loanId ? 'underline' : 'none' }}>
+                              {currencyService.format(due.amount)}
+                            </strong>
+                            {due.type === 'loan' && due.loanId && (
+                              <span style={{ fontSize: 11, color: '#818CF8', fontWeight: 800 }}>↗</span>
+                            )}
+                          </div>
                         </div>
+
+                        {due.type === 'loan' && due.loanId && onNavigateToLoan && (
+                          <div style={{ marginTop: 8 }}>
+                            <button
+                              type="button"
+                              onClick={() => onNavigateToLoan(due.loanId!)}
+                              style={{
+                                width: '100%',
+                                padding: '6px 10px',
+                                borderRadius: 6,
+                                border: '1px solid rgba(129, 140, 248, 0.35)',
+                                background: 'rgba(99, 102, 241, 0.1)',
+                                color: '#818CF8',
+                                fontSize: 11.5,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span>View Loan &amp; EMI Details ↗</span>
+                            </button>
+                          </div>
+                        )}
 
                         {!due.isPaid && onOpenNewTransaction && (
                           <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
@@ -1754,8 +2146,24 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
                               {due.type === 'card' ? <CreditCard size={14} color="#F59E0B" /> : <Coins size={14} color="#818CF8" />}
                               <strong style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>{due.name}</strong>
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                              Due on {due.dueDay}th • {currencyService.format(due.amount)}
+                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>Due on {due.dueDay}th •</span>
+                              <span
+                                onClick={() => {
+                                  if (due.type === 'loan' && due.loanId && onNavigateToLoan) {
+                                    onNavigateToLoan(due.loanId);
+                                  }
+                                }}
+                                style={{
+                                  cursor: due.type === 'loan' && due.loanId ? 'pointer' : 'default',
+                                  textDecoration: due.type === 'loan' && due.loanId ? 'underline' : 'none',
+                                  fontWeight: 700,
+                                  color: due.isPaid ? '#10B981' : '#EF4444'
+                                }}
+                                title={due.type === 'loan' && due.loanId ? 'Click to open loan in Loans & EMI' : undefined}
+                              >
+                                {currencyService.format(due.amount)} {due.type === 'loan' && due.loanId ? '↗' : ''}
+                              </span>
                             </div>
                           </div>
 
@@ -1776,6 +2184,33 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
                             {due.isPaid ? 'PAID' : due.isOverdue ? 'OVERDUE' : 'UPCOMING'}
                           </span>
                         </div>
+
+                        {due.type === 'loan' && due.loanId && onNavigateToLoan && (
+                          <div style={{ marginTop: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => onNavigateToLoan(due.loanId!)}
+                              style={{
+                                width: '100%',
+                                padding: '5px 8px',
+                                borderRadius: 6,
+                                border: '1px solid rgba(129, 140, 248, 0.35)',
+                                background: 'rgba(99, 102, 241, 0.1)',
+                                color: '#818CF8',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 4,
+                                transition: 'all 0.15s ease'
+                              }}
+                            >
+                              <span>View Loan &amp; EMI Details ↗</span>
+                            </button>
+                          </div>
+                        )}
 
                         {!due.isPaid && onOpenNewTransaction && (
                           <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>

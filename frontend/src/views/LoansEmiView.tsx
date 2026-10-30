@@ -76,7 +76,12 @@ const renderFormattedDescription = (desc: string) => {
   );
 };
 
-export const LoansEmiView: React.FC = () => {
+export interface LoansEmiViewProps {
+  initialLoanId?: string | null;
+  onClearInitialLoanId?: () => void;
+}
+
+export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onClearInitialLoanId }) => {
   const { user } = useAuth();
   const { effectiveTheme } = useTheme();
   const isLight = effectiveTheme === 'light';
@@ -102,7 +107,20 @@ export const LoansEmiView: React.FC = () => {
   const [bannerMsg, setBannerMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Split screen state: selected loan for isolated EMI details inspector (like Admin tool)
-  const [selectedLoanId, setSelectedLoanId] = useState<string | null>(null);
+  const [selectedLoanId, setSelectedLoanId] = useState<string | null>(initialLoanId || null);
+
+  useEffect(() => {
+    if (initialLoanId) {
+      setSelectedLoanId(initialLoanId);
+      setTimeout(() => {
+        const el = document.getElementById(`loan-card-${initialLoanId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      onClearInitialLoanId?.();
+    }
+  }, [initialLoanId, onClearInitialLoanId]);
 
   // Sorting state for active loan cards
   
@@ -1299,6 +1317,7 @@ export const LoansEmiView: React.FC = () => {
                   return (
                     <div
                       key={loan.id}
+                      id={`loan-card-${loan.id}`}
                       className="summary-card"
                       onClick={() => setSelectedLoanId(prev => (prev === loan.id ? null : loan.id))}
                       style={{
