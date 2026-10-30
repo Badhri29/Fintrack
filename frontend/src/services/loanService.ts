@@ -29,6 +29,7 @@ export interface MonthEmiScheduleItem {
   monthStr: string;
   monthName: string;
   year: number;
+  month?: number;
   dateStr: string;
   emiAmount: number;
   status: 'paid' | 'pending' | 'upcoming';
@@ -133,15 +134,20 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
     let isMonthPaid = false;
     if (emiMetrics.isClosed) {
       isMonthPaid = true;
-    } else if (Array.isArray(loan.paidScheduleIndices)) {
+    } else if (Array.isArray(loan.paidScheduleIndices) && loan.paidScheduleIndices.length > 0) {
       isMonthPaid = loan.paidScheduleIndices.includes(index);
-    } else if (i < emiMetrics.completedEmis) {
+    } else if (typeof loan.paidMonths === 'number' && loan.paidMonths > 0) {
+      isMonthPaid = index <= loan.paidMonths;
+    } else if (index <= emiMetrics.completedEmis) {
       isMonthPaid = true;
     }
 
     const monthStr = itemDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
     const monthName = itemDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    const dateStr = itemDate.toISOString().substring(0, 10);
+    // Local date string format to avoid UTC timezone off-by-one shifts
+    const mm = String(itemMonth + 1).padStart(2, '0');
+    const dd = String(dueDay).padStart(2, '0');
+    const dateStr = `${itemYear}-${mm}-${dd}`;
 
     let status: 'paid' | 'pending' | 'upcoming' = 'upcoming';
     if (isMonthPaid) {
@@ -159,6 +165,7 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
       monthStr,
       monthName,
       year: itemYear,
+      month: itemMonth,
       dateStr,
       emiAmount: emiMetrics.emi,
       status,

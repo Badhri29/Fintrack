@@ -32,6 +32,7 @@ function AppContent() {
   const [requestSent, setRequestSent] = useState<boolean>(false);
   const [pendingRequests, setPendingRequests] = useState<string[]>([]);
   const [requestingUpgrade, setRequestingUpgrade] = useState<boolean>(false);
+  const [selectedLoanIdForView, setSelectedLoanIdForView] = useState<string | null>(null);
 
   // Fetch pending user access requests
   useEffect(() => {
@@ -313,6 +314,10 @@ function AppContent() {
         <CalendarView
           key={refreshKey}
           onOpenNewTransaction={openTransactionModal}
+          onNavigateToLoan={(loanId) => {
+            setSelectedLoanIdForView(loanId);
+            setActiveTab('Loans & EMI');
+          }}
         />
       )}
 
@@ -404,7 +409,11 @@ function AppContent() {
             )}
           </div>
         ) : (
-          <LoansEmiView key={refreshKey} />
+          <LoansEmiView
+            key={refreshKey}
+            initialLoanId={selectedLoanIdForView}
+            onClearInitialLoanId={() => setSelectedLoanIdForView(null)}
+          />
         )
       )}
 
