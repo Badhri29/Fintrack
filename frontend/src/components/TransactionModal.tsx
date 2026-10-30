@@ -284,7 +284,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const pm = transactionToEdit.paymentMode
         ? transactionToEdit.paymentMode.toLowerCase()
         : 'upi';
-      setPaymentMode(['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer'].includes(pm) ? pm : 'upi');
+      const isKnownPm =
+        paymentModeOptions.some(opt => opt.value.toLowerCase() === pm) ||
+        ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer', 'cheque', 'auto_debit'].includes(pm) ||
+        pm.startsWith('bank_') ||
+        pm.startsWith('debit_') ||
+        pm.startsWith('cc_');
+      setPaymentMode(isKnownPm ? pm : 'upi');
       setCard(transactionToEdit.card || '');
       setDescription(transactionToEdit.description || '');
       setError(null);
@@ -316,9 +322,14 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setIsCustomSubcategory(defaultSub === 'Other');
       setCustomSubcategoryText('');
 
-      const defaultMode = initialPaymentMode || localStorage.getItem('fintrack-default-payment-mode') || 'upi';
-      const validModes = ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer'];
-      setPaymentMode(validModes.includes(defaultMode) ? defaultMode : 'upi');
+      const defaultMode = (initialPaymentMode || localStorage.getItem('fintrack-default-payment-mode') || 'upi').toLowerCase();
+      const isKnownDefault =
+        paymentModeOptions.some(opt => opt.value.toLowerCase() === defaultMode) ||
+        ['upi', 'credit', 'debit', 'netbanking', 'cash', 'bank_transfer', 'cheque', 'auto_debit'].includes(defaultMode) ||
+        defaultMode.startsWith('bank_') ||
+        defaultMode.startsWith('debit_') ||
+        defaultMode.startsWith('cc_');
+      setPaymentMode(isKnownDefault ? defaultMode : 'upi');
 
       const currentActiveCards = cardService.getActiveCards();
       const defCard = initialCard || localStorage.getItem('fintrack-default-card') || currentActiveCards[0]?.name || '';
@@ -400,6 +411,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
     try {
       if (isEditing && transactionToEdit?.id) {
+        bankAccountService.applyTransactionImpact(transactionToEdit, true, user?.email);
         try {
           await api.put(`/transactions/${transactionToEdit.id}`, payload);
         } catch (err: any) {
@@ -410,6 +422,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       } else {
         await api.post('/transactions', payload);
       }
+      bankAccountService.applyTransactionImpact(payload, false, user?.email);
       playNotificationChime();
       showToast({
         title: isEditing ? 'Transaction Updated' : 'Transaction Recorded',

@@ -83,6 +83,9 @@ export const getActiveUserEmail = (providedEmail?: string): string => {
       if (u.parentUserEmail && u.parentUserEmail.trim()) {
         return u.parentUserEmail.trim().toLowerCase();
       }
+      if (!providedEmail && u.email && u.email.trim()) {
+        return u.email.trim().toLowerCase();
+      }
     }
   } catch {}
 

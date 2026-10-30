@@ -18,6 +18,7 @@ import {
 } from '../services/bankAccountService';
 import { currencyService } from '../services/currencyService';
 import { showToast } from '../components/ToastNotification';
+import api from '../services/api';
 
 const POPULAR_BANKS = [
   'HDFC Bank',
@@ -81,6 +82,9 @@ export const AccountsView: React.FC = () => {
   const [formDebitExpiry, setFormDebitExpiry] = useState('');
 
   useEffect(() => {
+    setAccounts(bankAccountService.getAccounts(user?.email));
+    setCashWallet(bankAccountService.getCashBalance(user?.email));
+
     const handleAccountsUpdate = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
         setAccounts(e.detail);
@@ -97,11 +101,18 @@ export const AccountsView: React.FC = () => {
       }
     };
 
+    const handleTransactionsUpdate = () => {
+      setAccounts(bankAccountService.getAccounts(user?.email));
+      setCashWallet(bankAccountService.getCashBalance(user?.email));
+    };
+
     window.addEventListener('fintrack-accounts-updated', handleAccountsUpdate);
     window.addEventListener('fintrack-cash-updated', handleCashUpdate);
+    window.addEventListener('fintrack-transactions-changed', handleTransactionsUpdate);
     return () => {
       window.removeEventListener('fintrack-accounts-updated', handleAccountsUpdate);
       window.removeEventListener('fintrack-cash-updated', handleCashUpdate);
+      window.removeEventListener('fintrack-transactions-changed', handleTransactionsUpdate);
     };
   }, [user?.email]);
 
@@ -190,6 +201,20 @@ export const AccountsView: React.FC = () => {
         debitCards: debitCardsList
       }, user?.email);
 
+      if (parsedBalance > 0) {
+        api.post('/transactions', {
+          date: new Date().toISOString().substring(0, 10),
+          type: 'income',
+          category: 'Other Income',
+          subcategory: `${chosenBank} Deposit`,
+          amount: parsedBalance,
+          paymentMode: `bank_${chosenBank.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${cleanLast4}`,
+          description: `Initial opening balance for ${chosenBank}`
+        }).then(() => {
+          window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+        }).catch(() => {});
+      }
+
       showToast({ title: 'Account Added', message: `${chosenBank} account registered successfully.`, type: 'success' });
     }
 
@@ -208,22 +233,95 @@ export const AccountsView: React.FC = () => {
   };
 
   // Save Quick Balance Edit
-  const handleSaveBalanceEdit = () => {
+  const handleSaveBalanceEdit = async () => {
     if (!balanceEditAcc || isViewOnly) return;
     const amt = Math.max(0, Number(newBalanceValue) || 0);
+    const prevAmt = balanceEditAcc.balance || 0;
+    const diff = amt - prevAmt;
+
     bankAccountService.updateAccountBalance(balanceEditAcc.id, amt, user?.email);
     setAccounts(bankAccountService.getAccounts(user?.email));
     setBalanceEditAcc(null);
+
+    if (diff > 0) {
+      try {
+        await api.post('/transactions', {
+          date: new Date().toISOString().substring(0, 10),
+          type: 'income',
+          category: 'Other Income',
+          subcategory: `${balanceEditAcc.bankName} Deposit`,
+          amount: diff,
+          paymentMode: `bank_${balanceEditAcc.bankName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${balanceEditAcc.accountNumberLast4}`,
+          description: `Bank balance added for ${balanceEditAcc.bankName}`
+        });
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+      } catch (err) {
+        console.warn('Failed to record bank balance transaction:', err);
+      }
+    } else if (diff < 0) {
+      try {
+        await api.post('/transactions', {
+          date: new Date().toISOString().substring(0, 10),
+          type: 'expense',
+          category: 'Other Expense',
+          subcategory: `${balanceEditAcc.bankName} Adjustment`,
+          amount: Math.abs(diff),
+          paymentMode: `bank_${balanceEditAcc.bankName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${balanceEditAcc.accountNumberLast4}`,
+          description: `Bank balance adjustment for ${balanceEditAcc.bankName}`
+        });
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+      } catch (err) {
+        console.warn('Failed to record bank balance transaction:', err);
+      }
+    }
+
     showToast({ title: 'Balance Updated', message: `${balanceEditAcc.bankName} balance updated to ${currencyService.format(amt)}.`, type: 'success' });
   };
 
   // Save Cash Wallet Balance
-  const handleSaveCashBalance = () => {
+  const handleSaveCashBalance = async () => {
     if (isViewOnly) return;
     const amt = Math.max(0, Number(cashInputValue) || 0);
+    const prevAmt = cashWallet.balance || 0;
+    const diff = amt - prevAmt;
+
     const updated = bankAccountService.updateCashBalance(amt, cashNotes.trim() || 'Manual adjustment', user?.email);
     setCashWallet(updated);
     setIsCashModalOpen(false);
+
+    // If cash balance was updated/added, record transaction as income/adjustment as requested
+    if (diff > 0) {
+      try {
+        await api.post('/transactions', {
+          date: new Date().toISOString().substring(0, 10),
+          type: 'income',
+          category: 'Other Income',
+          subcategory: 'Cash in Hand',
+          amount: diff,
+          paymentMode: 'cash',
+          description: cashNotes.trim() || 'Cash balance added in Accounts'
+        });
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+      } catch (err) {
+        console.warn('Failed to record cash update transaction:', err);
+      }
+    } else if (diff < 0) {
+      try {
+        await api.post('/transactions', {
+          date: new Date().toISOString().substring(0, 10),
+          type: 'expense',
+          category: 'Other Expense',
+          subcategory: 'Cash in Hand',
+          amount: Math.abs(diff),
+          paymentMode: 'cash',
+          description: cashNotes.trim() || 'Cash balance adjustment in Accounts'
+        });
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+      } catch (err) {
+        console.warn('Failed to record cash update transaction:', err);
+      }
+    }
+
     showToast({ title: 'Cash Updated', message: `Cash balance updated to ${currencyService.format(amt)}.`, type: 'success' });
   };
 

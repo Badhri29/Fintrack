@@ -37,6 +37,7 @@ import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
 import { cardService } from '../services/cardService';
+import { bankAccountService } from '../services/bankAccountService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
 
@@ -49,17 +50,6 @@ interface BudgetTransactionsViewProps {
 const MONTHS = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-];
-
-const PAYMENT_MODES = [
-  { value: 'upi', label: 'UPI' },
-  { value: 'credit', label: 'Credit Card' },
-  { value: 'bank_transfer', label: 'Bank Transfer' },
-  { value: 'debit', label: 'Debit Card' },
-  { value: 'cash', label: 'Cash' },
-  { value: 'neft_rtgs', label: 'NEFT/RTGS' },
-  { value: 'cheque', label: 'Cheque' },
-  { value: 'auto_debit', label: 'Auto Debit' },
 ];
 
 const DEFAULT_CATEGORIES = {
@@ -624,6 +614,34 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     }
   });
 
+  const [paymentModeOptions, setPaymentModeOptions] = useState(() =>
+    bankAccountService.getPaymentModeOptions(user?.email)
+  );
+
+  useEffect(() => {
+    setPaymentModeOptions(bankAccountService.getPaymentModeOptions(user?.email));
+    const handleAccUpdated = () => {
+      setPaymentModeOptions(bankAccountService.getPaymentModeOptions(user?.email));
+    };
+    window.addEventListener('fintrack-accounts-updated', handleAccUpdated);
+    return () => window.removeEventListener('fintrack-accounts-updated', handleAccUpdated);
+  }, [user?.email]);
+
+  const formatPaymentModeName = (pm?: string) => {
+    if (!pm) return 'UPI';
+    const clean = pm.trim();
+    const opt = paymentModeOptions.find((p) => p.value.toLowerCase() === clean.toLowerCase());
+    if (opt) return opt.label;
+    if (clean.toLowerCase() === 'cash') return '💵 Cash';
+    if (clean.toLowerCase() === 'upi') return '📱 UPI';
+    if (clean.startsWith('bank_')) {
+      const parts = clean.slice(5).split('_');
+      const last = parts.pop();
+      return `🏦 ${parts.join(' ').toUpperCase()} (•••• ${last})`;
+    }
+    return clean.replace(/_/g, ' ').toUpperCase();
+  };
+
   // Sync global search query from Navbar
   useEffect(() => {
     if (globalSearchQuery !== undefined) {
@@ -1036,6 +1054,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         executeDelete: async () => {
           try {
             await api.delete(`/transactions/${id}`);
+            bankAccountService.applyTransactionImpact(txObj, true, user?.email);
             window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
           } catch (err) {
             console.warn(`Transaction delete note for id ${id}:`, err);
@@ -1318,11 +1337,19 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           const date = `${selectedYear}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
-          const pm = draft.monthPaymentModes?.[month]?.trim() || defaultPaymentMode;
+          const commonSelect = typeof document !== 'undefined'
+            ? (document.getElementById(`common-paymode-${draft.id}`) as HTMLSelectElement | null)
+            : null;
+          const selectedCommonMode = commonSelect?.value?.trim();
+          const pm =
+            draft.monthPaymentModes?.[month]?.trim() ||
+            selectedCommonMode ||
+            draft.paymentMode?.trim() ||
+            defaultPaymentMode;
           const isCredit = pm.toLowerCase() === 'credit' || pm.toLowerCase() === 'credit card';
           const assignedCard = isCredit ? (cardService.getActiveCards()[0]?.name || null) : null;
 
-          await api.post('/transactions', {
+          const txPayload = {
             date,
             type: parent.section,
             category: parent.category.name,
@@ -1331,7 +1358,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             paymentMode: pm,
             card: assignedCard,
             description: draft.name.trim() || 'Transaction',
-          });
+          };
+
+          await api.post('/transactions', txPayload);
+          bankAccountService.applyTransactionImpact(txPayload, false, user?.email);
         }
 
         cancelBudgetTransactionDraft(subcategory);
@@ -1437,10 +1467,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         : draft.date?.slice(8, 10) || '01';
 
     const monthModes = draft.monthPaymentModes || new Array(12).fill('');
+    const commonModeValue = monthModes.find((m) => Boolean(m && m.trim())) || defaultPaymentMode;
 
     const getMonthModeLabel = (pm: string) => {
-      if (!pm) return PAYMENT_MODES.find((p) => p.value === defaultPaymentMode)?.label || 'UPI';
-      return PAYMENT_MODES.find((p) => p.value === pm)?.label || pm;
+      if (!pm) return paymentModeOptions.find((p) => p.value === defaultPaymentMode)?.label || 'UPI';
+      return paymentModeOptions.find((p) => p.value === pm)?.label || pm;
     };
 
     return (
@@ -1548,7 +1579,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   const commonSelect = document.getElementById(
                     `common-paymode-${draft.id}`,
                   ) as HTMLSelectElement | null;
-                  const commonValue = commonSelect?.value || defaultPaymentMode;
+                  const commonValue = commonSelect?.value || commonModeValue || defaultPaymentMode;
                   editBudgetTransactionDraft(subcategory, {
                     monthPaymentModes: new Array(12).fill(commonValue),
                   });
@@ -1559,9 +1590,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               <select
                 id={`common-paymode-${draft.id}`}
                 className="budget-paymode-select budget-paymode-common"
-                defaultValue={defaultPaymentMode}
+                value={commonModeValue}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  editBudgetTransactionDraft(subcategory, {
+                    monthPaymentModes: new Array(12).fill(val),
+                  });
+                }}
               >
-                {PAYMENT_MODES.map((pm) => (
+                {paymentModeOptions.map((pm) => (
                   <option key={pm.value} value={pm.value}>
                     {pm.label}
                   </option>
@@ -1573,20 +1610,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               <td key={month} className="budget-transaction-paymode-cell">
                 <select
                   className="budget-paymode-select"
-                  value={monthModes[month] || ''}
+                  value={monthModes[month] || commonModeValue}
                   onChange={(event) => {
                     const updated = [...monthModes];
+                    for (let i = 0; i < 12; i++) {
+                      if (!updated[i]) updated[i] = commonModeValue;
+                    }
                     updated[month] = event.target.value;
                     editBudgetTransactionDraft(subcategory, {
                       monthPaymentModes: updated,
                     });
                   }}
-                  title={`${MONTHS[month]} payment mode: ${getMonthModeLabel(monthModes[month])}`}
+                  title={`${MONTHS[month]} payment mode: ${getMonthModeLabel(monthModes[month] || commonModeValue)}`}
                 >
-                  <option value="">
-                    {PAYMENT_MODES.find((p) => p.value === defaultPaymentMode)?.label || 'UPI'}
-                  </option>
-                  {PAYMENT_MODES.map((pm) => (
+                  {paymentModeOptions.map((pm) => (
                     <option key={pm.value} value={pm.value}>
                       {pm.label}
                     </option>
@@ -3506,7 +3543,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               }}
                             >
                               <CreditCard size={14} />
-                              {(t.paymentMode || 'UPI').toUpperCase()}
+                              {formatPaymentModeName(t.paymentMode)}
                               {t.card ? ` (${t.card})` : ''}
                             </span>
                           </td>
@@ -3995,7 +4032,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             }}
                           >
                             <Building2 size={12} style={{ color: '#60a5fa' }} />
-                            <span>{tx.paymentMode}</span>
+                            <span>{formatPaymentModeName(tx.paymentMode)}</span>
                           </div>
                         </div>
                       </div>

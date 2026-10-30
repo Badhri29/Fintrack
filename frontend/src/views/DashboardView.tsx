@@ -33,6 +33,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { cardService } from '../services/cardService';
+import { bankAccountService } from '../services/bankAccountService';
 import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
@@ -530,12 +531,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   }, [transactions, backendCategories, budgetStore, selectedYear, selectedMonths]);
 
   const [loansVersion, setLoansVersion] = useState<number>(0);
+  const [accountsVersion, setAccountsVersion] = useState<number>(0);
   useEffect(() => {
     const onLoansChanged = () => {
       setLoansVersion(v => v + 1);
     };
+    const onAccountsChanged = () => {
+      setAccountsVersion(v => v + 1);
+    };
     window.addEventListener('fintrack-loans-changed', onLoansChanged);
-    return () => window.removeEventListener('fintrack-loans-changed', onLoansChanged);
+    window.addEventListener('fintrack-accounts-updated', onAccountsChanged);
+    window.addEventListener('fintrack-cash-updated', onAccountsChanged);
+    return () => {
+      window.removeEventListener('fintrack-loans-changed', onLoansChanged);
+      window.removeEventListener('fintrack-accounts-updated', onAccountsChanged);
+      window.removeEventListener('fintrack-cash-updated', onAccountsChanged);
+    };
   }, []);
 
   // Overall Top Metrics & Comprehensive Net Worth Calculation (Point 4 & Point 6)
@@ -569,8 +580,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       ? Math.max(0, Math.round((actualSavings / actualIncome) * 100))
       : 0;
 
+    // 1. Liquid Accounts (Bank Accounts + Cash in Hand) from Accounts View
+    let totalBankBalance = 0;
+    let totalCashBalance = 0;
+    try {
+      const bankAccounts = bankAccountService.getAccounts(user?.email);
+      const cashWallet = bankAccountService.getCashBalance(user?.email);
+      totalBankBalance = bankAccounts.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
+      totalCashBalance = Number(cashWallet.balance) || 0;
+    } catch {}
+
+    const totalLiquidAccountsBalance = totalBankBalance + totalCashBalance;
+
     // Assets & Comprehensive Debt/Liability calculation (Point 6)
-    let totalCashAssets = 0;
+    let transactionCashDelta = 0;
     let totalInvestments = 0;
     let peerDebts = 0;
 
@@ -582,9 +605,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       const amt = Number(t.amount) || 0;
 
       if (type === 'income' || cat.includes('salary') || cat.includes('income')) {
-        totalCashAssets += amt;
+        transactionCashDelta += amt;
       } else if (type === 'expense') {
-        totalCashAssets -= amt;
+        transactionCashDelta -= amt;
       } else if (type === 'savings' || cat.includes('invest') || cat.includes('mutual') || cat.includes('emergency')) {
         totalInvestments += amt;
       }
@@ -595,7 +618,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       }
     });
 
-    totalCashAssets = Math.max(0, totalCashAssets);
+    // When bank accounts or cash exist in Accounts tab, use the real liquid account balances!
+    // If no bank accounts or cash configured yet, fallback to cumulative transaction cash.
+    const totalCashAssets = totalLiquidAccountsBalance > 0
+      ? totalLiquidAccountsBalance
+      : Math.max(0, transactionCashDelta);
 
     let totalLoanDebt = 0;
     let physicalAssets = 0;
@@ -668,9 +695,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       totalLoanDebt,
       ccOutstanding,
       peerDebts,
+      totalLiquidAccountsBalance,
+      totalBankBalance,
+      totalCashBalance,
       netWorth: !isNaN(netWorth) ? netWorth : (summaryData.netWorth || 0)
     };
-  }, [sectionData, transactions, selectedYear, selectedMonths, summaryData, loansVersion]);
+  }, [sectionData, transactions, selectedYear, selectedMonths, summaryData, loansVersion, accountsVersion]);
 
   // Credit Card Overview Data (Point 3 matching user Image 2)
   const [creditCards, setCreditCards] = useState<any[]>(() => {
@@ -1541,10 +1571,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
                 {isIncomeBasis ? (
                   <>
-                    <span>{kpiPct <= 100 ? 'Within received income' : 'Over-utilized income'}</span>
-                    <span style={{ fontWeight: 600, color: kpiColor }}>
+                    <span>
+                      {kpiPct <= 100
+                        ? 'Within received income'
+                        : metrics.totalLiquidAccountsBalance > 0
+                        ? 'Covered by Account Balance'
+                        : 'Over-utilized income'}
+                    </span>
+                    <span style={{ fontWeight: 600, color: (kpiPct <= 100 || metrics.totalLiquidAccountsBalance > 0) ? '#10B981' : kpiColor }}>
                       {kpiPct <= 100
                         ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent balance (${Math.max(0, 100 - kpiPct).toFixed(1)}% remaining)`
+                        : metrics.totalLiquidAccountsBalance > 0
+                        ? `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance before salary)`
                         : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} overspent (${(kpiPct - 100).toFixed(1)}% excess)`}
                     </span>
                   </>
@@ -1624,10 +1662,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
                 {isIncomeBasis ? (
                   <>
-                    <span>{kpiPct <= 100 ? 'Within received income' : 'Over-utilized income'}</span>
-                    <span style={{ fontWeight: 600, color: kpiColor }}>
+                    <span>
+                      {kpiPct <= 100
+                        ? 'Within received income'
+                        : metrics.totalLiquidAccountsBalance > 0
+                        ? 'Covered by Account Balance'
+                        : 'Over-utilized income'}
+                    </span>
+                    <span style={{ fontWeight: 600, color: (kpiPct <= 100 || metrics.totalLiquidAccountsBalance > 0) ? '#10B981' : kpiColor }}>
                       {kpiPct <= 100
                         ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent balance (${Math.max(0, 100 - kpiPct).toFixed(1)}% remaining)`
+                        : metrics.totalLiquidAccountsBalance > 0
+                        ? `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance before salary)`
                         : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} overspent (${(kpiPct - 100).toFixed(1)}% excess)`}
                     </span>
                   </>
@@ -1644,7 +1690,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           );
         })()}
 
-        {/* Card 2: COMPREHENSIVE NET WORTH */}
+        {/* Card 2: AVAILABLE LIQUID FUNDS (BANK & CASH IN HAND) */}
+        <div
+          className="kpi-card"
+          style={{
+            padding: '13px 18px',
+            borderLeft: '4px solid #10B981',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                AVAILABLE LIQUID FUNDS
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#10B981', lineHeight: 1.15 }}>
+                {currencyService.format(metrics.totalLiquidAccountsBalance)}
+              </div>
+            </div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
+              <PiggyBank size={16} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Bank Accounts: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalBankBalance)}</strong>
+            </span>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Cash in Hand: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalCashBalance)}</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: COMPREHENSIVE NET WORTH */}
         <div
           className="kpi-card"
           style={{
@@ -1669,6 +1749,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
             <span style={{ color: 'var(--text-muted)' }}>
               Assets: <strong style={{ color: '#10B981' }}>{currencyService.format(metrics.totalAssets)}</strong>
+              {metrics.totalLiquidAccountsBalance > 0 && (
+                <span style={{ fontSize: 10.5, color: '#10B981', marginLeft: 4 }}>
+                  (incl. Accounts: {currencyService.format(metrics.totalLiquidAccountsBalance)})
+                </span>
+              )}
             </span>
             <span style={{ color: 'var(--text-muted)' }}>
               Total Debts & Loans: <strong style={{ color: '#EF4444' }}>-{currencyService.format(metrics.totalLiabilities)}</strong>
@@ -1874,6 +1959,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                   const remPct = Math.max(0, 100 - pctValue);
                   subtextLabel = `+${currencyService.format(diff)} remaining after expense (${remPct.toFixed(1)}% left)`;
                   subtextColor = '#10B981';
+                } else if (metrics.totalLiquidAccountsBalance > 0) {
+                  subtextLabel = `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance)`;
+                  subtextColor = '#10B981';
                 } else {
                   const overPct = pctValue - 100;
                   subtextLabel = `-${currencyService.format(Math.abs(diff))} over income (${overPct.toFixed(1)}% excess)`;
@@ -1888,6 +1976,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                 const netPct = baseIncome > 0 ? (net / baseIncome) * 100 : 0;
                 if (net >= 0) {
                   subtextLabel = `+${currencyService.format(net)} net cash remaining (${netPct.toFixed(1)}% surplus)`;
+                  subtextColor = '#10B981';
+                } else if (metrics.totalLiquidAccountsBalance > 0) {
+                  subtextLabel = `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (surplus in reserve)`;
                   subtextColor = '#10B981';
                 } else {
                   subtextLabel = `-${currencyService.format(Math.abs(net))} net cash deficit (${Math.abs(netPct).toFixed(1)}% deficit)`;
@@ -1998,6 +2089,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                 if (rem >= 0) {
                   subtextLabel = `+${currencyService.format(rem)} cash left after expense (${remPct.toFixed(1)}% unspent)`;
                   subtextColor = '#10B981';
+                } else if (metrics.totalLiquidAccountsBalance > 0) {
+                  subtextLabel = `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance)`;
+                  subtextColor = '#10B981';
                 } else {
                   subtextLabel = `-${currencyService.format(Math.abs(rem))} cash deficit (${Math.abs(remPct).toFixed(1)}% excess)`;
                   subtextColor = '#EF4444';
@@ -2010,6 +2104,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                 const netPct = baseIncome > 0 ? (net / baseIncome) * 100 : 0;
                 if (net >= 0) {
                   subtextLabel = `+${currencyService.format(net)} net unspent cash (${netPct.toFixed(1)}% cash left)`;
+                  subtextColor = '#10B981';
+                } else if (metrics.totalLiquidAccountsBalance > 0) {
+                  subtextLabel = `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (surplus in reserve)`;
                   subtextColor = '#10B981';
                 } else {
                   subtextLabel = `-${currencyService.format(Math.abs(net))} net cash deficit (${Math.abs(netPct).toFixed(1)}% deficit)`;

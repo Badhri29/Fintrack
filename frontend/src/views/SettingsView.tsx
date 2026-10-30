@@ -22,12 +22,16 @@ import {
   RotateCcw,
   Send,
   Volume2,
-  Clock
+  Clock,
+  Upload
 } from 'lucide-react';
 import { playNotificationChime, NOTIFICATION_SOUNDS, getActiveSoundTone, setActiveSoundTone } from '../services/soundService';
 import { useAuth } from '../context/AuthContext';
 import { useTheme, type ThemeMode } from '../context/ThemeContext';
 import { currencyService, SUPPORTED_CURRENCIES } from '../services/currencyService';
+import { cardService } from '../services/cardService';
+import { loanService } from '../services/loanService';
+import { bankAccountService } from '../services/bankAccountService';
 import api from '../services/api';
 
 export interface SubscriptionPlanItem {
@@ -568,10 +572,29 @@ export const SettingsView: React.FC = () => {
     setExporting(true);
     setExportMessage(null);
     try {
-      const res = await api.get('/transactions');
-      const transactions = (res.data && res.data.success && Array.isArray(res.data.data)) ? res.data.data : [];
+      let transactions: any[] = [];
+      try {
+        const res = await api.get('/transactions');
+        if (res.data && res.data.success && Array.isArray(res.data.data)) {
+          transactions = res.data.data;
+        }
+      } catch (err) {
+        console.warn('Could not fetch remote transactions for backup:', err);
+      }
+
+      // Collect all budgets and fintrack keys
+      const budgets: Record<string, any> = {};
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (key && (key.startsWith('fintrack-budget') || key.startsWith('fintrack_budget') || key.startsWith('fintrack_deleted_categories'))) {
+            budgets[key] = localStorage.getItem(key);
+          }
+        }
+      } catch {}
 
       const backupData = {
+        version: '2.0',
         exportDate: new Date().toISOString(),
         user: { name: user?.name, email: user?.email },
         settings: {
@@ -581,24 +604,85 @@ export const SettingsView: React.FC = () => {
           financialYear,
           theme
         },
+        cards: cardService.getCards(user?.email),
+        loans: loanService.getLoans(user?.email),
+        bankAccounts: bankAccountService.getAccounts(user?.email),
+        cashWallet: bankAccountService.getCashBalance(user?.email),
+        budgets,
         transactions
       };
 
       const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(backupData, null, 2));
       const link = document.createElement('a');
       link.setAttribute('href', dataStr);
-      link.setAttribute('download', `FinTrack_Backup_${new Date().toISOString().substring(0, 10)}.json`);
+      link.setAttribute('download', `FinTrack_Full_Workspace_${new Date().toISOString().substring(0, 10)}.json`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
 
-      setExportMessage('Full JSON backup downloaded successfully!');
-      setTimeout(() => setExportMessage(null), 4000);
+      setExportMessage('Full workspace backup (Cards, Loans, Accounts, Cash & Settings) downloaded successfully!');
+      setTimeout(() => setExportMessage(null), 5000);
     } catch {
-      setExportMessage('Failed to generate JSON backup.');
+      setExportMessage('Failed to generate full workspace backup.');
     } finally {
       setExporting(false);
     }
+  };
+
+  const handleImportJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target?.result as string;
+        const data = JSON.parse(content);
+
+        // 1. Restore cards
+        if (Array.isArray(data.cards) && data.cards.length > 0) {
+          cardService.saveCards(data.cards, user?.email);
+        }
+
+        // 2. Restore loans
+        if (Array.isArray(data.loans) && data.loans.length > 0) {
+          loanService.saveLoans(data.loans, user?.email);
+        }
+
+        // 3. Restore bank accounts
+        if (Array.isArray(data.bankAccounts) && data.bankAccounts.length > 0) {
+          bankAccountService.saveAccounts(data.bankAccounts, user?.email);
+        }
+
+        // 4. Restore cash wallet
+        if (data.cashWallet && typeof data.cashWallet.balance === 'number') {
+          bankAccountService.updateCashBalance(data.cashWallet.balance, data.cashWallet.notes || 'Imported cash reserve', user?.email);
+        }
+
+        // 5. Restore budgets
+        if (data.budgets && typeof data.budgets === 'object') {
+          Object.keys(data.budgets).forEach(k => {
+            if (data.budgets[k]) {
+              localStorage.setItem(k, data.budgets[k]);
+            }
+          });
+        }
+
+        // Dispatch all reactive refresh events
+        window.dispatchEvent(new CustomEvent('fintrack-cards-updated', { detail: data.cards }));
+        window.dispatchEvent(new CustomEvent('fintrack-loans-changed', { detail: data.loans }));
+        window.dispatchEvent(new CustomEvent('fintrack-accounts-updated', { detail: data.bankAccounts }));
+        window.dispatchEvent(new CustomEvent('fintrack-cash-updated', { detail: data.cashWallet }));
+        window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+
+        setExportMessage(`Full Workspace Data (${data.cards?.length || 0} cards, ${data.loans?.length || 0} loans, accounts & budgets) imported successfully!`);
+        setTimeout(() => setExportMessage(null), 5000);
+      } catch (err: any) {
+        setExportMessage('Invalid JSON backup file: ' + (err?.message || 'Parse error'));
+      }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
   };
 
 
@@ -2191,10 +2275,10 @@ export const SettingsView: React.FC = () => {
             }}>
               <div>
                 <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
-                  Export Full Backup (JSON)
+                  Export Full Workspace Backup (JSON)
                 </div>
                 <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
-                  Complete JSON backup of records, preferences and category links
+                  Complete JSON backup of Cards, Loans, Accounts, Cash, Budgets, and Preferences
                 </div>
               </div>
               <button
@@ -2207,6 +2291,49 @@ export const SettingsView: React.FC = () => {
                 <Download size={15} />
                 Export JSON
               </button>
+            </div>
+
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '14px 16px',
+              background: 'var(--bg-secondary)',
+              borderRadius: 10,
+              border: '1px solid var(--border-color)'
+            }}>
+              <div>
+                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 14 }}>
+                  Import Full Workspace (JSON)
+                </div>
+                <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginTop: 2 }}>
+                  Upload a JSON backup from Live to immediately restore all your Cards, Loans, Accounts & Budgets locally
+                </div>
+              </div>
+              <label
+                style={{
+                  padding: '8px 14px',
+                  fontSize: 13,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  cursor: 'pointer',
+                  borderRadius: 8,
+                  background: 'rgba(59, 130, 246, 0.15)',
+                  border: '1px solid #3B82F6',
+                  color: '#60A5FA',
+                  fontWeight: 700
+                }}
+              >
+                <Upload size={15} />
+                <span>Import JSON</span>
+                <input
+                  type="file"
+                  accept=".json,application/json"
+                  style={{ display: 'none' }}
+                  onChange={handleImportJSON}
+                />
+              </label>
             </div>
 
 

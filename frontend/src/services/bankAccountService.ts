@@ -230,6 +230,72 @@ export const bankAccountService = {
     return this.updateAccount(accountId, { creditCards }, email);
   },
 
+  /**
+   * Applies the financial impact of a transaction to the corresponding bank account or cash wallet.
+   * If revert is true, reverses the effect (used when deleting a transaction or before updating it).
+   */
+  applyTransactionImpact(
+    tx: { type?: string; amount?: number | string; paymentMode?: string; card?: string | null },
+    revert: boolean = false,
+    email?: string
+  ): void {
+    const rawAmt = Number(tx.amount);
+    if (isNaN(rawAmt) || rawAmt <= 0) return;
+
+    const type = String(tx.type || 'expense').toLowerCase();
+    const mode = String(tx.paymentMode || '').toLowerCase().trim();
+
+    // Determine balance delta:
+    // For expense: normally reduces balance (-amt). If revert, adds back (+amt).
+    // For income: normally increases balance (+amt). If revert, reduces (-amt).
+    const isIncome = type === 'income';
+    const delta = isIncome ? (revert ? -rawAmt : rawAmt) : (revert ? rawAmt : -rawAmt);
+
+    // 1. Cash In Hand
+    if (mode === 'cash' || mode.includes('cash')) {
+      const currentCash = this.getCashBalance(email);
+      const newCashBalance = Math.max(0, (currentCash.balance || 0) + delta);
+      this.updateCashBalance(
+        newCashBalance,
+        isIncome
+          ? (revert ? 'Reverted Cash Income' : 'Cash Income Received')
+          : (revert ? 'Reverted Cash Expense' : 'Cash Expense Spent'),
+        email
+      );
+      return;
+    }
+
+    // 2. Bank Accounts & Debit Cards & UPI / Net Banking
+    const accounts = this.getAccounts(email);
+    if (accounts.length === 0) return;
+
+    // Check if mode points to a specific bank account or debit card
+    let targetAccount = accounts.find(acc => {
+      if (acc.id && (mode === acc.id.toLowerCase() || mode.includes(acc.id.toLowerCase()))) return true;
+      // bank_{name}_{last4}
+      if (acc.accountNumberLast4 && acc.accountNumberLast4.length >= 4 && mode.includes(acc.accountNumberLast4)) return true;
+      // debit cards
+      if (acc.debitCards?.some(dc => dc.last4 && dc.last4.length >= 4 && mode.includes(dc.last4))) return true;
+      if (acc.debitCardLast4 && acc.debitCardLast4.length >= 4 && mode.includes(acc.debitCardLast4)) return true;
+      const bClean = acc.bankName.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const mClean = mode.replace(/[^a-z0-9]/g, '');
+      if (bClean && bClean.length >= 3 && mClean.includes(bClean)) return true;
+      return false;
+    });
+
+    // If generic mode like 'upi', 'netbanking', 'bank_transfer', 'debit', 'bank':
+    // assign to primary account or the first account
+    if (!targetAccount && !mode.includes('credit')) {
+      targetAccount = accounts.find(a => a.isPrimary) || accounts[0];
+    }
+
+    if (targetAccount) {
+      const currentBal = Number(targetAccount.balance) || 0;
+      const newBal = Math.max(0, currentBal + delta);
+      this.updateAccountBalance(targetAccount.id, newBal, email);
+    }
+  },
+
   // =========================================================================
   // CASH IN HAND & WALLET MANAGEMENT (Requirement: Cash Option)
   // =========================================================================

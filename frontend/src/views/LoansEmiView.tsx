@@ -39,6 +39,7 @@ import {
   loanService
 } from '../services/loanService';
 import { cardService, type CardModel } from '../services/cardService';
+import { bankAccountService } from '../services/bankAccountService';
 
 export type { LoanModel, MonthEmiScheduleItem };
 export { calculateEMI, calculateLoanTenureMonths, calculateLoanInterestAmount, calculateLoanEMIs, generateEmiSchedule, DEFAULT_LOANS };
@@ -505,8 +506,12 @@ export const LoansEmiView: React.FC = () => {
   const handleDeleteTransaction = async (id: number) => {
     if (!window.confirm('Are you sure you want to delete this EMI repayment record?')) return;
     try {
+      const txToDelete = actualTransactions.find(t => t.id === id);
       const res = await api.delete(`/transactions/${id}`);
       if (res.data?.success) {
+        if (txToDelete) {
+          bankAccountService.applyTransactionImpact(txToDelete, true, user?.email);
+        }
         setActualTransactions(prev => prev.filter(t => t.id !== id));
         window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
         setBannerMsg({ type: 'success', text: 'Transaction removed from EMI repayments ledger.' });
@@ -893,6 +898,7 @@ export const LoansEmiView: React.FC = () => {
         if (!res.data || !res.data.success) {
           throw new Error('Failed to record transaction');
         }
+        bankAccountService.applyTransactionImpact(payload, false, user?.email);
       }
 
       const metrics = calculateLoanEMIs(payingLoan);

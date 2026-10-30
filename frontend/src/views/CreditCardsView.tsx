@@ -1088,8 +1088,12 @@ export const CreditCardsView: React.FC = () => {
       return;
     }
     try {
+      const txToDelete = actualTransactions.find(t => t.id === id);
       const res = await api.delete(`/transactions/${id}`);
       if (res.data && res.data.success) {
+        if (txToDelete) {
+          bankAccountService.applyTransactionImpact(txToDelete, true, user?.email);
+        }
         setActualTransactions(prev => prev.filter(t => t.id !== id));
         window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
         setBannerMsg({ type: 'success', text: 'Transaction removed from credit card ledger.' });
@@ -1279,7 +1283,7 @@ export const CreditCardsView: React.FC = () => {
     setPaySaving(true);
     try {
       const baseAmount = currencyService.convertToBase(amt);
-      const res = await api.post('/transactions', {
+      const billPayload = {
         date: new Date().toISOString().substring(0, 10),
         type: 'expense',
         category: 'Utilities & Bills',
@@ -1288,9 +1292,11 @@ export const CreditCardsView: React.FC = () => {
         amount: baseAmount,
         paymentMode: payMode,
         card: payCardName
-      });
+      };
+      const res = await api.post('/transactions', billPayload);
 
       if (res.data && res.data.success) {
+        bankAccountService.applyTransactionImpact(billPayload, false, user?.email);
         // Automatically settle linked loan EMI with ZERO duplicate debit
         const cardObj = cards.find(c => c.name === payCardName);
         const cardIdToSettle = cardObj ? cardObj.id : selectedCardId;
