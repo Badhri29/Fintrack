@@ -116,12 +116,20 @@ export const cardService = {
       if (stored) {
         const parsed = JSON.parse(stored);
         if (Array.isArray(parsed)) {
-          return parsed.map((c: any) => ({
+          const list = parsed.map((c: any) => ({
             ...c,
             isActive: c.isActive !== false,
             last4: c.last4 || (c.cardNumber ? c.cardNumber.slice(-4) : '0000')
           }));
+          const primaryMap = new Map(list.filter((c: any) => !c.isAddon).map((c: any) => [c.id, c]));
+          return list.map((c: any) => {
+            if (c.isAddon && c.primaryCardId && primaryMap.has(c.primaryCardId)) {
+              return { ...c, bank: primaryMap.get(c.primaryCardId)!.bank };
+            }
+            return c;
+          });
         }
+
       }
     } catch (err) {
       console.error('Error loading cards from storage:', err);
