@@ -13,7 +13,11 @@ import {
   TrendingUp,
   TrendingDown,
   PiggyBank,
-  Eye
+  Eye,
+  X,
+  Building2,
+  Clock,
+  CheckCircle2
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -33,7 +37,8 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { cardService } from '../services/cardService';
-import { bankAccountService } from '../services/bankAccountService';
+import { bankAccountService, type BankAccountModel } from '../services/bankAccountService';
+import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
@@ -746,16 +751,132 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       const limit = Number(c.limit) || 100000;
       const usedPct = limit > 0 ? Math.min(100, Math.round((spent / limit) * 1000) / 10) : 0;
 
+      const avail = Math.max(0, limit - spent);
+
       return {
         ...c,
         spent,
         limit,
-        usedPct
+        usedPct,
+        avail
       };
     });
   }, [creditCards, transactions, selectedYear, selectedMonths]);
 
   const totalCreditSpent = cardStats.reduce((sum, c) => sum + c.spent, 0);
+
+  const totalCreditLimit = useMemo(() => {
+    const primaryCards = cardStats.filter(c => !c.isAddon);
+    return primaryCards.length > 0
+      ? primaryCards.reduce((sum, c) => sum + (Number(c.limit) || 0), 0)
+      : cardStats.reduce((sum, c) => sum + (Number(c.limit) || 0), 0);
+  }, [cardStats]);
+
+  const totalCreditAvailable = useMemo(() => {
+    const primaryCards = cardStats.filter(c => !c.isAddon);
+    return primaryCards.length > 0
+      ? primaryCards.reduce((sum, c) => sum + (Number(c.avail) || 0), 0)
+      : cardStats.reduce((sum, c) => sum + (Number(c.avail) || 0), 0);
+  }, [cardStats]);
+
+  // Right-Side Portfolio Inspector Drawer State
+  const [activeDrawer, setActiveDrawer] = useState<'bank_accounts' | 'credit_cards' | 'active_loans' | 'monthly_emi' | null>(null);
+
+  // Bank Accounts State
+  const [bankAccountsList, setBankAccountsList] = useState<BankAccountModel[]>(() => {
+    try {
+      return bankAccountService.getAccounts(user?.email);
+    } catch {
+      return [];
+    }
+  });
+
+  const [cashWallet, setCashWallet] = useState(() => {
+    try {
+      return bankAccountService.getCashBalance(user?.email);
+    } catch {
+      return { balance: 0, lastUpdated: '' };
+    }
+  });
+
+  // Loans State
+  const [allLoansList, setAllLoansList] = useState<LoanModel[]>(() => {
+    try {
+      return loanService.getLoans(user?.email);
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      setBankAccountsList(bankAccountService.getAccounts(user?.email));
+      setCashWallet(bankAccountService.getCashBalance(user?.email));
+      setAllLoansList(loanService.getLoans(user?.email));
+    } catch {}
+  }, [user, accountsVersion, loansVersion]);
+
+  // Handle ESC key to close drawer
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && activeDrawer) {
+        setActiveDrawer(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeDrawer]);
+
+  const totalBankAccountsBalance = useMemo(() => {
+    return bankAccountsList.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
+  }, [bankAccountsList]);
+
+  // Active Loans (Strictly active only - excluding closed loans)
+  const activeLoansList = useMemo(() => {
+    return allLoansList.filter(l => {
+      if (l.status === 'closed') return false;
+      const emiMetrics = calculateLoanEMIs(l);
+      if (emiMetrics.isClosed) return false;
+      return true;
+    });
+  }, [allLoansList]);
+
+  const activeLoansDetails = useMemo(() => {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth();
+
+    return activeLoansList.map(loan => {
+      const emiMetrics = calculateLoanEMIs(loan);
+      const schedule = generateEmiSchedule(loan, emiMetrics);
+      const currentMonthItem = schedule.find(s => s.year === currentYear && s.month === currentMonth);
+      const isCurrentMonthPaid = currentMonthItem ? currentMonthItem.status === 'paid' : false;
+
+      return {
+        ...loan,
+        emiMetrics,
+        schedule,
+        isCurrentMonthPaid,
+        currentMonthDueDay: loan.dueDay || 5
+      };
+    });
+  }, [activeLoansList]);
+
+  const totalActiveLoansPrincipal = useMemo(() => {
+    return activeLoansDetails.reduce((sum, l) => sum + (Number(l.principal) || 0), 0);
+  }, [activeLoansDetails]);
+
+  const totalActiveLoansRemaining = useMemo(() => {
+    return activeLoansDetails.reduce((sum, l) => sum + (Number(l.emiMetrics.remaining) || 0), 0);
+  }, [activeLoansDetails]);
+
+  const totalMonthlyEmi = useMemo(() => {
+    return activeLoansDetails.reduce((sum, l) => sum + (Number(l.emiMetrics.emi) || 0), 0);
+  }, [activeLoansDetails]);
+
+  const activeLoansWithEmiCount = useMemo(() => {
+    return activeLoansDetails.filter(l => l.emiMetrics.emi > 0).length;
+  }, [activeLoansDetails]);
 
   // Monthly Trade Statistics (Profit / Loss / Even) for Month Selector (Point 2)
   const monthlyTrades = useMemo(() => {
@@ -1762,6 +1883,185 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         </div>
       </div>
 
+      {/* 3.1 Portfolio & Liability Breakdown Quick Cards (Bank Accounts, Credit Cards, Active Loans, Monthly EMI) */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
+          gap: 12,
+          marginBottom: 20
+        }}
+      >
+        {/* Card 1: Bank Accounts */}
+        <div
+          onClick={() => setActiveDrawer('bank_accounts')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDrawer('bank_accounts'); } }}
+          className="kpi-card"
+          style={{
+            padding: '14px 18px',
+            borderLeft: '4px solid #0EA5E9',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: activeDrawer === 'bank_accounts' ? '2px solid #0EA5E9' : 'none'
+          }}
+          title="Click to inspect all bank accounts in inspector"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                BANK ACCOUNTS
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#0EA5E9', lineHeight: 1.15 }}>
+                {bankAccountsList.length} <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{bankAccountsList.length === 1 ? 'Account' : 'Accounts'}</span>
+              </div>
+            </div>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(14, 165, 233, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0EA5E9' }}>
+              <Landmark size={18} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Total Balance: <strong style={{ color: '#10B981' }}>{currencyService.format(totalBankAccountsBalance)}</strong>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#0EA5E9', fontWeight: 600, fontSize: 11 }}>
+              Inspect <ChevronRight size={13} />
+            </span>
+          </div>
+        </div>
+
+        {/* Card 2: Credit Cards */}
+        <div
+          onClick={() => setActiveDrawer('credit_cards')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDrawer('credit_cards'); } }}
+          className="kpi-card"
+          style={{
+            padding: '14px 18px',
+            borderLeft: '4px solid #8B5CF6',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: activeDrawer === 'credit_cards' ? '2px solid #8B5CF6' : 'none'
+          }}
+          title="Click to view credit card details & limits in inspector"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                CREDIT CARDS
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#8B5CF6', lineHeight: 1.15 }}>
+                {creditCards.length} <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{creditCards.length === 1 ? 'Card' : 'Cards'}</span>
+              </div>
+            </div>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(139, 92, 246, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
+              <CreditCard size={18} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Available: <strong style={{ color: '#8B5CF6' }}>{currencyService.format(totalCreditAvailable)}</strong>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#8B5CF6', fontWeight: 600, fontSize: 11 }}>
+              Inspect <ChevronRight size={13} />
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Active Loans */}
+        <div
+          onClick={() => setActiveDrawer('active_loans')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDrawer('active_loans'); } }}
+          className="kpi-card"
+          style={{
+            padding: '14px 18px',
+            borderLeft: '4px solid #F59E0B',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: activeDrawer === 'active_loans' ? '2px solid #F59E0B' : 'none'
+          }}
+          title="Click to inspect active loan portfolios in inspector"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                ACTIVE LOANS
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#F59E0B', lineHeight: 1.15 }}>
+                {activeLoansList.length} <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)' }}>{activeLoansList.length === 1 ? 'Loan' : 'Loans'}</span>
+              </div>
+            </div>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B' }}>
+              <Building2 size={18} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Principal: <strong style={{ color: '#F59E0B' }}>{currencyService.format(totalActiveLoansPrincipal)}</strong>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#F59E0B', fontWeight: 600, fontSize: 11 }}>
+              Inspect <ChevronRight size={13} />
+            </span>
+          </div>
+        </div>
+
+        {/* Card 4: Overall Monthly EMI */}
+        <div
+          onClick={() => setActiveDrawer('monthly_emi')}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveDrawer('monthly_emi'); } }}
+          className="kpi-card"
+          style={{
+            padding: '14px 18px',
+            borderLeft: '4px solid #EC4899',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+            cursor: 'pointer',
+            transition: 'all 0.2s ease',
+            outline: activeDrawer === 'monthly_emi' ? '2px solid #EC4899' : 'none'
+          }}
+          title="Click to view monthly EMI obligations in inspector"
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                OVERALL MONTHLY EMI
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#EC4899', lineHeight: 1.15 }}>
+                {currencyService.format(totalMonthlyEmi)}
+              </div>
+            </div>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(236, 72, 153, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EC4899' }}>
+              <Clock size={18} />
+            </div>
+          </div>
+          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Active EMIs: <strong style={{ color: '#EC4899' }}>{activeLoansWithEmiCount} {activeLoansWithEmiCount === 1 ? 'Loan' : 'Loans'}</strong>
+            </span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 2, color: '#EC4899', fontWeight: 600, fontSize: 11 }}>
+              Inspect <ChevronRight size={13} />
+            </span>
+          </div>
+        </div>
+      </div>
+
+
       {/* 4. Dashboard View Mode Toggle & Expand/Collapse All Controls */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -2707,6 +3007,1085 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           <Line data={smoothTrendChartData} options={smoothChartOptions} />
         </div>
       </div>
+
+      {/* ========================================================================= */}
+      {/* Right-Side Portfolio Inspector Drawer (Bank Accounts, Cards, Loans, EMI) */}
+      {/* ========================================================================= */}
+      {activeDrawer && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Portfolio Inspector"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            display: 'flex',
+            justifyContent: 'flex-end'
+          }}
+        >
+          {/* Backdrop */}
+          <div
+            onClick={() => setActiveDrawer(null)}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              background: 'rgba(0, 0, 0, 0.55)',
+              backdropFilter: 'blur(3px)',
+              cursor: 'pointer'
+            }}
+          />
+
+          {/* Slide-over Right Panel */}
+          <div
+            style={{
+              position: 'relative',
+              width: '100%',
+              maxWidth: 540,
+              height: '100vh',
+              background: isLight ? '#FFFFFF' : '#0F172A',
+              color: 'var(--text-primary)',
+              boxShadow: '-8px 0 32px rgba(0, 0, 0, 0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+              zIndex: 10000,
+              overflow: 'hidden',
+              borderLeft: '1px solid var(--border-color)'
+            }}
+          >
+            {/* Panel Header */}
+            <div
+              style={{
+                padding: '20px 24px 16px',
+                borderBottom: '1px solid var(--border-color)',
+                background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.02)',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 14
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div
+                    style={{
+                      width: 36,
+                      height: 36,
+                      borderRadius: 10,
+                      background:
+                        activeDrawer === 'bank_accounts'
+                          ? 'rgba(14, 165, 233, 0.15)'
+                          : activeDrawer === 'credit_cards'
+                          ? 'rgba(139, 92, 246, 0.15)'
+                          : activeDrawer === 'active_loans'
+                          ? 'rgba(245, 158, 11, 0.15)'
+                          : 'rgba(236, 72, 153, 0.15)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color:
+                        activeDrawer === 'bank_accounts'
+                          ? '#0EA5E9'
+                          : activeDrawer === 'credit_cards'
+                          ? '#8B5CF6'
+                          : activeDrawer === 'active_loans'
+                          ? '#F59E0B'
+                          : '#EC4899'
+                    }}
+                  >
+                    {activeDrawer === 'bank_accounts' && <Landmark size={20} />}
+                    {activeDrawer === 'credit_cards' && <CreditCard size={20} />}
+                    {activeDrawer === 'active_loans' && <Building2 size={20} />}
+                    {activeDrawer === 'monthly_emi' && <Clock size={20} />}
+                  </div>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
+                      {activeDrawer === 'bank_accounts' && 'Bank Accounts Inspector'}
+                      {activeDrawer === 'credit_cards' && 'Credit Cards Inspector'}
+                      {activeDrawer === 'active_loans' && 'Active Loans Inspector'}
+                      {activeDrawer === 'monthly_emi' && 'Monthly EMI Obligations'}
+                    </h3>
+                    <p style={{ fontSize: 12, margin: 0, color: 'var(--text-muted)' }}>
+                      Detailed asset & liability audit breakdown
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer(null)}
+                  style={{
+                    border: 'none',
+                    background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.08)',
+                    borderRadius: 8,
+                    width: 32,
+                    height: 32,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer',
+                    color: 'var(--text-secondary)'
+                  }}
+                  title="Close (Esc)"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Inspector Sub-Tabs Switcher */}
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: 4,
+                  background: isLight ? '#EDE9FE' : 'rgba(0, 0, 0, 0.25)',
+                  padding: 4,
+                  borderRadius: 10,
+                  border: '1px solid var(--border-color)'
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer('bank_accounts')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 7,
+                    border: 'none',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    background: activeDrawer === 'bank_accounts' ? '#0EA5E9' : 'transparent',
+                    color: activeDrawer === 'bank_accounts' ? '#FFFFFF' : 'var(--text-secondary)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2
+                  }}
+                >
+                  <span>Bank Accounts</span>
+                  <span style={{ fontSize: 10, opacity: 0.9 }}>({bankAccountsList.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer('credit_cards')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 7,
+                    border: 'none',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    background: activeDrawer === 'credit_cards' ? '#8B5CF6' : 'transparent',
+                    color: activeDrawer === 'credit_cards' ? '#FFFFFF' : 'var(--text-secondary)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2
+                  }}
+                >
+                  <span>Credit Cards</span>
+                  <span style={{ fontSize: 10, opacity: 0.9 }}>({creditCards.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer('active_loans')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 7,
+                    border: 'none',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    background: activeDrawer === 'active_loans' ? '#F59E0B' : 'transparent',
+                    color: activeDrawer === 'active_loans' ? '#FFFFFF' : 'var(--text-secondary)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2
+                  }}
+                >
+                  <span>Active Loans</span>
+                  <span style={{ fontSize: 10, opacity: 0.9 }}>({activeLoansList.length})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveDrawer('monthly_emi')}
+                  style={{
+                    padding: '7px 4px',
+                    borderRadius: 7,
+                    border: 'none',
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    background: activeDrawer === 'monthly_emi' ? '#EC4899' : 'transparent',
+                    color: activeDrawer === 'monthly_emi' ? '#FFFFFF' : 'var(--text-secondary)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 2
+                  }}
+                >
+                  <span>Monthly EMI</span>
+                  <span style={{ fontSize: 10, opacity: 0.9 }}>({activeLoansWithEmiCount})</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Panel Scrollable Body */}
+            <div
+              style={{
+                flex: 1,
+                overflowY: 'auto',
+                padding: '20px 24px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16
+              }}
+            >
+              {/* TAB 1: BANK ACCOUNTS */}
+              {activeDrawer === 'bank_accounts' && (
+                <>
+                  {/* Summary Metric Header */}
+                  <div
+                    style={{
+                      background: isLight ? '#F0F9FF' : 'rgba(14, 165, 233, 0.08)',
+                      border: '1px solid rgba(14, 165, 233, 0.25)',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#0EA5E9', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Bank Balance ({bankAccountsList.length} Accounts)
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#0EA5E9', marginTop: 2 }}>
+                        {currencyService.format(totalBankAccountsBalance)}
+                      </div>
+                    </div>
+                    {cashWallet && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                          Cash in Hand
+                        </div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: '#10B981', marginTop: 2 }}>
+                          {currencyService.format(Number(cashWallet.balance) || 0)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Bank Accounts List */}
+                  {bankAccountsList.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '40px 20px',
+                        textAlign: 'center',
+                        color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 12,
+                        border: '1px dashed var(--border-color)'
+                      }}
+                    >
+                      <Landmark size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600 }}>No Bank Accounts Found</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>Add your bank accounts in the Accounts page.</div>
+                    </div>
+                  ) : (
+                    bankAccountsList.map((acc, index) => (
+                      <div
+                        key={acc.id || index}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 14,
+                          padding: 16,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        {/* Top Row: Bank Name, Badges */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <div
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 7,
+                                background: 'rgba(14, 165, 233, 0.12)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#0EA5E9',
+                                fontWeight: 800,
+                                fontSize: 12
+                              }}
+                            >
+                              🏦
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {acc.bankName}
+                            </span>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            {acc.isPrimary && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 800,
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  background: 'rgba(16, 185, 129, 0.15)',
+                                  color: '#10B981',
+                                  textTransform: 'uppercase'
+                                }}
+                              >
+                                Primary
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: 'rgba(14, 165, 233, 0.15)',
+                                color: '#0EA5E9',
+                                textTransform: 'uppercase'
+                              }}
+                            >
+                              {acc.accountType}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle Row: Last 4 digits & Account Balance */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'baseline',
+                            padding: '10px 12px',
+                            background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                            borderRadius: 10,
+                            border: '1px solid var(--border-color)'
+                          }}
+                        >
+                          <div>
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                              ACCOUNT NUMBER
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)', marginTop: 2 }}>
+                              •••• {acc.accountNumberLast4 || 'XXXX'}
+                            </div>
+                          </div>
+
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                              CURRENT BALANCE
+                            </div>
+                            <div style={{ fontSize: 17, fontWeight: 800, color: '#10B981', marginTop: 2 }}>
+                              {currencyService.format(Number(acc.balance) || 0)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Bottom Row: Holder Name & Branch / IFSC */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            fontSize: 11.5,
+                            color: 'var(--text-muted)',
+                            flexWrap: 'wrap',
+                            gap: 6
+                          }}
+                        >
+                          <span>Holder: <strong style={{ color: 'var(--text-secondary)' }}>{acc.holderName || user?.name || 'Primary User'}</strong></span>
+                          <span>
+                            {acc.branch ? acc.branch : ''}
+                            {acc.branch && acc.ifscCode ? ' • ' : ''}
+                            {acc.ifscCode ? 'IFSC: ' + acc.ifscCode : ''}
+                          </span>
+                        </div>
+
+                        {/* Debit Cards attached */}
+                        {acc.debitCards && acc.debitCards.length > 0 && (
+                          <div style={{ paddingTop: 8, borderTop: '1px dashed var(--border-color)', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+                            <CreditCard size={12} color="#0EA5E9" />
+                            <span>Linked Debit Card:</span>
+                            {acc.debitCards.map(dc => (
+                              <span key={dc.id || dc.last4} style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                {dc.name} (•••• {dc.last4})
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
+
+                  {/* Cash in Hand Card */}
+                  {cashWallet && Number(cashWallet.balance) > 0 && (
+                    <div
+                      style={{
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        borderRadius: 14,
+                        padding: 16,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981', fontSize: 15 }}>
+                          💵
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                            Cash in Hand (Physical Wallet)
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            Ready cash reserves available immediately
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 800, color: '#10B981' }}>
+                        {currencyService.format(Number(cashWallet.balance) || 0)}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* TAB 2: CREDIT CARDS */}
+              {activeDrawer === 'credit_cards' && (
+                <>
+                  {/* Summary Metric Header */}
+                  <div
+                    style={{
+                      background: isLight ? '#FAF5FF' : 'rgba(139, 92, 246, 0.08)',
+                      border: '1px solid rgba(139, 92, 246, 0.25)',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#8B5CF6', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Available Limit ({creditCards.length} Cards)
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#8B5CF6', marginTop: 2 }}>
+                        {currencyService.format(totalCreditAvailable)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                        Combined Credit Limit
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+                        {currencyService.format(totalCreditLimit)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Cards List */}
+                  {cardStats.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '40px 20px',
+                        textAlign: 'center',
+                        color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 12,
+                        border: '1px dashed var(--border-color)'
+                      }}
+                    >
+                      <CreditCard size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600 }}>No Credit Cards Registered</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>Add cards in the Credit Cards page.</div>
+                    </div>
+                  ) : (
+                    cardStats.map((card, index) => {
+                      const avail = typeof card.avail === 'number' ? card.avail : Math.max(0, (card.limit || 0) - (card.spent || 0));
+                      const usedPct = card.usedPct || 0;
+                      const isOverUtilized = usedPct > 70;
+                      const isModerate = usedPct >= 30 && usedPct <= 70;
+                      const utilColor = isOverUtilized ? '#EF4444' : isModerate ? '#F59E0B' : '#10B981';
+
+                      return (
+                        <div
+                          key={card.id || index}
+                          style={{
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 14,
+                            padding: 16,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 12
+                          }}
+                        >
+                          {/* Top Row: Card Name, Bank, Network */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {card.name}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                {card.bank}
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {card.isAddon && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: 'rgba(236, 72, 153, 0.15)',
+                                    color: '#EC4899',
+                                    textTransform: 'uppercase'
+                                  }}
+                                >
+                                  Add-on Card
+                                </span>
+                              )}
+                              <span
+                                style={{
+                                  fontSize: 10.5,
+                                  fontWeight: 800,
+                                  padding: '2px 8px',
+                                  borderRadius: 999,
+                                  background: 'rgba(139, 92, 246, 0.15)',
+                                  color: '#8B5CF6'
+                                }}
+                              >
+                                {card.network || 'Card'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Card Basic Details Box: Last 4 digits, Cardholder */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '10px 12px',
+                              background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                              borderRadius: 10,
+                              border: '1px solid var(--border-color)'
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                CARD NUMBER
+                              </div>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)', marginTop: 2 }}>
+                                •••• •••• •••• {card.last4 || 'XXXX'}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                CARDHOLDER
+                              </div>
+                              <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', marginTop: 2 }}>
+                                {card.holderName || user?.name || 'Primary User'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Available Balance & Limit */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center' }}>
+                            <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>AVAILABLE</div>
+                              <div style={{ fontSize: 13.5, fontWeight: 800, color: '#10B981', marginTop: 2 }}>
+                                {currencyService.format(avail)}
+                              </div>
+                            </div>
+
+                            <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>TOTAL LIMIT</div>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+                                {currencyService.format(card.limit || 0)}
+                              </div>
+                            </div>
+
+                            <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>SPENT / BILLED</div>
+                              <div style={{ fontSize: 13.5, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
+                                {currencyService.format(card.spent || 0)}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Utilization Bar */}
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                              <span style={{ color: 'var(--text-muted)' }}>Credit Utilization</span>
+                              <span style={{ fontWeight: 700, color: utilColor }}>{usedPct}%</span>
+                            </div>
+                            <div style={{ height: 6, borderRadius: 999, background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+                              <div
+                                style={{
+                                  height: '100%',
+                                  width: Math.min(100, Math.max(2, usedPct)) + '%',
+                                  background: utilColor,
+                                  borderRadius: 999,
+                                  transition: 'width 0.3s ease'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Billing & Due Dates */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', paddingTop: 4, borderTop: '1px solid var(--border-color)' }}>
+                            <span>Billing Date: <strong style={{ color: 'var(--text-secondary)' }}>{card.billingDay || 15}th</strong></span>
+                            <span>Due Date: <strong style={{ color: '#8B5CF6' }}>{card.dueDay || 5}th of month</strong></span>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </>
+              )}
+
+              {/* TAB 3: ACTIVE LOANS */}
+              {activeDrawer === 'active_loans' && (
+                <>
+                  {/* Summary Metric Header */}
+                  <div
+                    style={{
+                      background: isLight ? '#FFFBEB' : 'rgba(245, 158, 11, 0.08)',
+                      border: '1px solid rgba(245, 158, 11, 0.25)',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Active Loans Principal ({activeLoansList.length} Active)
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                        {currencyService.format(totalActiveLoansPrincipal)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                        Outstanding Remaining
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
+                        {currencyService.format(totalActiveLoansRemaining)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Loans List */}
+                  {activeLoansDetails.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '40px 20px',
+                        textAlign: 'center',
+                        color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 12,
+                        border: '1px dashed var(--border-color)'
+                      }}
+                    >
+                      <Building2 size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600 }}>No Active Loans</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>All loans are either closed or you have no active loan accounts.</div>
+                    </div>
+                  ) : (
+                    activeLoansDetails.map((loan, index) => (
+                      <div
+                        key={loan.id || index}
+                        style={{
+                          background: 'var(--bg-secondary)',
+                          border: '1px solid var(--border-color)',
+                          borderRadius: 14,
+                          padding: 16,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 12
+                        }}
+                      >
+                        {/* Top Row: Loan Name, Lender, Status */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                              {loan.name}
+                            </div>
+                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                              Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span
+                              style={{
+                                fontSize: 10,
+                                fontWeight: 800,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: 'rgba(16, 185, 129, 0.15)',
+                                color: '#10B981',
+                                textTransform: 'uppercase'
+                              }}
+                            >
+                              Active
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: 'rgba(245, 158, 11, 0.15)',
+                                color: '#F59E0B'
+                              }}
+                            >
+                              {loan.type || 'Loan'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Loan ID / Account Number */}
+                        <div
+                          style={{
+                            padding: '6px 10px',
+                            background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                            borderRadius: 8,
+                            fontSize: 11.5,
+                            fontFamily: 'monospace',
+                            color: 'var(--text-secondary)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <span>Loan ID: <strong style={{ color: 'var(--text-primary)' }}>{loan.loanNumber || loan.id}</strong></span>
+                          <span>Interest: <strong>{loan.interestRate || 0}% p.a.</strong></span>
+                        </div>
+
+                        {/* Middle Row: Principal, Monthly EMI, Remaining */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center' }}>
+                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>PRINCIPAL</div>
+                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                              {currencyService.format(loan.principal)}
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>MONTHLY EMI</div>
+                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                              {currencyService.format(loan.emiMetrics.emi)}
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>REMAINING</div>
+                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EF4444', marginTop: 2 }}>
+                              {currencyService.format(loan.emiMetrics.remaining)}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Loan Repayment Progress Bar */}
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                            <span style={{ color: 'var(--text-muted)' }}>
+                              Repayment ({loan.emiMetrics.completedEmis} of {loan.emiMetrics.totalEmis} EMIs Paid)
+                            </span>
+                            <span style={{ fontWeight: 700, color: '#10B981' }}>{loan.emiMetrics.paidPct}%</span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 999, background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+                            <div
+                              style={{
+                                height: '100%',
+                                width: Math.min(100, Math.max(2, loan.emiMetrics.paidPct)) + '%',
+                                background: '#10B981',
+                                borderRadius: 999,
+                                transition: 'width 0.3s ease'
+                              }}
+                            />
+                          </div>
+                        </div>
+
+                        {/* Footer Details: Repayment Source, Due Day */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', paddingTop: 4, borderTop: '1px solid var(--border-color)' }}>
+                          <span>
+                            Source:{' '}
+                            <strong style={{ color: 'var(--text-secondary)' }}>
+                              {loan.repaymentSource === 'credit_card'
+                                ? '💳 Credit Card (' + (loan.linkedCardName || 'Linked') + ')'
+                                : '🏦 Direct Bank Auto-Debit'}
+                            </strong>
+                          </span>
+                          <span>Due Day: <strong style={{ color: '#F59E0B' }}>{loan.dueDay || 5}th of month</strong></span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </>
+              )}
+
+              {/* TAB 4: MONTHLY EMI */}
+              {activeDrawer === 'monthly_emi' && (
+                <>
+                  {/* Summary Metric Header */}
+                  <div
+                    style={{
+                      background: isLight ? '#FDF2F8' : 'rgba(236, 72, 153, 0.08)',
+                      border: '1px solid rgba(236, 72, 153, 0.25)',
+                      borderRadius: 12,
+                      padding: '14px 16px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 10
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#EC4899', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                        Total Monthly EMI Outflow ({activeLoansWithEmiCount} Active EMIs)
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                        {currencyService.format(totalMonthlyEmi)}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                        Monthly Obligation
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginTop: 2 }}>
+                        Due Every Month
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active EMIs List */}
+                  {activeLoansDetails.filter(l => l.emiMetrics.emi > 0).length === 0 ? (
+                    <div
+                      style={{
+                        padding: '40px 20px',
+                        textAlign: 'center',
+                        color: 'var(--text-muted)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: 12,
+                        border: '1px dashed var(--border-color)'
+                      }}
+                    >
+                      <Clock size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ fontWeight: 600 }}>No Active Monthly EMIs</div>
+                      <div style={{ fontSize: 12, marginTop: 4 }}>You have no recurring loan EMI obligations.</div>
+                    </div>
+                  ) : (
+                    activeLoansDetails
+                      .filter(l => l.emiMetrics.emi > 0)
+                      .map((loan, index) => (
+                        <div
+                          key={loan.id || index}
+                          style={{
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-color)',
+                            borderRadius: 14,
+                            padding: 16,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: 12
+                          }}
+                        >
+                          {/* Top Row: Loan Name & Status Badge */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                {loan.name}
+                              </div>
+                              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
+                              </div>
+                            </div>
+
+                            <div>
+                              {loan.isCurrentMonthPaid ? (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    padding: '3px 8px',
+                                    borderRadius: 999,
+                                    background: 'rgba(16, 185, 129, 0.15)',
+                                    color: '#10B981'
+                                  }}
+                                >
+                                  <CheckCircle2 size={12} />
+                                  PAID THIS MONTH
+                                </span>
+                              ) : (
+                                <span
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    fontSize: 10.5,
+                                    fontWeight: 800,
+                                    padding: '3px 8px',
+                                    borderRadius: 999,
+                                    background: 'rgba(245, 158, 11, 0.15)',
+                                    color: '#F59E0B'
+                                  }}
+                                >
+                                  <Clock size={12} />
+                                  PENDING DUE
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* EMI Details Box: EMI Amount & Due Date */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              padding: '12px 14px',
+                              background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                              borderRadius: 10,
+                              border: '1px solid var(--border-color)'
+                            }}
+                          >
+                            <div>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                MONTHLY EMI AMOUNT
+                              </div>
+                              <div style={{ fontSize: 20, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                                {currencyService.format(loan.emiMetrics.emi)}
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                DUE SCHEDULE
+                              </div>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+                                Due on {loan.currentMonthDueDay}th of month
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Repayment Channel & Remaining Tenures */}
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: 11.5,
+                              color: 'var(--text-muted)',
+                              flexWrap: 'wrap',
+                              gap: 6
+                            }}
+                          >
+                            <span>
+                              Payment Mode:{' '}
+                              <strong style={{ color: 'var(--text-secondary)' }}>
+                                {loan.repaymentSource === 'credit_card'
+                                  ? '💳 ' + (loan.linkedCardName || 'Credit Card')
+                                  : '🏦 Auto-Debit Bank Account'}
+                              </strong>
+                            </span>
+                            <span>
+                              Remaining: <strong style={{ color: '#F59E0B' }}>{loan.emiMetrics.remainingEmis} of {loan.emiMetrics.totalEmis} months</strong>
+                            </span>
+                          </div>
+
+                          {/* Principal vs Remaining mini row */}
+                          <div
+                            style={{
+                              paddingTop: 8,
+                              borderTop: '1px dashed var(--border-color)',
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              fontSize: 11,
+                              color: 'var(--text-muted)'
+                            }}
+                          >
+                            <span>Principal: <strong>{currencyService.format(loan.principal)}</strong></span>
+                            <span>Remaining Balance: <strong style={{ color: '#EF4444' }}>{currencyService.format(loan.emiMetrics.remaining)}</strong></span>
+                          </div>
+                        </div>
+                      ))
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Panel Footer */}
+            <div
+              style={{
+                padding: '14px 24px',
+                borderTop: '1px solid var(--border-color)',
+                background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.02)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}
+            >
+              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                Press <kbd style={{ padding: '2px 5px', borderRadius: 4, background: isLight ? '#E2E8F0' : 'rgba(255,255,255,0.1)', fontSize: 10, fontFamily: 'monospace' }}>ESC</kbd> or click outside to close
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveDrawer(null)}
+                style={{
+                  padding: '7px 16px',
+                  borderRadius: 8,
+                  border: 'none',
+                  background: 'var(--accent-indigo)',
+                  color: '#FFFFFF',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer'
+                }}
+              >
+                Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </main>
   );
 };
