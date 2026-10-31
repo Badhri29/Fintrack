@@ -11,7 +11,6 @@ import {
   Shield,
   Eye,
   EyeOff,
-  Edit2,
   Edit3,
   CalendarDays,
   ChevronLeft,
@@ -45,7 +44,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
 import { cardService, type CardModel } from '../services/cardService';
-import { bankAccountService, type BankAccountModel } from '../services/bankAccountService';
+import { bankAccountService } from '../services/bankAccountService';
 import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { yearService } from '../services/yearService';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
@@ -166,43 +165,11 @@ export const CreditCardsView: React.FC = () => {
 
   // Cards state loaded through cardService
   const [cards, setCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
-  const [bankAccounts, setBankAccounts] = useState<BankAccountModel[]>(() => bankAccountService.getAccounts(user?.email));
-  const [activeSection, setActiveSection] = useState<'credit_cards' | 'bank_accounts'>('credit_cards');
 
   // Add-on card modal states
   const [newIsAddon, setNewIsAddon] = useState<boolean>(false);
   const [newPrimaryCardId, setNewPrimaryCardId] = useState<string>('');
   const [newAddonHolderName, setNewAddonHolderName] = useState<string>('');
-
-  // Add Bank Account modal states
-  const [isAddAccountOpen, setIsAddAccountOpen] = useState<boolean>(false);
-  const [editingAccount, setEditingAccount] = useState<BankAccountModel | null>(null);
-  const [editBankName, setEditBankName] = useState<string>('');
-  const [editAccountType, setEditAccountType] = useState<'Savings' | 'Current' | 'Salary'>('Savings');
-  const [editAccountNumberLast4, setEditAccountNumberLast4] = useState<string>('');
-  const [editAccountBalance, setEditAccountBalance] = useState<string>('0');
-
-  // Add Card to Account modal state
-  const [cardToAccTarget, setCardToAccTarget] = useState<{ accountId: string; type: 'debit' | 'credit' } | null>(null);
-  const [cardToAccName, setCardToAccName] = useState<string>('');
-  const [cardToAccLast4, setCardToAccLast4] = useState<string>('');
-  const [cardToAccExpiry, setCardToAccExpiry] = useState<string>('');
-  const [cardToAccLimit, setCardToAccLimit] = useState<string>('');
-  const [selectExistingCreditCardId, setSelectExistingCreditCardId] = useState<string>('');
-  const [newBankName, setNewBankName] = useState<string>('');
-  const [newAccountType, setNewAccountType] = useState<'Savings' | 'Current' | 'Salary'>('Savings');
-  const [newAccountNumberLast4, setNewAccountNumberLast4] = useState<string>('');
-  const [newHasDebitCard, setNewHasDebitCard] = useState<boolean>(true);
-  const [newDebitCardName, setNewDebitCardName] = useState<string>('');
-  const [newDebitCardLast4, setNewDebitCardLast4] = useState<string>('');
-
-  useEffect(() => {
-    const handleAccounts = () => {
-      setBankAccounts(bankAccountService.getAccounts(user?.email));
-    };
-    window.addEventListener('fintrack-accounts-updated', handleAccounts);
-    return () => window.removeEventListener('fintrack-accounts-updated', handleAccounts);
-  }, [user]);
   const [allLoans, setAllLoans] = useState<LoanModel[]>(() => loanService.getLoans(user?.email));
 
   // Utilization calculation toggle: Card Only vs Card + Linked Loans & EMI
@@ -787,10 +754,15 @@ export const CreditCardsView: React.FC = () => {
         const m = calculateLoanEMIs(l);
         if (!m.isClosed) {
           const sch = generateEmiSchedule(l, m);
-          if (sch.some(s => s.status !== 'paid')) {
+          // Check if this month's / target period's EMI is paid or pending
+          const nowMonth = new Date().getMonth();
+          const targetMonths = selectedMonths && selectedMonths.length > 0 ? selectedMonths : [nowMonth];
+          const hasUnpaidEmiInTarget = sch.some(s => s.month !== undefined && targetMonths.includes(s.month) && s.status !== 'paid');
+          if (hasUnpaidEmiInTarget) {
             emiSum += m.emi;
-            blockedLoanPrincipal += (m.remaining || 0);
           }
+          // The remaining loan balance blocks credit limit; as EMIs are repaid each month, m.remaining decreases and frees up available limit!
+          blockedLoanPrincipal += (m.remaining || 0);
         }
       });
 
@@ -825,8 +797,9 @@ export const CreditCardsView: React.FC = () => {
     cards.forEach(c => {
       const p = map[c.name].purchases;
       const pay = map[c.name].payments;
+      const netPurchases = Math.max(0, p - pay);
       const loanBlocked = includeLoansInUtilization ? (map[c.name].blockedLoanPrincipal || 0) : 0;
-      const net = Math.max(0, p + loanBlocked - pay);
+      const net = Math.max(0, netPurchases + loanBlocked);
       const avail = Math.max(0, c.limit - net);
       const util = c.limit > 0 ? (net / c.limit) * 100 : 0;
 
@@ -852,7 +825,7 @@ export const CreditCardsView: React.FC = () => {
     });
 
     return map;
-  }, [yearCreditTransactions, cards, allLoans, includeLoansInUtilization]);
+  }, [yearCreditTransactions, cards, allLoans, includeLoansInUtilization, selectedMonths]);
 
   // Aggregate Metrics Across Cards (Add-on cards share primary limit; no duplicate limit added)
   const totalCreditLimit = useMemo(() => {
@@ -860,8 +833,8 @@ export const CreditCardsView: React.FC = () => {
   }, [cards]);
 
   const totalOutstanding = useMemo(() => {
-    return Object.values(cardBalancesMap).reduce((sum, item) => sum + item.netOutstanding, 0);
-  }, [cardBalancesMap]);
+    return cards.filter(c => !c.isAddon).reduce((sum, c) => sum + (cardBalancesMap[c.name]?.netOutstanding || 0), 0);
+  }, [cards, cardBalancesMap]);
 
   const availableCredit = Math.max(0, totalCreditLimit - totalOutstanding);
   const utilizationRatio = totalCreditLimit > 0 ? (totalOutstanding / totalCreditLimit) * 100 : 0;
@@ -980,16 +953,17 @@ export const CreditCardsView: React.FC = () => {
   // Open Edit Card Modal
   const handleOpenEditCard = (card: CardModel, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const parent = card.isAddon && card.primaryCardId ? cards.find(c => c.id === card.primaryCardId) : null;
     setEditingCard(card);
     setEditName(card.name);
-    setEditBank(card.bank);
+    setEditBank(parent ? parent.bank : card.bank);
     setEditNetwork(card.network);
     setEditFullNumber(card.cardNumber || '');
     setEditLast4(card.last4 || '');
     setEditExpiryMonth(card.expiryMonth || 12);
     setEditExpiryYear(card.expiryYear || 28);
     setEditCvv(card.cvv || '');
-    setEditLimit(String(card.limit || 100000));
+    setEditLimit(String(parent ? parent.limit : (card.limit || 100000)));
     setEditBillingDay(card.billingDay || 15);
     setEditDueDay(card.dueDay || 5);
     setEditGradient(card.gradient);
@@ -1003,17 +977,19 @@ export const CreditCardsView: React.FC = () => {
 
     const fullNumClean = editFullNumber.replace(/\s+/g, '');
     const derivedLast4 = editLast4.trim() || (fullNumClean ? fullNumClean.slice(-4) : editingCard.last4);
+    const parentCard = editingCard.isAddon && editingCard.primaryCardId ? cards.find(c => c.id === editingCard.primaryCardId) : null;
+    const resolvedBank = parentCard ? parentCard.bank : (editBank.trim() || editingCard.bank);
 
     const updates: Partial<CardModel> = {
       name: editName.trim() || editingCard.name,
-      bank: editBank.trim() || editingCard.bank,
+      bank: resolvedBank,
       network: editNetwork,
       cardNumber: fullNumClean || undefined,
       last4: derivedLast4.slice(-4),
       expiryMonth: Number(editExpiryMonth) || 12,
       expiryYear: Number(editExpiryYear) || 28,
       cvv: editCvv.trim() || undefined,
-      limit: Number(editLimit) || editingCard.limit,
+      limit: parentCard ? parentCard.limit : (Number(editLimit) || editingCard.limit),
       billingDay: Number(editBillingDay) || 15,
       dueDay: Number(editDueDay) || 5,
       gradient: editGradient,
@@ -1105,113 +1081,6 @@ export const CreditCardsView: React.FC = () => {
   };
 
   // Add New Card Submission
-  // Bank Account & Debit Card handlers (Requirement 5)
-  const handleAddAccountSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newBankName.trim() || !newAccountNumberLast4.trim()) return;
-
-    bankAccountService.addAccount({
-      bankName: newBankName.trim(),
-      accountType: newAccountType,
-      accountNumberLast4: newAccountNumberLast4.replace(/\D/g, '').slice(0, 4) || '9999',
-      hasDebitCard: newHasDebitCard,
-      debitCardName: newHasDebitCard ? (newDebitCardName.trim() || `${newBankName.trim()} Debit Card`) : undefined,
-      debitCardLast4: newHasDebitCard ? (newDebitCardLast4.replace(/\D/g, '').slice(0, 4) || newAccountNumberLast4.replace(/\D/g, '').slice(0, 4)) : undefined,
-      isPrimary: bankAccounts.length === 0
-    }, user?.email);
-
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-    setIsAddAccountOpen(false);
-    setNewBankName('');
-    setNewAccountNumberLast4('');
-    setNewDebitCardName('');
-    setNewDebitCardLast4('');
-
-    setBannerMsg({
-      type: 'success',
-      text: 'Bank account and debit card added! Now available in transaction payment modes.'
-    });
-    setTimeout(() => setBannerMsg(null), 4000);
-  };
-
-  const handleDeleteAccount = (id: string, name: string) => {
-    if (!window.confirm(`Remove ${name} account?`)) return;
-    bankAccountService.deleteAccount(id, user?.email);
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-  };
-
-  const handleOpenEditAccount = (acc: BankAccountModel) => {
-    setEditingAccount(acc);
-    setEditBankName(acc.bankName);
-    setEditAccountType(acc.accountType);
-    setEditAccountNumberLast4(acc.accountNumberLast4);
-    setEditAccountBalance(String(acc.balance || 0));
-  };
-
-  const handleSaveEditAccount = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingAccount || !editBankName.trim() || !editAccountNumberLast4.trim()) return;
-
-    bankAccountService.updateAccount(editingAccount.id, {
-      bankName: editBankName.trim(),
-      accountType: editAccountType,
-      accountNumberLast4: editAccountNumberLast4.replace(/\D/g, '').slice(0, 4) || '9999',
-      balance: Number(editAccountBalance) || 0
-    }, user?.email);
-
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-    setEditingAccount(null);
-    setBannerMsg({ type: 'success', text: 'Bank account updated successfully!' });
-    setTimeout(() => setBannerMsg(null), 3000);
-  };
-
-  const handleOpenAddCardToAcc = (accountId: string, type: 'debit' | 'credit') => {
-    const acc = bankAccounts.find(a => a.id === accountId);
-    setCardToAccTarget({ accountId, type });
-    setSelectExistingCreditCardId('');
-    setCardToAccName(acc ? `${acc.bankName} ${type === 'debit' ? 'Debit' : 'Credit'} Card` : '');
-    setCardToAccLast4('');
-    setCardToAccExpiry('12/28');
-    setCardToAccLimit(type === 'credit' ? '150000' : '');
-  };
-
-  const handleSaveCardToAcc = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cardToAccTarget || !cardToAccName.trim() || !cardToAccLast4.trim()) return;
-
-    const last4 = cardToAccLast4.replace(/\D/g, '').slice(0, 4) || '9999';
-    if (cardToAccTarget.type === 'debit') {
-      bankAccountService.addDebitCardToAccount(cardToAccTarget.accountId, {
-        name: cardToAccName.trim(),
-        last4,
-        expiry: cardToAccExpiry.trim() || undefined
-      }, user?.email);
-    } else {
-      bankAccountService.addCreditCardToAccount(cardToAccTarget.accountId, {
-        name: cardToAccName.trim(),
-        last4,
-        limit: Number(cardToAccLimit) || undefined
-      }, user?.email);
-    }
-
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-    setCardToAccTarget(null);
-    setBannerMsg({ type: 'success', text: `${cardToAccTarget.type === 'debit' ? 'Debit' : 'Credit'} card attached to account!` });
-    setTimeout(() => setBannerMsg(null), 3000);
-  };
-
-  const handleRemoveDebitCard = (accId: string, cardId: string) => {
-    if (!window.confirm('Remove this debit card from account?')) return;
-    bankAccountService.removeDebitCardFromAccount(accId, cardId, user?.email);
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-  };
-
-  const handleRemoveCreditCardFromAcc = (accId: string, cardId: string) => {
-    if (!window.confirm('Remove this credit card from account?')) return;
-    bankAccountService.removeCreditCardFromAccount(accId, cardId, user?.email);
-    setBankAccounts(bankAccountService.getAccounts(user?.email));
-  };
-
   const handleAddCardSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCardName.trim()) return;
@@ -1219,17 +1088,19 @@ export const CreditCardsView: React.FC = () => {
     const selectedGrad = CARD_GRADIENTS[newCardGradientIdx] || CARD_GRADIENTS[0];
     const fullNumClean = newCardFullNumber.replace(/\s+/g, '');
     const derivedLast4 = newCardLast4.trim() || (fullNumClean ? fullNumClean.slice(-4) : '9999');
+    const parentCard = newIsAddon && newPrimaryCardId ? cards.find(c => c.id === newPrimaryCardId) : null;
+    const resolvedBank = parentCard ? parentCard.bank : (newCardBank.trim() || 'HDFC Bank');
 
     const card = cardService.addCard({
       name: newCardName.trim(),
-      bank: newCardBank.trim() || 'HDFC Bank',
+      bank: resolvedBank,
       network: newCardNetwork,
       cardNumber: fullNumClean || undefined,
       last4: derivedLast4.slice(-4),
       expiryMonth: Number(newCardExpiryMonth) || 12,
       expiryYear: Number(newCardExpiryYear) || 28,
       cvv: newCardCvv.trim() || undefined,
-      limit: newIsAddon ? (cards.find(c => c.id === newPrimaryCardId)?.limit || Number(newCardLimit) || 100000) : (Number(newCardLimit) || 100000),
+      limit: parentCard ? parentCard.limit : (Number(newCardLimit) || 100000),
       billingDay: Number(newCardBillingDay) || 15,
       dueDay: Number(newCardDueDay) || 5,
       gradient: selectedGrad.gradient,
@@ -1933,50 +1804,7 @@ export const CreditCardsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Top Section Switcher: Credit Cards vs Bank Accounts & Debit Cards (Requirement 5) */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 18, borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
-        <button
-          type="button"
-          onClick={() => setActiveSection('credit_cards')}
-          style={{
-            padding: '8px 18px',
-            borderRadius: 8,
-            border: activeSection === 'credit_cards' ? '1px solid var(--accent-indigo)' : '1px solid transparent',
-            background: activeSection === 'credit_cards' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-            color: activeSection === 'credit_cards' ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-            fontWeight: 700,
-            fontSize: 13,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8
-          }}
-        >
-          <CreditCard size={15} />
-          <span>Credit Cards ({cards.length})</span>
-        </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSection('bank_accounts')}
-          style={{
-            padding: '8px 18px',
-            borderRadius: 8,
-            border: activeSection === 'bank_accounts' ? '1px solid var(--accent-indigo)' : '1px solid transparent',
-            background: activeSection === 'bank_accounts' ? 'rgba(99, 102, 241, 0.15)' : 'transparent',
-            color: activeSection === 'bank_accounts' ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-            fontWeight: 700,
-            fontSize: 13,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8
-          }}
-        >
-          <DollarSign size={15} />
-          <span>Bank Accounts & Debit Cards ({bankAccounts.length})</span>
-        </button>
-      </div>
 
       {/* 4. Visual Credit Cards Section with Expandable Details & Category Usage Tray */}
       <div style={{ marginBottom: 32 }}>
@@ -2035,226 +1863,6 @@ export const CreditCardsView: React.FC = () => {
           )}
         </div>
 
-        {/* Bank Accounts & Debit Cards Section (Requirement 5) */}
-      {activeSection === 'bank_accounts' && (
-        <div style={{ marginBottom: 30 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-            <div>
-              <h3 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
-                Bank Accounts & Debit Cards
-              </h3>
-              <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-secondary)' }}>
-                Linked bank accounts and debit cards automatically show up as selectable payment modes across all transaction and bill payment forms.
-              </p>
-            </div>
-            {!isViewOnly && (
-              <button
-                type="button"
-                onClick={() => setIsAddAccountOpen(true)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  padding: '9px 16px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-                  color: '#FFF',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.3)'
-                }}
-              >
-                <Plus size={16} />
-                <span>Add Bank & Debit Card</span>
-              </button>
-            )}
-          </div>
-
-          {bankAccounts.length === 0 ? (
-            <div style={{ padding: '40px 20px', textAlign: 'center', border: '1px dashed var(--border-color)', borderRadius: 16, background: 'var(--card-bg)' }}>
-              <DollarSign size={36} color="var(--accent-indigo)" style={{ margin: '0 auto 12px' }} />
-              <h4 style={{ margin: '0 0 6px', fontSize: 16, color: 'var(--text-primary)' }}>No Bank Accounts Added</h4>
-              <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--text-secondary)' }}>Add your bank account details to enable them in payment mode selections.</p>
-              <button
-                type="button"
-                onClick={() => setIsAddAccountOpen(true)}
-                className="btn-primary"
-              >
-                Add Account
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 16 }}>
-              {bankAccounts.map(acc => {
-                const debitCards = acc.debitCards || [];
-                const creditCards = acc.creditCards || [];
-
-                return (
-                  <div
-                    key={acc.id}
-                    style={{
-                      background: 'var(--card-bg)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 16,
-                      padding: '20px',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 14,
-                      boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-                      transition: 'all 0.2s ease'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                          <DollarSign size={22} />
-                        </div>
-                        <div>
-                          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-                            {acc.bankName}
-                          </h4>
-                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                            {acc.accountType} Account •••• {acc.accountNumberLast4}
-                            {acc.balance !== undefined && (
-                              <strong style={{ color: '#10B981', marginLeft: 8 }}>
-                                {currencyService.format(acc.balance)}
-                              </strong>
-                            )}
-                          </span>
-                        </div>
-                      </div>
-                      {!isViewOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEditAccount(acc)}
-                            style={{ background: 'rgba(99, 102, 241, 0.1)', border: '1px solid rgba(99, 102, 241, 0.3)', color: '#818CF8', cursor: 'pointer', padding: '6px 10px', borderRadius: 8, fontSize: 12, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                            title="Edit Bank Account"
-                          >
-                            <Edit2 size={13} />
-                            <span>Edit</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteAccount(acc.id, acc.bankName)}
-                            style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', opacity: 0.8, padding: 6 }}
-                            title="Remove Account"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Linked Debit Cards List */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
-                          💳 LINKED DEBIT CARDS ({debitCards.length})
-                        </span>
-                        {!isViewOnly && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAddCardToAcc(acc.id, 'debit')}
-                            style={{ background: 'transparent', border: 'none', color: '#38BDF8', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
-                          >
-                            <Plus size={12} /> Add Debit Card
-                          </button>
-                        )}
-                      </div>
-
-                      {debitCards.length === 0 ? (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                          No debit cards linked yet.
-                        </div>
-                      ) : (
-                        debitCards.map(dc => (
-                          <div key={dc.id} style={{ padding: '10px 12px', background: 'linear-gradient(135deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.8) 100%)', borderRadius: 10, border: '1px solid rgba(255, 255, 255, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#FFF' }}>
-                                {dc.name}
-                              </div>
-                              <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.65)', fontFamily: 'monospace' }}>
-                                •••• •••• •••• {dc.last4} {dc.expiry ? `• Exp: ${dc.expiry}` : ''}
-                              </div>
-                            </div>
-                            {!isViewOnly && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveDebitCard(acc.id, dc.id)}
-                                style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', opacity: 0.7 }}
-                                title="Remove debit card"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {/* Linked Credit Cards List */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
-                          💎 LINKED CREDIT CARDS ({creditCards.length})
-                        </span>
-                        {!isViewOnly && (
-                          <button
-                            type="button"
-                            onClick={() => handleOpenAddCardToAcc(acc.id, 'credit')}
-                            style={{ background: 'transparent', border: 'none', color: '#A855F7', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3 }}
-                          >
-                            <Plus size={12} /> Add Credit Card
-                          </button>
-                        )}
-                      </div>
-
-                      {creditCards.length === 0 ? (
-                        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 10px', background: 'rgba(255,255,255,0.02)', borderRadius: 8 }}>
-                          No credit cards linked to this bank.
-                        </div>
-                      ) : (
-                        creditCards.map(cc => (
-                          <div key={cc.id} style={{ padding: '10px 12px', background: 'linear-gradient(135deg, rgba(88, 28, 135, 0.3) 0%, rgba(30, 27, 75, 0.6) 100%)', borderRadius: 10, border: '1px solid rgba(168, 85, 247, 0.3)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 12.5, fontWeight: 700, color: '#F3E8FF' }}>
-                                {cc.name}
-                              </div>
-                              <div style={{ fontSize: 11, color: 'rgba(243, 232, 255, 0.7)', fontFamily: 'monospace' }}>
-                                •••• •••• •••• {cc.last4} {cc.limit ? `• Limit: ${currencyService.format(cc.limit)}` : ''}
-                              </div>
-                            </div>
-                            {!isViewOnly && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveCreditCardFromAcc(acc.id, cc.id)}
-                                style={{ background: 'transparent', border: 'none', color: '#EF4444', cursor: 'pointer', opacity: 0.7 }}
-                                title="Remove credit card"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    <div style={{ fontSize: 11, color: '#10B981', display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <Check size={13} />
-                      <span>Available in payment modes across Fintrack</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {activeSection === "credit_cards" && (
         <div>
           {/* Cards Grid */}
           {cards.length === 0 ? (
@@ -2602,66 +2210,57 @@ export const CreditCardsView: React.FC = () => {
                       />
                     </div>
 
-                    {/* Card Due Day, Bill Day & Expand Trigger */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, minHeight: 38 }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, justifyContent: 'center' }}>
-                        <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.75)' }}>
-                          Bill day: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
+                    {/* Card Due Day, Bill Day & Pay Bill Action */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, minHeight: 32 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.8)' }}>
+                          Bill: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
                         </span>
-                        {cardStats.activeLoanEmis > 0 ? (
-                          <span style={{ fontSize: 10, fontWeight: 800, color: '#38BDF8', background: 'rgba(56, 189, 248, 0.22)', border: '1px solid rgba(56, 189, 248, 0.45)', padding: '2px 7px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}>
-                            💳 Loan EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
+                        {cardStats.activeLoanEmis > 0 && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              fontWeight: 800,
+                              color: '#38BDF8',
+                              background: 'rgba(56, 189, 248, 0.22)',
+                              border: '1px solid rgba(56, 189, 248, 0.45)',
+                              padding: '2px 8px',
+                              borderRadius: 5,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            title={`Active Loan EMI: ${currencyService.format(cardStats.activeLoanEmis)}/month`}
+                          >
+                            💳 EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
                           </span>
-                        ) : (
-                          <span style={{ height: 18 }} />
                         )}
                       </div>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPayCardName(c.name);
-                            setPayAmount(cardStats.netOutstanding > 0 ? String(cardStats.netOutstanding) : '');
-                            setIsPayBillOpen(true);
-                          }}
-                          style={{
-                            background: 'rgba(255, 255, 255, 0.2)',
-                            border: '1px solid rgba(255, 255, 255, 0.3)',
-                            color: '#FFF',
-                            padding: '3px 9px',
-                            borderRadius: 6,
-                            fontSize: 11,
-                            fontWeight: 600,
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Pay Bill
-                        </button>
-                        <div
-                          style={{
-                            background: isExpanded ? 'rgba(255, 255, 255, 0.3)' : 'rgba(255, 255, 255, 0.14)',
-                            border: '1px solid rgba(255, 255, 255, 0.25)',
-                            color: '#FFF',
-                            padding: '3px 8px',
-                            borderRadius: 6,
-                            fontSize: 11,
-                            fontWeight: 700,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            userSelect: 'none',
-                            transition: 'all 0.35s cubic-bezier(0.16, 1, 0.3, 1)'
-                          }}
-                          title={isExpanded ? 'Category details expanded' : 'Hover over card to expand category details'}
-                        >
-                          <span>{isExpanded ? 'Details' : 'Hover to Expand'}</span>
-                          <ChevronDown
-                            size={13}
-                            className={`credit-card-chevron ${isExpanded ? 'is-open' : ''}`}
-                          />
-                        </div>
-                      </div>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPayCardName(c.name);
+                          setPayAmount(cardStats.netOutstanding > 0 ? String(cardStats.netOutstanding) : '');
+                          setIsPayBillOpen(true);
+                        }}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.22)',
+                          border: '1px solid rgba(255, 255, 255, 0.35)',
+                          color: '#FFF',
+                          padding: '4px 12px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          letterSpacing: '0.02em',
+                          whiteSpace: 'nowrap',
+                          transition: 'all 0.2s'
+                        }}
+                      >
+                        Pay Bill
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2761,176 +2360,6 @@ export const CreditCardsView: React.FC = () => {
         </div>
         )}
         </div>
-      )}
-      </div>
-
-      {/* 5. Monthly Spending Graph (TradeChart Flow like Dashboard) */}
-      <div className="summary-card" style={{ padding: '24px 28px', marginBottom: 24, borderRadius: 16 }}>
-        {/* Chart Header with View Toggle (Flow Trend vs Bars) */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818CF8' }}>
-              <Activity size={18} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
-                {chartCardTitle}
-              </h3>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                Jan to Dec monthly spending trajectory for {selectedYear}
-              </span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Avg: <strong style={{ color: '#818CF8' }}>{currencyService.format(monthlyAverageSpent)}/mo</strong>
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-              Peak: <strong style={{ color: '#10B981' }}>{peakMonthData.month} ({currencyService.format(peakMonthData.val)})</strong>
-            </div>
-
-            {/* View Mode Toggle: Flow Curve vs Bars */}
-            <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 8, padding: 3, border: '1px solid var(--border-color)' }}>
-              <button
-                type="button"
-                onClick={() => setChartMode('flow')}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  background: chartMode === 'flow' ? 'var(--accent-indigo)' : 'transparent',
-                  color: chartMode === 'flow' ? '#FFF' : 'var(--text-secondary)'
-                }}
-                title="TradeChart Flow Curve"
-              >
-                <Activity size={13} />
-                <span>Flow Curve</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setChartMode('bars')}
-                style={{
-                  padding: '4px 10px',
-                  borderRadius: 6,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  border: 'none',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  background: chartMode === 'bars' ? 'var(--accent-indigo)' : 'transparent',
-                  color: chartMode === 'bars' ? '#FFF' : 'var(--text-secondary)'
-                }}
-                title="Monthly Bars"
-              >
-                <BarChart2 size={13} />
-                <span>Monthly Bars</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Chart Canvas */}
-        <div style={{ height: 260, width: '100%', position: 'relative' }}>
-          {chartMode === 'flow' ? (
-            <Line data={tradeChartData} options={chartOptions} />
-          ) : (
-            <Bar data={barChartData} options={chartOptions} />
-          )}
-        </div>
-      </div>
-
-      {/* 6. Expandable Category Breakdown Card (Dashboard Style) */}
-      <div className="summary-card" style={{ padding: '20px 26px', marginBottom: 28, borderRadius: 16 }}>
-        <div
-          onClick={() => setIsCategorySectionExpanded(prev => !prev)}
-          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
-              <PieChart size={16} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>Category Breakdown</span>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 999 }}>
-                  {isCategorySectionExpanded ? 'Click to Collapse' : 'Click to Expand'}
-                </span>
-              </h3>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
-              {creditTransactions.length} transaction{creditTransactions.length === 1 ? '' : 's'}
-            </span>
-            <ChevronDown
-              size={18}
-              style={{
-                color: 'var(--text-secondary)',
-                transform: isCategorySectionExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.25s ease'
-              }}
-            />
-          </div>
-        </div>
-
-        {isCategorySectionExpanded && (
-          <div style={{ marginTop: 18, animation: 'fadeIn 0.2s ease' }}>
-            {categoryBreakdown.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-                0 transactions recorded for the selected period.
-              </div>
-            ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-                {categoryBreakdown.map(cat => (
-                  <div
-                    key={cat.name}
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      border: '1px solid var(--border-color)',
-                      borderRadius: 12,
-                      padding: '12px 16px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {cat.name}
-                      </span>
-                      <span style={{ fontSize: 13, fontWeight: 700, color: cat.name === 'Bill Payments' ? '#10B981' : '#EF4444' }}>
-                        {cat.name === 'Bill Payments' ? '+' : '-'}{currencyService.format(cat.total)}
-                      </span>
-                    </div>
-                    <div style={{ width: '100%', height: 6, background: 'var(--border-color)', borderRadius: 999, overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          width: `${Math.min(100, cat.percentage)}%`,
-                          height: '100%',
-                          background: cat.name === 'Bill Payments'
-                            ? 'linear-gradient(90deg, #10B981 0%, #059669 100%)'
-                            : 'linear-gradient(90deg, #6366F1 0%, #8B5CF6 100%)',
-                          borderRadius: 999
-                        }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
-                      <span>{cat.count} spend{cat.count === 1 ? '' : 's'}</span>
-                      <span>{cat.percentage.toFixed(1)}% of total</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* 7. Actual Credit Card Transactions Ledger with Min/Max Height & Pagination Limits */}
@@ -3785,6 +3214,176 @@ export const CreditCardsView: React.FC = () => {
         )}
       </div>
 
+      
+      {/* 5. Monthly Spending Graph (TradeChart Flow like Dashboard) */}
+      <div className="summary-card" style={{ padding: '24px 28px', marginBottom: 24, borderRadius: 16 }}>
+        {/* Chart Header with View Toggle (Flow Trend vs Bars) */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#818CF8' }}>
+              <Activity size={18} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                {chartCardTitle}
+              </h3>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                Jan to Dec monthly spending trajectory for {selectedYear}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              Avg: <strong style={{ color: '#818CF8' }}>{currencyService.format(monthlyAverageSpent)}/mo</strong>
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              Peak: <strong style={{ color: '#10B981' }}>{peakMonthData.month} ({currencyService.format(peakMonthData.val)})</strong>
+            </div>
+
+            {/* View Mode Toggle: Flow Curve vs Bars */}
+            <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderRadius: 8, padding: 3, border: '1px solid var(--border-color)' }}>
+              <button
+                type="button"
+                onClick={() => setChartMode('flow')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: chartMode === 'flow' ? 'var(--accent-indigo)' : 'transparent',
+                  color: chartMode === 'flow' ? '#FFF' : 'var(--text-secondary)'
+                }}
+                title="TradeChart Flow Curve"
+              >
+                <Activity size={13} />
+                <span>Flow Curve</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setChartMode('bars')}
+                style={{
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  border: 'none',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: chartMode === 'bars' ? 'var(--accent-indigo)' : 'transparent',
+                  color: chartMode === 'bars' ? '#FFF' : 'var(--text-secondary)'
+                }}
+                title="Monthly Bars"
+              >
+                <BarChart2 size={13} />
+                <span>Monthly Bars</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Chart Canvas */}
+        <div style={{ height: 260, width: '100%', position: 'relative' }}>
+          {chartMode === 'flow' ? (
+            <Line data={tradeChartData} options={chartOptions} />
+          ) : (
+            <Bar data={barChartData} options={chartOptions} />
+          )}
+        </div>
+      </div>
+
+      {/* 6. Expandable Category Breakdown Card (Dashboard Style) */}
+      <div className="summary-card" style={{ padding: '20px 26px', marginBottom: 28, borderRadius: 16 }}>
+        <div
+          onClick={() => setIsCategorySectionExpanded(prev => !prev)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(139, 92, 246, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
+              <PieChart size={16} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>Category Breakdown</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', background: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: 999 }}>
+                  {isCategorySectionExpanded ? 'Click to Collapse' : 'Click to Expand'}
+                </span>
+              </h3>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>
+              {creditTransactions.length} transaction{creditTransactions.length === 1 ? '' : 's'}
+            </span>
+            <ChevronDown
+              size={18}
+              style={{
+                color: 'var(--text-secondary)',
+                transform: isCategorySectionExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.25s ease'
+              }}
+            />
+          </div>
+        </div>
+
+        {isCategorySectionExpanded && (
+          <div style={{ marginTop: 18, animation: 'fadeIn 0.2s ease' }}>
+            {categoryBreakdown.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--text-muted)', fontSize: 13 }}>
+                0 transactions recorded for the selected period.
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+                {categoryBreakdown.map(cat => (
+                  <div
+                    key={cat.name}
+                    style={{
+                      background: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 12,
+                      padding: '12px 16px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {cat.name}
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: cat.name === 'Bill Payments' ? '#10B981' : '#EF4444' }}>
+                        {cat.name === 'Bill Payments' ? '+' : '-'}{currencyService.format(cat.total)}
+                      </span>
+                    </div>
+                    <div style={{ width: '100%', height: 6, background: 'var(--border-color)', borderRadius: 999, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          width: `${Math.min(100, cat.percentage)}%`,
+                          height: '100%',
+                          background: cat.name === 'Bill Payments'
+                            ? 'linear-gradient(90deg, #10B981 0%, #059669 100%)'
+                            : 'linear-gradient(90deg, #6366F1 0%, #8B5CF6 100%)',
+                          borderRadius: 999
+                        }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>
+                      <span>{cat.count} spend{cat.count === 1 ? '' : 's'}</span>
+                      <span>{cat.percentage.toFixed(1)}% of total</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Modal: Add Credit Card Spend */}
       {isAddSpendOpen && (
         <div className="modal-overlay">
@@ -4029,15 +3628,24 @@ export const CreditCardsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ISSUING BANK
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      ISSUING BANK
+                    </label>
+                    {editingCard.isAddon && (
+                      <span style={{ fontSize: 10.5, color: '#10B981', fontWeight: 600 }}>
+                        Linked to Primary Card
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     placeholder="e.g. SBI Card"
-                    value={editBank}
-                    onChange={e => setEditBank(e.target.value)}
+                    value={editingCard.isAddon && editingCard.primaryCardId ? (cards.find(c => c.id === editingCard.primaryCardId)?.bank || editBank) : editBank}
+                    onChange={e => !editingCard.isAddon && setEditBank(e.target.value)}
+                    readOnly={editingCard.isAddon}
                     className="modal-input"
+                    style={editingCard.isAddon ? { background: 'rgba(255, 255, 255, 0.04)', opacity: 0.85, cursor: 'not-allowed' } : undefined}
                     required
                   />
                 </div>
@@ -4317,373 +3925,6 @@ export const CreditCardsView: React.FC = () => {
         </div>
       )}
 
-      {/* Modal: Edit Bank Account */}
-      {editingAccount && (
-        <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 460 }}>
-            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(99, 102, 241, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
-                  <Edit2 size={18} />
-                </div>
-                <div>
-                  <h3 className="modal-title" style={{ margin: 0, fontSize: 17 }}>Edit Bank Account</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Update bank name, type & balance</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setEditingAccount(null)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18 }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEditAccount} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  BANK NAME *
-                </label>
-                <input
-                  type="text"
-                  value={editBankName}
-                  onChange={e => setEditBankName(e.target.value)}
-                  className="modal-input"
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ACCOUNT TYPE *
-                  </label>
-                  <select
-                    value={editAccountType}
-                    onChange={e => setEditAccountType(e.target.value as any)}
-                    className="modal-select"
-                  >
-                    <option value="Savings">Savings Account</option>
-                    <option value="Salary">Salary Account</option>
-                    <option value="Current">Current Account</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ACCOUNT LAST 4 *
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    value={editAccountNumberLast4}
-                    onChange={e => setEditAccountNumberLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    className="modal-input"
-                    style={{ textAlign: 'center', fontFamily: 'monospace' }}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  ACCOUNT BALANCE ({currencyService.getActiveCurrencyCode()})
-                </label>
-                <input
-                  type="number"
-                  value={editAccountBalance}
-                  onChange={e => setEditAccountBalance(e.target.value)}
-                  className="modal-input"
-                />
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
-                  onClick={() => setEditingAccount(null)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary">
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Add Debit or Credit Card to Bank Account */}
-      {cardToAccTarget && (
-        <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 440 }}>
-            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 16 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 36, height: 36, borderRadius: 8, background: cardToAccTarget.type === 'debit' ? 'rgba(56, 189, 248, 0.15)' : 'rgba(168, 85, 247, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: cardToAccTarget.type === 'debit' ? '#38BDF8' : '#A855F7' }}>
-                  <CreditCard size={18} />
-                </div>
-                <div>
-                  <h3 className="modal-title" style={{ margin: 0, fontSize: 17 }}>
-                    Add {cardToAccTarget.type === 'debit' ? 'Debit Card' : 'Credit Card'}
-                  </h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Attach to bank account</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCardToAccTarget(null)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18 }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveCardToAcc} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {cardToAccTarget.type === 'credit' && cards.length > 0 && (
-                <div style={{ padding: '10px 12px', background: 'rgba(168, 85, 247, 0.1)', borderRadius: 10, border: '1px solid rgba(168, 85, 247, 0.3)' }}>
-                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#C084FC', marginBottom: 5 }}>
-                    SELECT FROM EXISTING CREDIT CARDS (QUICK LINK)
-                  </label>
-                  <select
-                    value={selectExistingCreditCardId}
-                    onChange={e => {
-                      const id = e.target.value;
-                      setSelectExistingCreditCardId(id);
-                      const chosen = cards.find(c => c.id === id);
-                      if (chosen) {
-                        setCardToAccName(chosen.name + (chosen.isAddon ? ' (Add-on)' : ''));
-                        setCardToAccLast4(chosen.last4);
-                        setCardToAccLimit(String(chosen.limit));
-                      }
-                    }}
-                    className="modal-select"
-                    style={{ fontSize: 12.5 }}
-                  >
-                    <option value="">-- Choose an existing card or enter new --</option>
-                    {cards.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.bank} •••• {c.last4}) {c.isAddon ? '• [Add-on Card]' : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  CARD NAME *
-                </label>
-                <input
-                  type="text"
-                  placeholder={cardToAccTarget.type === 'debit' ? 'e.g. Platinum Debit Card' : 'e.g. Regalia Gold Credit Card'}
-                  value={cardToAccName}
-                  onChange={e => setCardToAccName(e.target.value)}
-                  className="modal-input"
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    LAST 4 DIGITS *
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    placeholder="1234"
-                    value={cardToAccLast4}
-                    onChange={e => setCardToAccLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    className="modal-input"
-                    style={{ textAlign: 'center', fontFamily: 'monospace' }}
-                    required
-                  />
-                </div>
-
-                {cardToAccTarget.type === 'debit' ? (
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                      EXPIRY (MM/YY)
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="12/28"
-                      value={cardToAccExpiry}
-                      onChange={e => setCardToAccExpiry(e.target.value)}
-                      className="modal-input"
-                      style={{ textAlign: 'center' }}
-                    />
-                  </div>
-                ) : (
-                  <div>
-                    <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                      CREDIT LIMIT ({currencyService.getActiveCurrencyCode()})
-                    </label>
-                    <input
-                      type="number"
-                      placeholder="150000"
-                      value={cardToAccLimit}
-                      onChange={e => setCardToAccLimit(e.target.value)}
-                      className="modal-input"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
-                  onClick={() => setCardToAccTarget(null)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" style={{ background: cardToAccTarget.type === 'debit' ? '#0284C7' : '#9333EA' }}>
-                  Save Card
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Add Bank Account & Debit Card (Requirement 5) */}
-      {isAddAccountOpen && (
-        <div className="modal-overlay">
-          <div className="modal-container" style={{ width: '100%', maxWidth: 460, padding: 26, borderRadius: 18 }}>
-            <div className="modal-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: 14, marginBottom: 18 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 38, height: 38, borderRadius: 10, background: 'rgba(16, 185, 129, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
-                  <DollarSign size={20} />
-                </div>
-                <div>
-                  <h3 className="modal-title" style={{ margin: 0, fontSize: 17, fontWeight: 800 }}>Add Bank Account & Debit Card</h3>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add account details to use in payment modes</span>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddAccountOpen(false)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 18 }}
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleAddAccountSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              <div>
-                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  BANK NAME *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. HDFC Bank, State Bank of India, ICICI"
-                  value={newBankName}
-                  onChange={e => setNewBankName(e.target.value)}
-                  className="modal-input"
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ACCOUNT TYPE *
-                  </label>
-                  <select
-                    value={newAccountType}
-                    onChange={e => setNewAccountType(e.target.value as any)}
-                    className="modal-select"
-                  >
-                    <option value="Savings">Savings Account</option>
-                    <option value="Salary">Salary Account</option>
-                    <option value="Current">Current Account</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ACCOUNT LAST 4 *
-                  </label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    placeholder="e.g. 5678"
-                    value={newAccountNumberLast4}
-                    onChange={e => setNewAccountNumberLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    className="modal-input"
-                    style={{ textAlign: 'center', fontFamily: 'monospace' }}
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Linked Debit Card Checkbox & Fields */}
-              <div style={{ padding: '12px 14px', background: 'rgba(255, 255, 255, 0.03)', borderRadius: 10, border: '1px solid var(--border-color)' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-                  <input
-                    type="checkbox"
-                    checked={newHasDebitCard}
-                    onChange={e => setNewHasDebitCard(e.target.checked)}
-                    style={{ width: 16, height: 16, accentColor: '#10B981', cursor: 'pointer' }}
-                  />
-                  <span>💳 Add Linked Debit Card Details</span>
-                </label>
-
-                {newHasDebitCard && (
-                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                        DEBIT CARD NAME
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. HDFC Platinum Debit Card"
-                        value={newDebitCardName}
-                        onChange={e => setNewDebitCardName(e.target.value)}
-                        className="modal-input"
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                        DEBIT CARD LAST 4 DIGITS
-                      </label>
-                      <input
-                        type="text"
-                        maxLength={4}
-                        placeholder="e.g. 9876"
-                        value={newDebitCardLast4}
-                        onChange={e => setNewDebitCardLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                        className="modal-input"
-                        style={{ textAlign: 'center', fontFamily: 'monospace' }}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
-                <button
-                  type="button"
-                  className="btn-primary"
-                  style={{ background: 'transparent', border: '1px solid var(--border-color)', color: 'var(--text-secondary)' }}
-                  onClick={() => setIsAddAccountOpen(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary" style={{ background: '#10B981' }}>
-                  Save Account & Debit Card
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Modal: Add New Card */}
       {isAddCardOpen && (
         <div className="modal-overlay">
@@ -4732,9 +3973,14 @@ export const CreditCardsView: React.FC = () => {
                   onClick={() => {
                     setNewIsAddon(true);
                     const primCards = cards.filter(c => !c.isAddon);
-                    if (primCards.length > 0 && !newPrimaryCardId) {
-                      setNewPrimaryCardId(primCards[0].id);
-                      setNewCardLimit(String(primCards[0].limit));
+                    if (primCards.length > 0) {
+                      const selId = newPrimaryCardId || primCards[0].id;
+                      setNewPrimaryCardId(selId);
+                      const parent = cards.find(c => c.id === selId);
+                      if (parent) {
+                        setNewCardLimit(String(parent.limit));
+                        setNewCardBank(parent.bank);
+                      }
                     }
                   }}
                   style={{
@@ -4762,9 +4008,13 @@ export const CreditCardsView: React.FC = () => {
                     <select
                       value={newPrimaryCardId}
                       onChange={e => {
-                        setNewPrimaryCardId(e.target.value);
-                        const parent = cards.find(c => c.id === e.target.value);
-                        if (parent) setNewCardLimit(String(parent.limit));
+                        const targetId = e.target.value;
+                        setNewPrimaryCardId(targetId);
+                        const parent = cards.find(c => c.id === targetId);
+                        if (parent) {
+                          setNewCardLimit(String(parent.limit));
+                          setNewCardBank(parent.bank);
+                        }
                       }}
                       className="modal-select"
                       required
@@ -4776,7 +4026,7 @@ export const CreditCardsView: React.FC = () => {
                       ))}
                     </select>
                     <span style={{ fontSize: 11, color: '#10B981', marginTop: 4, display: 'block' }}>
-                      ✓ Add-on card shares the primary card's credit limit. Does NOT duplicate your total credit limit!
+                      ✓ Add-on card shares the primary card's credit limit and issuing bank. Does NOT duplicate your total credit limit!
                     </span>
                   </div>
 
@@ -4810,15 +4060,24 @@ export const CreditCardsView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                    ISSUING BANK
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      ISSUING BANK
+                    </label>
+                    {newIsAddon && (
+                      <span style={{ fontSize: 10.5, color: '#10B981', fontWeight: 600 }}>
+                        Linked to Primary Card
+                      </span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     placeholder="e.g. Axis Bank, HDFC"
-                    value={newCardBank}
-                    onChange={e => setNewCardBank(e.target.value)}
+                    value={newIsAddon ? (cards.find(c => c.id === newPrimaryCardId)?.bank || newCardBank) : newCardBank}
+                    onChange={e => !newIsAddon && setNewCardBank(e.target.value)}
+                    readOnly={newIsAddon}
                     className="modal-input"
+                    style={newIsAddon ? { background: 'rgba(255, 255, 255, 0.04)', opacity: 0.85, cursor: 'not-allowed' } : undefined}
                     required
                   />
                 </div>
