@@ -259,7 +259,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   // Drag-to-select Month Range (Point 1)
   const handleMonthMouseDown = (mIdx: number, e: React.MouseEvent) => {
     e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
       toggleMonth(mIdx);
       return;
     }
@@ -1406,9 +1406,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               type="button"
               onMouseDown={(e) => handleMonthMouseDown(idx, e)}
               onMouseEnter={() => handleMonthMouseEnter(idx)}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey) toggleMonth(idx);
-              }}
+              onClick={(e) => e.preventDefault()}
               style={{
                 minWidth: 68,
                 flexShrink: 0,

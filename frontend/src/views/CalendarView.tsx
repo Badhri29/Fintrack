@@ -2,18 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
-  Calendar as CalendarIcon,
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Clock,
   Plus,
   CreditCard,
-  Wallet,
-  Coins,
-  Send,
-  CheckCircle2,
-  CalendarDays
+  ArrowUpRight,
+  ArrowDownRight,
+  CalendarDays,
+  Target,
+  TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -22,7 +17,7 @@ import { cardService, type CardModel } from '../services/cardService';
 import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { isBillPaymentTx } from './CreditCardsView';
 import { yearService } from '../services/yearService';
-import { showToast } from '../components/ToastNotification';
+import { getUserStorageKey } from '../services/storageHelper';
 
 interface CalendarViewProps {
   onOpenNewTransaction?: (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => void;
@@ -45,16 +40,241 @@ interface DueItem {
   isPaid: boolean;
 }
 
+export interface PlannedItem {
+  id: string;
+  name: string;
+  amount: number;
+  day: number;
+  dateStr: string;
+  type: 'income' | 'expense' | 'savings';
+  category: string;
+  paymentMode?: string;
+  subcategory?: string;
+}
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-// Helper: Format YYYY-MM-DD
+const MONTH_SHORT_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+];
+
+const WEEKDAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
 const formatYmd = (y: number, m: number, d: number) => {
   const mm = String(m + 1).padStart(2, '0');
   const dd = String(d).padStart(2, '0');
   return `${y}-${mm}-${dd}`;
+};
+
+const dateToYmd = (d: Date) => formatYmd(d.getFullYear(), d.getMonth(), d.getDate());
+
+// Load planned/expected budget transactions from localStorage
+const getPlannedTransactionsForMonth = (
+  year: number,
+  monthIdx: number,
+  userEmail?: string,
+  categoriesList: any[] = [],
+  subcategoriesList: any[] = []
+): PlannedItem[] => {
+  const items: PlannedItem[] = [];
+  try {
+    const key = getUserStorageKey(`fintrack-budget-transactions-${year}`, userEmail);
+    const stored = localStorage.getItem(key) || localStorage.getItem(`fintrack-budget-transactions-${year}`);
+    if (stored) {
+      const bMap: Record<string, any[]> = JSON.parse(stored);
+
+      const defaultCategoryMap: Record<string, { type: 'income' | 'savings' | 'expense'; name: string }> = {
+        'salary': { type: 'income', name: 'Salary' },
+        'bonus & incentives': { type: 'income', name: 'Bonus & Incentives' },
+        'bonus': { type: 'income', name: 'Bonus & Incentives' },
+        'other income': { type: 'income', name: 'Other Income' },
+        'investments': { type: 'savings', name: 'Investments' },
+        'emergency fund': { type: 'savings', name: 'Emergency Fund' },
+        'mutual funds': { type: 'savings', name: 'Mutual Funds' },
+        'housing & rent': { type: 'expense', name: 'Housing & Rent' },
+        'food & groceries': { type: 'expense', name: 'Food & Groceries' },
+        'utilities & internet': { type: 'expense', name: 'Utilities & Internet' },
+        'dining & entertainment': { type: 'expense', name: 'Dining & Entertainment' },
+        'shopping & travel': { type: 'expense', name: 'Shopping & Travel' },
+        'health & insurance': { type: 'expense', name: 'Health & Insurance' },
+      };
+
+      // Build robust lookup map from categories & subcategories & cached lookup
+      const subcatLookup = new Map<string, { type: 'income' | 'savings' | 'expense'; categoryName: string; subcategoryName: string }>();
+
+      // 1. Read cached sections lookup from localStorage if available
+      try {
+        const cachedLookupStr = localStorage.getItem('fintrack_category_sections_lookup');
+        if (cachedLookupStr) {
+          const cachedMap = JSON.parse(cachedLookupStr);
+          Object.entries(cachedMap).forEach(([k, v]: [string, any]) => {
+            if (v && v.type) {
+              subcatLookup.set(k.toLowerCase().trim(), {
+                type: v.type,
+                categoryName: v.categoryName || 'General',
+                subcategoryName: v.subcategoryName || 'General'
+              });
+              subcatLookup.set(k, {
+                type: v.type,
+                categoryName: v.categoryName || 'General',
+                subcategoryName: v.subcategoryName || 'General'
+              });
+            }
+          });
+        }
+      } catch {}
+
+      const incomeKeywords = ['income', 'salary', 'bonus', 'wage', 'stipend', 'revenue', 'freelance', 'interest'];
+      const savingsKeywords = ['saving', 'invest', 'sip', 'deposit', 'mutual', 'fund', 'emergency'];
+
+      // 2. Map subcategories from API
+      subcategoriesList.forEach((sub: any) => {
+        const parent = categoriesList.find((c: any) => 
+          String(c.id) === String(sub.categoryId || sub.category_id || '') ||
+          (c.name && sub.categoryName && String(c.name).toLowerCase() === String(sub.categoryName).toLowerCase())
+        );
+        const parentType = (parent?.type || '').toLowerCase();
+        const parentNameLow = (parent?.name || '').toLowerCase();
+        let type: 'income' | 'savings' | 'expense' = 'expense';
+        if (parentType === 'income' || defaultCategoryMap[parentNameLow]?.type === 'income' || incomeKeywords.some(k => parentNameLow.includes(k))) {
+          type = 'income';
+        } else if (parentType === 'savings' || defaultCategoryMap[parentNameLow]?.type === 'savings' || savingsKeywords.some(k => parentNameLow.includes(k))) {
+          type = 'savings';
+        }
+        const info = {
+          type,
+          categoryName: parent?.name || (type === 'income' ? 'Salary' : type === 'savings' ? 'Investments' : 'General'),
+          subcategoryName: sub.name || 'General'
+        };
+        subcatLookup.set(String(sub.id), info);
+        subcatLookup.set(`sub:${sub.id}`, info);
+        subcatLookup.set(String(sub.name).toLowerCase().trim(), info);
+      });
+
+      // 3. Map categories from API
+      categoriesList.forEach((cat: any) => {
+        const catType = (cat.type || '').toLowerCase();
+        const catNameLow = (cat.name || '').toLowerCase();
+        let type: 'income' | 'savings' | 'expense' = 'expense';
+        if (catType === 'income' || defaultCategoryMap[catNameLow]?.type === 'income' || incomeKeywords.some(k => catNameLow.includes(k))) {
+          type = 'income';
+        } else if (catType === 'savings' || defaultCategoryMap[catNameLow]?.type === 'savings' || savingsKeywords.some(k => catNameLow.includes(k))) {
+          type = 'savings';
+        }
+        const info = {
+          type,
+          categoryName: cat.name,
+          subcategoryName: cat.name
+        };
+        subcatLookup.set(String(cat.id), info);
+        subcatLookup.set(String(cat.name).toLowerCase().trim(), info);
+        subcatLookup.set(`income:${cat.name}`.toLowerCase().trim(), { type: 'income', categoryName: cat.name, subcategoryName: cat.name });
+        subcatLookup.set(`expense:${cat.name}`.toLowerCase().trim(), { type: 'expense', categoryName: cat.name, subcategoryName: cat.name });
+        subcatLookup.set(`savings:${cat.name}`.toLowerCase().trim(), { type: 'savings', categoryName: cat.name, subcategoryName: cat.name });
+      });
+
+      Object.entries(bMap).forEach(([catKey, txList]) => {
+        if (!Array.isArray(txList)) return;
+        const lowKey = catKey.toLowerCase().trim();
+        
+        let itemType: 'income' | 'expense' | 'savings' = 'expense';
+        let categoryName = 'General';
+
+        const mapped = subcatLookup.get(catKey) || 
+                       (catKey.startsWith('sub:') ? subcatLookup.get(catKey.slice(4)) : undefined) ||
+                       subcatLookup.get(lowKey);
+        if (mapped) {
+          itemType = mapped.type;
+          categoryName = mapped.categoryName;
+        } else if (
+          lowKey.startsWith('income') ||
+          incomeKeywords.some(k => lowKey.includes(k)) ||
+          defaultCategoryMap[lowKey]?.type === 'income'
+        ) {
+          itemType = 'income';
+          categoryName = 'Salary & Income';
+        } else if (
+          lowKey.startsWith('saving') ||
+          savingsKeywords.some(k => lowKey.includes(k)) ||
+          defaultCategoryMap[lowKey]?.type === 'savings'
+        ) {
+          itemType = 'savings';
+          categoryName = 'Savings & Investments';
+        } else {
+          categoryName = catKey.split(':').pop() || 'Expense';
+        }
+
+        txList.forEach(t => {
+          const amt = Number(t.values?.[monthIdx]) || 0;
+          if (amt <= 0) return;
+
+          let txType: 'income' | 'expense' | 'savings' = itemType;
+
+          // Check if subcategory / name maps directly
+          const tNameLow = String(t.name || '').toLowerCase().trim();
+          const tSubLow = String(t.subcategory || '').toLowerCase().trim();
+          const tCatLow = String(t.category || '').toLowerCase().trim();
+          const tTypeLow = String(t.type || '').toLowerCase().trim();
+
+          const subMapped = (tSubLow && subcatLookup.get(tSubLow)) || (tNameLow && subcatLookup.get(tNameLow));
+          if (subMapped) {
+            txType = subMapped.type;
+            if (categoryName === 'General' || categoryName === 'Expense' || /^\d+$/.test(categoryName)) {
+              categoryName = subMapped.categoryName;
+            }
+          } else if (mapped) {
+            txType = mapped.type;
+          } else {
+            if (tTypeLow === 'income' || tCatLow.includes('salary') || tCatLow.includes('income') || incomeKeywords.some(k => tNameLow.includes(k))) {
+              txType = 'income';
+              if (categoryName === 'General' || categoryName === 'Expense' || /^\d+$/.test(categoryName)) categoryName = 'Salary';
+            } else if (tTypeLow === 'savings' || tCatLow.includes('saving') || tCatLow.includes('invest') || savingsKeywords.some(k => tNameLow.includes(k))) {
+              txType = 'savings';
+              if (categoryName === 'General' || categoryName === 'Expense' || /^\d+$/.test(categoryName)) categoryName = 'Savings & Investments';
+            } else if (tTypeLow === 'expense') {
+              txType = 'expense';
+            }
+          }
+
+          let day = 1;
+          if (t.monthPaymentModes?.[monthIdx] && String(t.monthPaymentModes[monthIdx]).trim() !== '') {
+            day = Number(t.monthPaymentModes[monthIdx]);
+          } else if (t.paymentMode && String(t.paymentMode).trim() !== '') {
+            day = Number(t.paymentMode);
+          } else if (t.date) {
+            day = Number(String(t.date).slice(8, 10));
+          }
+          if (isNaN(day) || day < 1 || day > 31) day = 1;
+
+          // Ensure finalCat is never numeric or 'sub:...'
+          let finalCat = t.category;
+          if (!finalCat || finalCat.startsWith('sub:') || /^\d+$/.test(finalCat)) {
+            finalCat = categoryName;
+          }
+          if (!finalCat || /^\d+$/.test(finalCat) || finalCat === 'Expense' || finalCat === 'General') {
+            finalCat = txType === 'income' ? 'Salary' : txType === 'savings' ? 'Investments' : 'General';
+          }
+
+          items.push({
+            id: t.id || `plan-${catKey}-${day}`,
+            name: t.name || finalCat,
+            amount: amt,
+            day,
+            dateStr: formatYmd(year, monthIdx, day),
+            type: txType,
+            category: finalCat,
+            subcategory: t.subcategory || (subMapped ? subMapped.subcategoryName : (mapped ? mapped.subcategoryName : undefined)),
+            paymentMode: t.paymentMode || 'Bank Transfer'
+          });
+        });
+      });
+    }
+  } catch {}
+  return items;
 };
 
 // Reusable function to compute dues for any given month & year
@@ -74,22 +294,22 @@ const computeDuesForMonth = (
   const isPastMonth = year < todayY || (year === todayY && month < todayM);
   const isFutureMonth = year > todayY || (year === todayY && month > todayM);
 
-  // 1. Credit Cards: Determine monthly dues based on credit spends & bill payment transactions
+  // 1. Credit Cards dues
   cardsList.forEach(card => {
     if (!card.isActive) return;
     const dueDay = Number(card.dueDay) || 5;
 
-    // Check if bill payment transaction was made for this card in this viewed month
     const billPaymentInViewedMonth = transactionsList.find(t => {
       if (!t.date) return false;
-      const [y, m] = t.date.split('-').map(Number);
+      const tDate = String(t.date).slice(0, 10);
+      const [y, m] = tDate.split('-').map(Number);
       if (y !== year || m !== (month + 1)) return false;
       if (!isBillPaymentTx(t)) return false;
       const cName = card.name.toLowerCase();
-      const cLast4 = card.last4 || '';
       const tCard = String(t.card || '').toLowerCase();
       const tDesc = String(t.description || '').toLowerCase();
-      return tCard.includes(cName) || tDesc.includes(cName) || (cLast4 && (tCard.includes(cLast4) || tDesc.includes(cLast4)));
+      const mode = String(t.paymentMode || '').toLowerCase();
+      return mode.includes(cName) || tCard.includes(cName) || tDesc.includes(cName);
     });
 
     let monthSpend = 0;
@@ -100,7 +320,8 @@ const computeDuesForMonth = (
 
     transactionsList.forEach(t => {
       if (!t.date) return;
-      const [y, m] = t.date.split('-').map(Number);
+      const tDate = String(t.date).slice(0, 10);
+      const [y, m] = tDate.split('-').map(Number);
 
       const mode = String(t.paymentMode || '').toLowerCase();
       const tCard = String(t.card || '').toLowerCase();
@@ -119,53 +340,71 @@ const computeDuesForMonth = (
         totalAllTimeSpends += amt;
       }
 
-      if (y < year || (y === year && m <= (month + 1))) {
+      const txPeriodVal = y * 12 + (m - 1);
+      const viewPeriodVal = year * 12 + month;
+
+      if (y === year && m === (month + 1)) {
+        if (!isPayment && t.type !== 'income') {
+          monthSpend += amt;
+        }
+      }
+
+      if (txPeriodVal <= viewPeriodVal) {
         if (isPayment) {
           paidUpToMonth += amt;
         } else if (t.type !== 'income') {
           spendUpToMonth += amt;
-          if (y === year && m === (month + 1)) {
-            monthSpend += amt;
-          }
         }
       }
     });
 
-    // If card was never used up to this month and has no payment, skip displaying empty clutter
-    if (spendUpToMonth === 0 && !billPaymentInViewedMonth) return;
+    let cardDueAmount = 0;
+    let isPaid = false;
 
-    // For past months, if this specific month had NO spend and NO payment, skip displaying empty clutter
-    if (isPastMonth && monthSpend === 0 && !billPaymentInViewedMonth) return;
+    if (billPaymentInViewedMonth) {
+      isPaid = true;
+      cardDueAmount = Number(billPaymentInViewedMonth.amount) || monthSpend;
+    } else {
+      const historicalUnpaid = Math.max(0, spendUpToMonth - paidUpToMonth);
+      if (isPastMonth) {
+        const liveCurrentOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+        if (liveCurrentOutstanding === 0) {
+          isPaid = true;
+          cardDueAmount = monthSpend;
+        } else {
+          isPaid = false;
+          cardDueAmount = historicalUnpaid > 0 ? historicalUnpaid : monthSpend;
+        }
+      } else if (isViewingCurrentMonth) {
+        cardDueAmount = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+        isPaid = cardDueAmount === 0 && monthSpend > 0;
+      } else {
+        cardDueAmount = monthSpend;
+        isPaid = false;
+      }
+    }
 
-    const outstandingUpToMonth = Math.max(0, spendUpToMonth - paidUpToMonth);
-    const currentAllTimeOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+    if (cardDueAmount <= 0 && !isPaid) {
+      return;
+    }
 
-    // Paid status:
-    // - Bill payment made in this viewed month
-    // - Spends up to this month covered by all-time payments
-    // - Card current net outstanding is 0
-    // - Outstanding up to that month was already 0
-    const isPaid =
-      Boolean(billPaymentInViewedMonth) ||
-      (totalAllTimePayments >= spendUpToMonth && spendUpToMonth > 0) ||
-      (currentAllTimeOutstanding === 0 && spendUpToMonth > 0) ||
-      (outstandingUpToMonth === 0 && spendUpToMonth > 0);
-
-    const displayAmount = billPaymentInViewedMonth
-      ? Number(billPaymentInViewedMonth.amount)
-      : (monthSpend > 0 ? monthSpend : (outstandingUpToMonth > 0 ? outstandingUpToMonth : card.limit * 0.1));
-
+    const isOverdue = !isPaid && (
+      isPastMonth ||
+      (isViewingCurrentMonth && dueDay < todayD)
+    );
     const isDueToday = !isPaid && isViewingCurrentMonth && dueDay === todayD;
-    const isOverdue = !isPaid && ((isPastMonth && displayAmount > 0) || (isViewingCurrentMonth && dueDay < todayD && displayAmount > 0));
-    const isUpcoming = !isPaid && (isFutureMonth || (isViewingCurrentMonth && dueDay > todayD));
+    const isUpcoming = !isPaid && (
+      isFutureMonth ||
+      (isViewingCurrentMonth && dueDay > todayD)
+    );
 
-    const item: DueItem = {
-      id: `card-${card.id}-${year}-${month}`,
-      cardId: card.id,
+    const dueItem: DueItem = {
+      id: `card-due-${card.id}-${year}-${month}`,
       type: 'card',
+      cardId: card.id,
       name: card.name,
-      subtext: `${card.bank} Credit Card • Due on ${dueDay}th`,
-      amount: displayAmount,
+      subtext: `Credit Card Bill (•••• ${card.last4})`,
+      amount: cardDueAmount,
       dueDay,
       dueDate: formatYmd(year, month, dueDay),
       isOverdue,
@@ -175,238 +414,163 @@ const computeDuesForMonth = (
     };
 
     if (!duesByDay[dueDay]) duesByDay[dueDay] = [];
-    duesByDay[dueDay].push(item);
+    duesByDay[dueDay].push(dueItem);
   });
 
-  // 2. Loans & EMI: Include ALL loans from loan and EMI page
+  // 2. Loans dues (Strictly EXCLUDE credit_card repayment loans)
   loansList.forEach(loan => {
-    const emiDay = Number(loan.dueDay) || 5;
+    if (loan.status === 'closed') return;
+    if (loan.repaymentSource === 'credit_card') return;
+
+    const dueDay = Number(loan.dueDay) || 5;
     const metrics = calculateLoanEMIs(loan);
     const schedule = generateEmiSchedule(loan, metrics);
 
-    // Find schedule item matching the viewed month and year
-    const scheduleItem = schedule.find(s => {
-      if (s.year === year && s.month === month) return true;
-      if (!s.dateStr) return false;
-      const [y, m] = s.dateStr.split('-').map(Number);
-      return y === year && m === (month + 1);
-    });
+    const monthItem = schedule.find(s => s.year === year && s.month === month);
+    if (!monthItem) return;
 
-    // Also check actual transactions in this viewed month for EMI payment of this loan
-    const matchingLoanTx = transactionsList.find(t => {
-      if (!t.date) return false;
-      const [y, m] = t.date.split('-').map(Number);
-      if (y !== year || m !== (month + 1)) return false;
-      const desc = String(t.description || '').toLowerCase();
-      const sub = String(t.subcategory || '').toLowerCase();
-      const cat = String(t.category || '').toLowerCase();
-      const lName = loan.name.toLowerCase();
-      const lender = (loan.lender || '').toLowerCase();
-      const lNum = (loan.loanNumber || '').toLowerCase();
+    const isPaid = monthItem.status === 'paid';
+    const isOverdue = !isPaid && (
+      isPastMonth ||
+      (isViewingCurrentMonth && dueDay < todayD)
+    );
+    const isDueToday = !isPaid && isViewingCurrentMonth && dueDay === todayD;
+    const isUpcoming = !isPaid && (
+      isFutureMonth ||
+      (isViewingCurrentMonth && dueDay > todayD)
+    );
 
-      const isEmi = cat.includes('debt') || cat.includes('loan') || cat.includes('emi') || sub.includes('emi') || desc.includes('emi');
-      const matches = desc.includes(lName) || (lender && desc.includes(lender)) || (lNum && desc.includes(lNum));
-      return isEmi && matches;
-    });
-
-    // If there is NO scheduled EMI for this month and NO matching payment transaction, skip!
-    if (!scheduleItem && !matchingLoanTx) {
-      return;
-    }
-
-    // Paid status:
-    // 1. Closed loan
-    // 2. Matching loan transaction in this month
-    // 3. scheduleItem.status === 'paid'
-    // 4. scheduleItem.index in paidScheduleIndices
-    // 5. scheduleItem.index <= loan.paidMonths
-    // 6. scheduleItem.index <= metrics.completedEmis
-    const isPaid =
-      metrics.isClosed ||
-      Boolean(matchingLoanTx) ||
-      (scheduleItem && scheduleItem.status === 'paid') ||
-      Boolean(scheduleItem && loan.paidScheduleIndices?.includes(scheduleItem.index)) ||
-      Boolean(scheduleItem && typeof loan.paidMonths === 'number' && scheduleItem.index <= loan.paidMonths) ||
-      Boolean(scheduleItem && scheduleItem.index <= metrics.completedEmis);
-
-    const emiAmt = scheduleItem && scheduleItem.emiAmount > 0
-      ? scheduleItem.emiAmount
-      : (metrics.emi || loan.emiAmount || 0);
-
-    // Skip closed loans in future months when they have 0 EMI scheduled
-    if (metrics.isClosed && isFutureMonth && !matchingLoanTx) return;
-
-    const isDueToday = !isPaid && isViewingCurrentMonth && emiDay === todayD;
-    const isOverdue = !isPaid && (isPastMonth || (isViewingCurrentMonth && emiDay < todayD));
-    const isUpcoming = !isPaid && (isFutureMonth || (isViewingCurrentMonth && emiDay > todayD));
-
-    const item: DueItem = {
-      id: `loan-${loan.id}-${year}-${month}`,
-      loanId: loan.id,
+    const dueItem: DueItem = {
+      id: `loan-due-${loan.id}-${year}-${month}`,
       type: 'loan',
+      loanId: loan.id,
       name: loan.name,
-      subtext: `${loan.lender || 'Bank'} EMI • Due on ${emiDay}th`,
-      amount: emiAmt,
-      dueDay: emiDay,
-      dueDate: formatYmd(year, month, emiDay),
+      subtext: `${loan.lender} • ${loan.type || 'Loan EMI'} (Inst #${monthItem.index})`,
+      amount: monthItem.emiAmount,
+      dueDay,
+      dueDate: formatYmd(year, month, dueDay),
       isOverdue,
       isDueToday,
       isUpcoming,
       isPaid
     };
 
-    if (!duesByDay[emiDay]) duesByDay[emiDay] = [];
-    duesByDay[emiDay].push(item);
+    if (!duesByDay[dueDay]) duesByDay[dueDay] = [];
+    duesByDay[dueDay].push(dueItem);
   });
 
   return duesByDay;
 };
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction, onNavigateToLoan }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({
+  onOpenNewTransaction,
+  onNavigateToLoan
+}) => {
   const { user } = useAuth();
 
-  const [viewMode, setViewMode] = useState<'month' | 'year'>('month');
-  const [selectedYear, setSelectedYear] = useState<number>(() => {
-    return yearService.getSelectedYear() || new Date().getFullYear();
-  });
-  // Multi-Month Selection State: Default to current month
-  const [selectedMonths, setSelectedMonths] = useState<number[]>([new Date().getMonth()]);
-  const [isDraggingMonths, setIsDraggingMonths] = useState<boolean>(false);
-  const [dragStartMonth, setDragStartMonth] = useState<number | null>(null);
-
-  // Inspector Drawer sub-tab for Month View ('day' ledger or 'period' dues overview)
-  const [drawerTab, setDrawerTab] = useState<'day' | 'period'>('day');
-
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
-  const [selectedYearMonth, setSelectedYearMonth] = useState<number>(() => new Date().getMonth());
-  const [transactions, setTransactions] = useState<any[]>([]);
-
-  const [filterMode, setFilterMode] = useState<'all' | 'transactions' | 'dues' | 'overdue'>('all');
-  const [sendingEod, setSendingEod] = useState<boolean>(false);
-
-  // Cards and Loans
-  const [cards, setCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
-  const [loans, setLoans] = useState<LoanModel[]>(() => loanService.getLoans(user?.email));
-
-  // Current viewed year
-  const currentYear = selectedYear;
-
-  // Today reference
-  const today = new Date();
+  const today = useMemo(() => new Date(), []);
   const todayYear = today.getFullYear();
   const todayMonth = today.getMonth();
   const todayDay = today.getDate();
 
-  // Global mouseup listener for smooth drag-to-select release
-  useEffect(() => {
-    const handleMouseUp = () => {
-      setIsDraggingMonths(false);
-      setDragStartMonth(null);
-    };
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => window.removeEventListener('mouseup', handleMouseUp);
-  }, []);
+  // Multi-year selection state (defaults to [currentYear])
+  const [selectedYears, setSelectedYears] = useState<number[]>([todayYear]);
+  const [isDraggingYears, setIsDraggingYears] = useState<boolean>(false);
+  const [dragStartYear, setDragStartYear] = useState<number | null>(null);
 
-  // Month multi-selection handler
-  const toggleMonth = (mIdx: number) => {
-    setSelectedMonths(prev => {
-      if (prev.length === 12) {
-        // If all 12 months were selected, switch to just this clicked month
-        return [mIdx];
-      }
-      if (prev.includes(mIdx)) {
-        if (prev.length === 1) return prev; // keep at least 1 month
-        return prev.filter(m => m !== mIdx);
-      } else {
-        return [...prev, mIdx].sort((a, b) => a - b);
-      }
+  // Multi-month selection state (defaults to [currentMonth])
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([todayMonth]);
+  const [isDraggingMonths, setIsDraggingMonths] = useState<boolean>(false);
+  const [dragStartMonth, setDragStartMonth] = useState<number | null>(null);
+
+  // Selected date and Date Range state (supports drag range selection across dates)
+  const [selectedDateRange, setSelectedDateRange] = useState<{ start: Date; end: Date }>({ start: today, end: today });
+  const [isDraggingDates, setIsDraggingDates] = useState<boolean>(false);
+  const [dragStartDate, setDragStartDate] = useState<Date | null>(null);
+
+  // Expected amounts display toggle (persisted in localStorage)
+  const [showExpectedAmounts, setShowExpectedAmounts] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('fintrack_calendar_show_expected');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+
+  const toggleShowExpectedAmounts = () => {
+    setShowExpectedAmounts(prev => {
+      const next = !prev;
+      try {
+        localStorage.setItem('fintrack_calendar_show_expected', String(next));
+      } catch {}
+      return next;
     });
   };
 
-  // Drag-to-select Month Range
-  const handleMonthMouseDown = (mIdx: number, e: React.MouseEvent) => {
-    e.preventDefault();
-    if (e.ctrlKey || e.metaKey) {
-      toggleMonth(mIdx);
-      return;
-    }
-    setIsDraggingMonths(true);
-    setDragStartMonth(mIdx);
-    setSelectedMonths([mIdx]);
-  };
+  // Top 4 Category Filters: Income, Expense, Savings, Credit Card & Loan EMI (all enabled by default)
+  const [filterIncome, setFilterIncome] = useState<boolean>(true);
+  const [filterExpense, setFilterExpense] = useState<boolean>(true);
+  const [filterSavings, setFilterSavings] = useState<boolean>(true);
+  const [filterDues, setFilterDues] = useState<boolean>(true);
 
-  const handleMonthMouseEnter = (mIdx: number) => {
-    if (isDraggingMonths && dragStartMonth !== null) {
-      const start = Math.min(dragStartMonth, mIdx);
-      const end = Math.max(dragStartMonth, mIdx);
-      const range: number[] = [];
-      for (let i = start; i <= end; i++) {
-        range.push(i);
+  // Live state from backend & services
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [cards, setCards] = useState<CardModel[]>([]);
+  const [loans, setLoans] = useState<LoanModel[]>([]);
+  const [apiCategories, setApiCategories] = useState<any[]>([]);
+  const [apiSubcategories, setApiSubcategories] = useState<any[]>([]);
+  const [budgetTxRefreshKey, setBudgetTxRefreshKey] = useState<number>(0);
+
+  useEffect(() => {
+    const onBudgetTxChanged = () => {
+      setBudgetTxRefreshKey(k => k + 1);
+    };
+    window.addEventListener('fintrack-budget-transactions-changed', onBudgetTxChanged);
+    return () => window.removeEventListener('fintrack-budget-transactions-changed', onBudgetTxChanged);
+  }, []);
+
+  // Available year list for selector
+  const availableYears = useMemo(() => {
+    const list: number[] = [];
+    for (let y = todayYear - 2; y <= todayYear + 3; y++) {
+      list.push(y);
+    }
+    return list;
+  }, [todayYear]);
+
+  // Fetch transactions and categories from backend
+  const fetchMetadata = async () => {
+    try {
+      const [catsRes, subcatsRes] = await Promise.all([
+        api.get('/categories').catch(() => ({ data: { data: [] } })),
+        api.get('/subcategories').catch(() => ({ data: { data: [] } })),
+      ]);
+      if (catsRes.data?.success && Array.isArray(catsRes.data.data)) {
+        setApiCategories(catsRes.data.data);
       }
-      setSelectedMonths(range);
-    }
+      if (subcatsRes.data?.success && Array.isArray(subcatsRes.data.data)) {
+        setApiSubcategories(subcatsRes.data.data);
+      }
+    } catch {}
   };
 
-  const selectFullYear = () => {
-    setSelectedMonths([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-  };
-
-  const selectQuarter = (q: 1 | 2 | 3 | 4) => {
-    const start = (q - 1) * 3;
-    setSelectedMonths([start, start + 1, start + 2]);
-  };
-
-  const selectCurrentMonth = () => {
-    setSelectedMonths([todayMonth]);
-    setSelectedDate(new Date(selectedYear, todayMonth, Math.min(todayDay, 28)));
-  };
-
-  // Helper: Friendly selected months label
-  const getSelectedMonthsLabel = () => {
-    if (selectedMonths.length === 12) return 'Full Year (12 Months)';
-    if (selectedMonths.length === 1) return `${MONTH_NAMES[selectedMonths[0]]}`;
-    const sorted = [...selectedMonths].sort((a, b) => a - b);
-    const isContiguous = sorted.every((m, idx) => idx === 0 || m === sorted[idx - 1] + 1);
-    if (isContiguous && sorted.length > 2) {
-      return `${MONTH_NAMES[sorted[0]]} - ${MONTH_NAMES[sorted[sorted.length - 1]]} (${sorted.length} mos)`;
-    }
-    if (sorted.length > 3) {
-      return `${MONTH_NAMES[sorted[0]]}, ${MONTH_NAMES[sorted[1]]} +${sorted.length - 2} (${sorted.length} mos)`;
-    }
-    return `${sorted.map(m => MONTH_NAMES[m]).join(', ')} (${sorted.length} mos)`;
-  };
-
-  // Load transactions
   const fetchTransactions = async () => {
     try {
       const res = await api.get('/transactions');
-      if (res.data && res.data.success && Array.isArray(res.data.data)) {
+      if (res.data?.success && Array.isArray(res.data.data)) {
         setTransactions(res.data.data);
       }
-    } catch {
-      // fallback
-    }
+    } catch {}
   };
 
   useEffect(() => {
     fetchTransactions();
+    fetchMetadata();
     setCards(cardService.getCards(user?.email));
     setLoans(loanService.getLoans(user?.email));
   }, [user]);
 
-  // Synchronize year with global yearService
-  useEffect(() => {
-    const handleYearSync = (e: any) => {
-      const yr = Number(e.detail);
-      if (!isNaN(yr) && yr !== selectedYear) {
-        setSelectedYear(yr);
-      }
-    };
-    window.addEventListener('fintrack-year-changed', handleYearSync);
-    return () => window.removeEventListener('fintrack-year-changed', handleYearSync);
-  }, [selectedYear, selectedMonths]);
-
-  // Listen for external updates
   useEffect(() => {
     const handleCards = () => setCards(cardService.getCards(user?.email));
     const handleLoans = () => setLoans(loanService.getLoans(user?.email));
@@ -414,436 +578,169 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
     window.addEventListener('fintrack-cards-updated', handleCards);
     window.addEventListener('fintrack-loans-changed', handleLoans);
     window.addEventListener('fintrack-transactions-changed', handleTx);
+    window.addEventListener('fintrack-budget-changed', handleTx);
     return () => {
       window.removeEventListener('fintrack-cards-updated', handleCards);
       window.removeEventListener('fintrack-loans-changed', handleLoans);
       window.removeEventListener('fintrack-transactions-changed', handleTx);
+      window.removeEventListener('fintrack-budget-changed', handleTx);
     };
   }, [user?.email]);
 
-  // Month navigation handlers
-  const handlePrevMonth = () => {
-    if (viewMode === 'month') {
-      if (selectedMonths.length === 12) {
-        const prevYr = selectedYear - 1;
-        handleSelectYear(prevYr);
-      } else if (selectedMonths.length === 1) {
-        const curM = selectedMonths[0];
-        if (curM === 0) {
-          handleSelectYear(selectedYear - 1);
-          setSelectedMonths([11]);
-        } else {
-          setSelectedMonths([curM - 1]);
+  // Global mouseup release listener
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      setIsDraggingYears(false);
+      setDragStartYear(null);
+      setIsDraggingMonths(false);
+      setDragStartMonth(null);
+      setIsDraggingDates(false);
+      setDragStartDate(null);
+    };
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+  }, []);
+
+  // Total activities across selected years
+  const totalYearEventsCount = useMemo(() => {
+    return transactions.filter(t => {
+      if (!t.date) return false;
+      const y = Number(String(t.date).slice(0, 4));
+      return selectedYears.includes(y);
+    }).length;
+  }, [transactions, selectedYears]);
+
+  // Year drag & click handler
+  const handleYearMouseDown = (yr: number, event: React.MouseEvent) => {
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      setSelectedYears(prev => {
+        if (prev.includes(yr)) {
+          if (prev.length === 1) return prev;
+          return prev.filter(item => item !== yr);
         }
-      } else {
-        const minM = Math.min(...selectedMonths);
-        if (minM > 0) {
-          setSelectedMonths(selectedMonths.map(m => m - 1));
-        } else {
-          handleSelectYear(selectedYear - 1);
-        }
-      }
-    } else {
-      const prevYr = selectedYear - 1;
-      handleSelectYear(prevYr);
+        return [...prev, yr].sort((a, b) => a - b);
+      });
+      return;
     }
-  };
-
-  const handleNextMonth = () => {
-    if (viewMode === 'month') {
-      if (selectedMonths.length === 12) {
-        const nextYr = selectedYear + 1;
-        handleSelectYear(nextYr);
-      } else if (selectedMonths.length === 1) {
-        const curM = selectedMonths[0];
-        if (curM === 11) {
-          handleSelectYear(selectedYear + 1);
-          setSelectedMonths([0]);
-        } else {
-          setSelectedMonths([curM + 1]);
-        }
-      } else {
-        const maxM = Math.max(...selectedMonths);
-        if (maxM < 11) {
-          setSelectedMonths(selectedMonths.map(m => m + 1));
-        } else {
-          handleSelectYear(selectedYear + 1);
-        }
-      }
-    } else {
-      const nextYr = selectedYear + 1;
-      handleSelectYear(nextYr);
-    }
-  };
-
-  const handleToday = () => {
-    const now = new Date();
-    setSelectedYear(now.getFullYear());
-    setSelectedMonths([now.getMonth()]);
-    setSelectedDate(now);
-    setSelectedYearMonth(now.getMonth());
-    yearService.setSelectedYear(now.getFullYear());
-  };
-
-  // Direct year selection handler
-  const handleSelectYear = (yr: number) => {
-    setSelectedYear(yr);
-    setSelectedDate(new Date(yr, selectedDate.getMonth(), Math.min(selectedDate.getDate(), 28)));
+    setIsDraggingYears(true);
+    setDragStartYear(yr);
+    setSelectedYears([yr]);
     yearService.setSelectedYear(yr);
   };
 
-  // Helper: Generate calendar cells & daily transactions for any given month & year
-  const generateCalendarCellsForMonth = (
-    yr: number,
-    mIdx: number,
-    allTxs: any[],
-    duesMap: Record<number, DueItem[]>,
-    todayY: number,
-    todayM: number,
-    todayD: number,
-    selectedD: Date
-  ) => {
-    const firstDayOfWeek = new Date(yr, mIdx, 1).getDay(); // 0 = Sun
-    const daysInMonth = new Date(yr, mIdx + 1, 0).getDate();
-
-    const dTxMap: Record<number, any[]> = {};
-    allTxs.forEach(t => {
-      if (!t.date) return;
-      const [y, m, d] = t.date.split('-').map(Number);
-      if (y === yr && m === (mIdx + 1)) {
-        if (!dTxMap[d]) dTxMap[d] = [];
-        dTxMap[d].push(t);
+  const handleYearMouseEnter = (yr: number) => {
+    if (isDraggingYears && dragStartYear !== null) {
+      const start = Math.min(dragStartYear, yr);
+      const end = Math.max(dragStartYear, yr);
+      const range: number[] = [];
+      for (let y = start; y <= end; y++) {
+        range.push(y);
       }
-    });
-
-    const cells: {
-      type: 'empty' | 'day';
-      day?: number;
-      dateStr?: string;
-      isToday?: boolean;
-      isSelected?: boolean;
-      txList?: any[];
-      duesList?: DueItem[];
-      dayIncome?: number;
-      dayExpense?: number;
-      daySavings?: number;
-    }[] = [];
-
-    // Empty padding cells before first day
-    for (let i = 0; i < firstDayOfWeek; i++) {
-      cells.push({ type: 'empty' });
+      setSelectedYears(range);
     }
-
-    // Days in month
-    for (let day = 1; day <= daysInMonth; day++) {
-      const isToday = yr === todayY && mIdx === todayM && day === todayD;
-      const isSelected =
-        yr === selectedD.getFullYear() &&
-        mIdx === selectedD.getMonth() &&
-        day === selectedD.getDate();
-
-      const txList = dTxMap[day] || [];
-      const duesList = duesMap[day] || [];
-
-      let dInc = 0;
-      let dExp = 0;
-      let dSav = 0;
-      txList.forEach(t => {
-        const amt = Number(t.amount) || 0;
-        const type = (t.type || 'expense').toLowerCase();
-        if (type === 'income') dInc += amt;
-        else if (type === 'savings') dSav += amt;
-        else dExp += amt;
-      });
-
-      cells.push({
-        type: 'day',
-        day,
-        dateStr: formatYmd(yr, mIdx, day),
-        isToday,
-        isSelected,
-        txList,
-        duesList,
-        dayIncome: dInc,
-        dayExpense: dExp,
-        daySavings: dSav
-      });
-    }
-
-    return { cells, dailyTxMap: dTxMap };
   };
 
-  // Full Yearly Aggregates & Dues Audit for all 12 months
-  const yearlyData = useMemo(() => {
-    const monthsData = Array.from({ length: 12 }, (_, mIdx) => {
-      let inc = 0;
-      let exp = 0;
-      let sav = 0;
+  // Month drag & click handler (multi-select supported)
+  const handleMonthMouseDown = (mIdx: number, event: React.MouseEvent) => {
+    const primaryYear = selectedYears[0] || todayYear;
 
-      transactions.forEach(t => {
-        if (!t.date) return;
-        const [y, m] = t.date.split('-').map(Number);
-        if (y === currentYear && m === (mIdx + 1)) {
-          const amt = Number(t.amount) || 0;
-          const type = (t.type || 'expense').toLowerCase();
-          if (type === 'income') inc += amt;
-          else if (type === 'savings') sav += amt;
-          else exp += amt;
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      setSelectedMonths(prev => {
+        let next: number[];
+        if (prev.includes(mIdx)) {
+          if (prev.length === 1) return prev;
+          next = prev.filter(m => m !== mIdx);
+        } else {
+          next = [...prev, mIdx].sort((a, b) => a - b);
         }
-      });
-
-      const duesMap = computeDuesForMonth(
-        currentYear,
-        mIdx,
-        cards,
-        loans,
-        transactions,
-        todayYear,
-        todayMonth,
-        todayDay
-      );
-      const allDues: DueItem[] = [];
-      Object.values(duesMap).forEach(arr => allDues.push(...arr));
-
-      const paidDues = allDues.filter(d => d.isPaid);
-      const overdueDues = allDues.filter(d => !d.isPaid && d.isOverdue);
-      const upcomingDues = allDues.filter(d => !d.isPaid && !d.isOverdue);
-
-      const emiDues = allDues.filter(d => d.type === 'loan');
-      const paidEmis = paidDues.filter(d => d.type === 'loan');
-      const upcomingEmis = upcomingDues.filter(d => d.type === 'loan');
-      const overdueEmis = overdueDues.filter(d => d.type === 'loan');
-
-      return {
-        monthIndex: mIdx,
-        monthName: MONTH_NAMES[mIdx],
-        income: inc,
-        expense: exp,
-        savings: sav,
-        net: inc - exp,
-        allDues,
-        paidDues,
-        overdueDues,
-        upcomingDues,
-        emiDues,
-        paidEmis,
-        upcomingEmis,
-        overdueEmis,
-        emiCount: emiDues.length,
-        paidEmiCount: paidEmis.length,
-        upcomingEmiCount: upcomingEmis.length,
-        overdueEmiCount: overdueEmis.length,
-        paidCount: paidDues.length,
-        paidAmount: paidDues.reduce((s, d) => s + d.amount, 0),
-        overdueCount: overdueDues.length,
-        overdueAmount: overdueDues.reduce((s, d) => s + d.amount, 0),
-        upcomingCount: upcomingDues.length,
-        upcomingAmount: upcomingDues.reduce((s, d) => s + d.amount, 0),
-      };
-    });
-
-    const totalYearIncome = monthsData.reduce((s, m) => s + m.income, 0);
-    const totalYearExpense = monthsData.reduce((s, m) => s + m.expense, 0);
-    const totalYearSavings = monthsData.reduce((s, m) => s + m.savings, 0);
-    const totalYearNet = totalYearIncome - totalYearExpense;
-
-    const totalYearEmiCount = monthsData.reduce((s, m) => s + m.emiCount, 0);
-    const totalYearEmiPaidCount = monthsData.reduce((s, m) => s + m.paidEmiCount, 0);
-    const totalYearEmiUpcomingCount = monthsData.reduce((s, m) => s + m.upcomingEmiCount, 0);
-    const totalYearEmiOverdueCount = monthsData.reduce((s, m) => s + m.overdueEmiCount, 0);
-
-    const totalYearPaidCount = monthsData.reduce((s, m) => s + m.paidCount, 0);
-    const totalYearPaidAmount = monthsData.reduce((s, m) => s + m.paidAmount, 0);
-
-    const totalYearPendingCount = monthsData.reduce((s, m) => s + m.upcomingCount, 0);
-    const totalYearPendingAmount = monthsData.reduce((s, m) => s + m.upcomingAmount, 0);
-
-    const totalYearOverdueCount = monthsData.reduce((s, m) => s + m.overdueCount, 0);
-    const totalYearOverdueAmount = monthsData.reduce((s, m) => s + m.overdueAmount, 0);
-
-    return {
-      monthsData,
-      totalYearIncome,
-      totalYearExpense,
-      totalYearSavings,
-      totalYearNet,
-      totalYearEmiCount,
-      totalYearEmiPaidCount,
-      totalYearEmiUpcomingCount,
-      totalYearEmiOverdueCount,
-      totalYearPaidCount,
-      totalYearPaidAmount,
-      totalYearPendingCount,
-      totalYearPendingAmount,
-      totalYearOverdueCount,
-      totalYearOverdueAmount,
-    };
-  }, [transactions, cards, loans, currentYear, todayYear, todayMonth, todayDay]);
-
-  // Aggregated data for all SELECTED months
-  const selectedMonthsData = useMemo(() => {
-    return yearlyData.monthsData.filter(m => selectedMonths.includes(m.monthIndex));
-  }, [yearlyData, selectedMonths]);
-
-  const selectedMonthsIncome = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.income, 0);
-  }, [selectedMonthsData]);
-
-  const selectedMonthsExpense = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.expense, 0);
-  }, [selectedMonthsData]);
-
-  const selectedMonthsSavings = selectedMonthsIncome - selectedMonthsExpense;
-
-  const selectedMonthsPendingCount = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.upcomingCount, 0);
-  }, [selectedMonthsData]);
-
-  const selectedMonthsPendingAmount = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.upcomingAmount, 0);
-  }, [selectedMonthsData]);
-
-  const selectedMonthsOverdueCount = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.overdueCount, 0);
-  }, [selectedMonthsData]);
-
-  const selectedMonthsOverdueAmount = useMemo(() => {
-    return selectedMonthsData.reduce((sum, m) => sum + m.overdueAmount, 0);
-  }, [selectedMonthsData]);
-
-  const allSelectedMonthsDues = useMemo(() => {
-    const list: DueItem[] = [];
-    selectedMonthsData.forEach(m => list.push(...m.allDues));
-    return list;
-  }, [selectedMonthsData]);
-
-  // Calendar cells & dues for every month in selectedMonths
-  const selectedMonthsCalendarData = useMemo(() => {
-    return selectedMonths.map(mIdx => {
-      const duesMap = computeDuesForMonth(
-        currentYear,
-        mIdx,
-        cards,
-        loans,
-        transactions,
-        todayYear,
-        todayMonth,
-        todayDay
-      );
-      const { cells, dailyTxMap } = generateCalendarCellsForMonth(
-        currentYear,
-        mIdx,
-        transactions,
-        duesMap,
-        todayYear,
-        todayMonth,
-        todayDay,
-        selectedDate
-      );
-      const mData = yearlyData.monthsData[mIdx];
-      return {
-        monthIndex: mIdx,
-        monthName: MONTH_NAMES[mIdx],
-        duesMap,
-        cells,
-        dailyTxMap,
-        mData
-      };
-    });
-  }, [selectedMonths, currentYear, cards, loans, transactions, todayYear, todayMonth, todayDay, selectedDate, yearlyData]);
-
-  // List of available selectable years
-  const availableYears = useMemo(() => {
-    const set = new Set<number>();
-    const nowY = new Date().getFullYear();
-    for (let y = nowY - 2; y <= nowY + 4; y++) {
-      set.add(y);
-    }
-    transactions.forEach(t => {
-      if (t.date) {
-        const y = Number(t.date.split('-')[0]);
-        if (!isNaN(y) && y >= 2000 && y <= 2100) set.add(y);
-      }
-    });
-    loans.forEach(l => {
-      if (l.startDate) {
-        const y = Number(l.startDate.split('-')[0]);
-        if (!isNaN(y)) set.add(y);
-      }
-      if (l.endDate) {
-        const y = Number(l.endDate.split('-')[0]);
-        if (!isNaN(y)) set.add(y);
-      }
-    });
-    return Array.from(set).sort((a, b) => a - b);
-  }, [transactions, loans]);
-
-  // Multi-Year Summary comparison dataset
-  const allYearsSummary = useMemo(() => {
-    return availableYears.map(yr => {
-      let inc = 0;
-      let exp = 0;
-
-      transactions.forEach(t => {
-        if (!t.date) return;
-        const [y] = t.date.split('-').map(Number);
-        if (y === yr) {
-          const amt = Number(t.amount) || 0;
-          const type = (t.type || 'expense').toLowerCase();
-          if (type === 'income') inc += amt;
-          else exp += amt;
-        }
-      });
-
-      let yrEmiCount = 0;
-      let yrPaidEmiCount = 0;
-      let yrUpcomingEmiCount = 0;
-      let yrOverdueEmiCount = 0;
-
-      for (let m = 0; m < 12; m++) {
-        const dMap = computeDuesForMonth(yr, m, cards, loans, transactions, todayYear, todayMonth, todayDay);
-        Object.values(dMap).forEach(arr => {
-          arr.forEach(d => {
-            if (d.type === 'loan') {
-              yrEmiCount++;
-              if (d.isPaid) yrPaidEmiCount++;
-              else if (d.isOverdue) yrOverdueEmiCount++;
-              else yrUpcomingEmiCount++;
-            }
-          });
+        const minM = Math.min(...next);
+        const maxM = Math.max(...next);
+        setSelectedDateRange({
+          start: new Date(primaryYear, minM, 1),
+          end: new Date(primaryYear, maxM + 1, 0)
         });
+        return next;
+      });
+      return;
+    }
+
+    setIsDraggingMonths(true);
+    setDragStartMonth(mIdx);
+    setSelectedMonths([mIdx]);
+    const newDate = new Date(primaryYear, mIdx, 1);
+    setSelectedDateRange({ start: newDate, end: newDate });
+  };
+
+  const handleMonthMouseEnter = (mIdx: number) => {
+    if (isDraggingMonths && dragStartMonth !== null) {
+      const start = Math.min(dragStartMonth, mIdx);
+      const end = Math.max(dragStartMonth, mIdx);
+      const range: number[] = [];
+      for (let m = start; m <= end; m++) {
+        range.push(m);
       }
+      setSelectedMonths(range);
+      const primaryYear = selectedYears[0] || todayYear;
+      setSelectedDateRange({
+        start: new Date(primaryYear, start, 1),
+        end: new Date(primaryYear, end + 1, 0)
+      });
+    }
+  };
 
-      return {
-        year: yr,
-        income: inc,
-        expense: exp,
-        savings: inc - exp,
-        totalEmiCount: yrEmiCount,
-        paidEmiCount: yrPaidEmiCount,
-        upcomingEmiCount: yrUpcomingEmiCount,
-        overdueEmiCount: yrOverdueEmiCount,
-      };
-    });
-  }, [availableYears, transactions, cards, loans, todayYear, todayMonth, todayDay]);
+  // Date drag & click handler (supports dragging ranges across days)
+  const handleDateMouseDown = (dateObj: Date, event: React.MouseEvent) => {
+    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+      const currentStart = selectedDateRange.start;
+      const s = currentStart <= dateObj ? currentStart : dateObj;
+      const e = currentStart <= dateObj ? dateObj : currentStart;
+      setSelectedDateRange({ start: s, end: e });
+      return;
+    }
+    setIsDraggingDates(true);
+    setDragStartDate(dateObj);
+    setSelectedDateRange({ start: dateObj, end: dateObj });
+  };
 
-  // Selected Day Details in Month View
-  const selectedDateY = selectedDate.getFullYear();
-  const selectedDateM = selectedDate.getMonth();
-  const selectedDateD = selectedDate.getDate();
+  const handleDateMouseEnter = (dateObj: Date) => {
+    if (isDraggingDates && dragStartDate !== null) {
+      const s = dragStartDate <= dateObj ? dragStartDate : dateObj;
+      const e = dragStartDate <= dateObj ? dateObj : dragStartDate;
+      setSelectedDateRange({ start: s, end: e });
+    }
+  };
 
-  const selectedDayTxs = useMemo(() => {
-    return transactions.filter(t => {
+  // Helper: Get transactions, metrics, and dues for a specific month & year
+  const getMonthData = (year: number, monthIdx: number) => {
+    const monthTxs = transactions.filter(t => {
       if (!t.date) return false;
-      const [y, m, d] = t.date.split('-').map(Number);
-      return y === selectedDateY && m === (selectedDateM + 1) && d === selectedDateD;
+      const tDate = String(t.date).slice(0, 10);
+      const [y, m] = tDate.split('-').map(Number);
+      return y === year && m === (monthIdx + 1);
     });
-  }, [transactions, selectedDateY, selectedDateM, selectedDateD]);
 
-  const selectedDayDues = useMemo(() => {
-    const dMap = computeDuesForMonth(
-      selectedDateY,
-      selectedDateM,
+    let income = 0;
+    let expense = 0;
+    let savings = 0;
+    const activeDaysSet = new Set<number>();
+
+    monthTxs.forEach(t => {
+      const amt = Number(t.amount) || 0;
+      const type = (t.type || 'expense').toLowerCase();
+      const cat = String(t.category || '').toLowerCase();
+      const isInvest = cat.includes('invest') || cat.includes('saving') || cat.includes('sip') || cat.includes('mutual');
+
+      const d = Number(String(t.date).slice(0, 10).split('-')[2]);
+      if (d) activeDaysSet.add(d);
+
+      if (type === 'income') income += amt;
+      else if (type === 'savings' || isInvest) savings += amt;
+      else expense += amt;
+    });
+
+    const duesMap = computeDuesForMonth(
+      year,
+      monthIdx,
       cards,
       loans,
       transactions,
@@ -851,2124 +748,1797 @@ export const CalendarView: React.FC<CalendarViewProps> = ({ onOpenNewTransaction
       todayMonth,
       todayDay
     );
-    return dMap[selectedDateD] || [];
-  }, [selectedDateY, selectedDateM, selectedDateD, cards, loans, transactions, todayYear, todayMonth, todayDay]);
 
-  const selectedDayIncome = useMemo(() => {
-    return selectedDayTxs
-      .filter(t => (t.type || '').toLowerCase() === 'income')
-      .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  }, [selectedDayTxs]);
+    const duesTotal = Object.values(duesMap).reduce((acc, list) => {
+      return acc + list.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+    }, 0);
 
-  const selectedDayExpense = useMemo(() => {
-    return selectedDayTxs
-      .filter(t => (t.type || '').toLowerCase() !== 'income' && (t.type || '').toLowerCase() !== 'savings')
-      .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-  }, [selectedDayTxs]);
+    // Planned items from budget transactions
+    const plannedItems = getPlannedTransactionsForMonth(year, monthIdx, user?.email, apiCategories, apiSubcategories);
+    const plannedIncomeTotal = plannedItems
+      .filter(p => p.type === 'income')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const plannedExpenseTotal = plannedItems
+      .filter(p => p.type === 'expense')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const plannedSavingsTotal = plannedItems
+      .filter(p => p.type === 'savings')
+      .reduce((sum, p) => sum + p.amount, 0);
 
-  // Selected Month in Year View Details
-  const selectedYearMonthData = yearlyData.monthsData[selectedYearMonth] || yearlyData.monthsData[0];
+    const expectedIncome = income > 0 ? (income + plannedIncomeTotal) : plannedIncomeTotal;
+    const expectedExpense = expense + duesTotal + plannedExpenseTotal;
+    const expectedSavings = savings + plannedSavingsTotal;
 
-  // Trigger End of Day Summary manually
-  const handleTriggerEod = async () => {
-    try {
-      setSendingEod(true);
-      const targetDate = formatYmd(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-      const res = await api.post('/reports/send-daily-eod-summary', { date: targetDate });
-      if (res.data?.success) {
-        showToast({
-          title: 'Daily Report Sent',
-          message: `Official End-of-Day Financial Digest dispatched to ${res.data.email || user?.email}.`,
-          type: 'success'
-        });
-      } else {
-        showToast({
-          title: 'Dispatch Failed',
-          message: res.data?.message || 'Could not send EOD report.',
-          type: 'error'
-        });
-      }
-    } catch {
-      showToast({
-        title: 'Error',
-        message: 'Failed to send End of Day digest email.',
-        type: 'error'
-      });
-    } finally {
-      setSendingEod(false);
-    }
+    const totalScheduledActivities = monthTxs.length + Object.values(duesMap).reduce((acc, list) => acc + list.length, 0) + (showExpectedAmounts ? plannedItems.length : 0);
+
+    return {
+      transactions: monthTxs,
+      income,
+      expense,
+      savings,
+      expectedIncome,
+      expectedExpense,
+      expectedSavings,
+      plannedItems,
+      activeDaysCount: activeDaysSet.size,
+      duesMap,
+      duesTotal,
+      itemCount: totalScheduledActivities
+    };
   };
 
+  // Month navigation in Panel 3
+  const handlePrevMonth = () => {
+    setSelectedMonths(prev => {
+      const current = prev[0] ?? todayMonth;
+      const nextMonth = current === 0 ? 11 : current - 1;
+      if (current === 0) {
+        setSelectedYears(yPrev => {
+          const y = yPrev[0] ?? todayYear;
+          return [y - 1];
+        });
+      }
+      const primaryYear = current === 0 ? (selectedYears[0] ?? todayYear) - 1 : (selectedYears[0] ?? todayYear);
+      setSelectedDateRange({
+        start: new Date(primaryYear, nextMonth, 1),
+        end: new Date(primaryYear, nextMonth, 1)
+      });
+      return [nextMonth];
+    });
+  };
+
+  const handleNextMonth = () => {
+    setSelectedMonths(prev => {
+      const current = prev[0] ?? todayMonth;
+      const nextMonth = current === 11 ? 0 : current + 1;
+      if (current === 11) {
+        setSelectedYears(yPrev => {
+          const y = yPrev[0] ?? todayYear;
+          return [y + 1];
+        });
+      }
+      const primaryYear = current === 11 ? (selectedYears[0] ?? todayYear) + 1 : (selectedYears[0] ?? todayYear);
+      setSelectedDateRange({
+        start: new Date(primaryYear, nextMonth, 1),
+        end: new Date(primaryYear, nextMonth, 1)
+      });
+      return [nextMonth];
+    });
+  };
+
+  // Day navigation in Panel 4 (navigate day by day within the month)
+  const handlePrevDay = () => {
+    setSelectedDateRange(prev => {
+      const current = new Date(prev.start);
+      const year = current.getFullYear();
+      const month = current.getMonth();
+      const day = current.getDate();
+      const prevDate = day > 1 ? new Date(year, month, day - 1) : new Date(year, month, 1);
+      return { start: prevDate, end: prevDate };
+    });
+  };
+
+  const handleNextDay = () => {
+    setSelectedDateRange(prev => {
+      const current = new Date(prev.start);
+      const year = current.getFullYear();
+      const month = current.getMonth();
+      const day = current.getDate();
+      const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+      const nextDate = day < lastDayOfMonth ? new Date(year, month, day + 1) : new Date(year, month, lastDayOfMonth);
+      return { start: nextDate, end: nextDate };
+    });
+  };
+
+  // Selected Date Range details for Panel 4 Ledger
+  const rangeStartStr = dateToYmd(selectedDateRange.start);
+  const rangeEndStr = dateToYmd(selectedDateRange.end);
+  const isSingleDateSelected = rangeStartStr === rangeEndStr;
+
+  const singleDateFullMonthDay = useMemo(() => {
+    const d = selectedDateRange.start;
+    return `${MONTH_NAMES[d.getMonth()]} ${String(d.getDate()).padStart(2, '0')}`;
+  }, [selectedDateRange.start]);
+
+  const singleDateWeekday = useMemo(() => {
+    return selectedDateRange.start.toLocaleDateString('en-US', { weekday: 'long' });
+  }, [selectedDateRange.start]);
+
+  const rangeStartLabel = useMemo(() => {
+    const d = selectedDateRange.start;
+    return `${MONTH_SHORT_NAMES[d.getMonth()]} ${String(d.getDate()).padStart(2, '0')}`;
+  }, [selectedDateRange.start]);
+
+  const rangeEndLabel = useMemo(() => {
+    const d = selectedDateRange.end;
+    return `${MONTH_SHORT_NAMES[d.getMonth()]} ${String(d.getDate()).padStart(2, '0')}`;
+  }, [selectedDateRange.end]);
+
+  const selectedDaysCount = useMemo(() => {
+    const diff = Math.round((selectedDateRange.end.getTime() - selectedDateRange.start.getTime()) / (1000 * 60 * 60 * 24)) + 1;
+    return Math.max(1, diff);
+  }, [selectedDateRange]);
+
+  // Actual transactions strictly in the selected date range
+  const rangeTransactions = useMemo(() => {
+    return transactions.filter(t => {
+      if (!t.date) return false;
+      const tDate = String(t.date).slice(0, 10);
+      return tDate >= rangeStartStr && tDate <= rangeEndStr;
+    });
+  }, [transactions, rangeStartStr, rangeEndStr]);
+
+  // Dues strictly in the selected date range
+  const rangeDues = useMemo(() => {
+    const list: DueItem[] = [];
+    selectedYears.forEach(year => {
+      selectedMonths.forEach(mIdx => {
+        const dMap = computeDuesForMonth(
+          year,
+          mIdx,
+          cards,
+          loans,
+          transactions,
+          todayYear,
+          todayMonth,
+          todayDay
+        );
+        Object.entries(dMap).forEach(([dStr, dueItems]) => {
+          const day = Number(dStr);
+          const dueYmd = formatYmd(year, mIdx, day);
+          if (dueYmd >= rangeStartStr && dueYmd <= rangeEndStr) {
+            list.push(...dueItems);
+          }
+        });
+      });
+    });
+    return list;
+  }, [selectedYears, selectedMonths, cards, loans, transactions, todayYear, todayMonth, todayDay, rangeStartStr, rangeEndStr]);
+
+  // Planned items from budget strictly in the selected date range
+  const rangePlannedItems = useMemo(() => {
+    const list: PlannedItem[] = [];
+    selectedYears.forEach(year => {
+      selectedMonths.forEach(mIdx => {
+        const pItems = getPlannedTransactionsForMonth(year, mIdx, user?.email, apiCategories, apiSubcategories);
+        pItems.forEach(p => {
+          if (p.dateStr >= rangeStartStr && p.dateStr <= rangeEndStr) {
+            list.push(p);
+          }
+        });
+      });
+    });
+    return list;
+  }, [selectedYears, selectedMonths, user?.email, rangeStartStr, rangeEndStr, budgetTxRefreshKey, apiCategories, apiSubcategories]);
+
+  // Actual income, expense, and dues in selected range
+  // Filtered lists based on top 4 filter pills
+  const filteredRangeTransactions = useMemo(() => {
+    return rangeTransactions.filter(t => {
+      const type = (t.type || 'expense').toLowerCase();
+      const cat = String(t.category || '').toLowerCase();
+      const isSav = type === 'savings' || cat.includes('invest') || cat.includes('saving');
+      if (type === 'income') return filterIncome;
+      if (isSav) return filterSavings;
+      return filterExpense;
+    });
+  }, [rangeTransactions, filterIncome, filterExpense, filterSavings]);
+
+  const filteredRangeDues = useMemo(() => {
+    return filterDues ? rangeDues : [];
+  }, [rangeDues, filterDues]);
+
+  const filteredRangePlannedItems = useMemo(() => {
+    if (!showExpectedAmounts) return [];
+    return rangePlannedItems.filter(p => {
+      if (p.type === 'income') return filterIncome;
+      if (p.type === 'savings') return filterSavings;
+      return filterExpense;
+    });
+  }, [showExpectedAmounts, rangePlannedItems, filterIncome, filterExpense, filterSavings]);
+
+  const rangeActualIncome = useMemo(() => {
+    if (!filterIncome) return 0;
+    return filteredRangeTransactions
+      .filter(t => (t.type || '').toLowerCase() === 'income')
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [filteredRangeTransactions, filterIncome]);
+
+  const rangeActualExpense = useMemo(() => {
+    return filteredRangeTransactions
+      .filter(t => (t.type || '').toLowerCase() !== 'income')
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+  }, [filteredRangeTransactions]);
+
+  const rangeDuesTotal = useMemo(() => {
+    return filteredRangeDues.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  }, [filteredRangeDues]);
+
+  const rangePaidDuesTotal = useMemo(() => {
+    return filteredRangeDues.filter(d => d.isPaid).reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  }, [filteredRangeDues]);
+
+  // Expected Inflow strictly for selected date(s)
+  const rangeExpectedInflow = useMemo(() => {
+    if (!filterIncome) return 0;
+    if (rangeActualIncome > 0) return rangeActualIncome;
+    return filteredRangePlannedItems
+      .filter(p => p.type === 'income')
+      .reduce((sum, p) => sum + p.amount, 0);
+  }, [rangeActualIncome, filteredRangePlannedItems, filterIncome]);
+
+  // Expected Outflow strictly for selected date(s) (Savings added to outflow)
+  const rangeExpectedOutflow = useMemo(() => {
+    const plannedOutflow = filteredRangePlannedItems
+      .filter(p => p.type !== 'income')
+      .reduce((sum, p) => sum + p.amount, 0);
+    return rangeActualExpense + rangeDuesTotal + (rangeActualExpense === 0 ? plannedOutflow : 0);
+  }, [rangeActualExpense, rangeDuesTotal, filteredRangePlannedItems]);
+
+  const totalRangeActivities = filteredRangeTransactions.length + filteredRangeDues.length + (showExpectedAmounts ? filteredRangePlannedItems.length : 0);
+
   return (
-    <div style={{ padding: '24px 28px', maxWidth: 1400, margin: '0 auto' }}>
-      {/* Top Header Banner */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 14 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(59, 130, 246, 0.15)', color: '#3B82F6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CalendarIcon size={24} />
+    <div
+      className="fintrack-calendar-outer"
+      style={{
+        padding: '8px 16px',
+        color: '#E2E8F0',
+        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        userSelect: isDraggingYears || isDraggingMonths || isDraggingDates ? 'none' : 'auto',
+        boxSizing: 'border-box',
+        width: '100%',
+        height: 'calc(100vh - 72px)',
+        maxHeight: 'calc(100vh - 72px)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}
+    >
+      <style>{`
+        .fintrack-calendar-grid-container {
+          display: grid;
+          grid-template-columns: 65px 380px minmax(0, 1fr) 340px;
+          gap: 12px;
+          align-items: stretch;
+          flex: 1;
+          min-height: 0;
+          height: 100%;
+          max-height: 100%;
+          box-sizing: border-box;
+          overflow: hidden;
+        }
+
+        @media (max-width: 1440px) {
+          .fintrack-calendar-grid-container {
+            grid-template-columns: 60px 350px minmax(0, 1fr) 320px;
+            gap: 10px;
+          }
+        }
+
+        @media (max-width: 1024px) {
+          .fintrack-calendar-outer {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+          }
+          .fintrack-calendar-grid-container {
+            grid-template-columns: 1fr !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            gap: 14px;
+          }
+        }
+      `}</style>
+
+      {/* TOP HEADER: Financial Calendar Title & Legend & Expected Toggle */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: 10,
+          flexShrink: 0
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{
+              width: 38,
+              height: 38,
+              borderRadius: 10,
+              background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%)',
+              color: '#FFFFFF',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)'
+            }}
+          >
+            <CalendarDays size={20} />
           </div>
           <div>
-            <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' }}>
-              Financial Calendar &amp; Payment Dues
+            <h1 style={{ fontSize: 18, fontWeight: 900, color: '#F8FAFC', margin: 0, letterSpacing: -0.3 }}>
+              Financial calendar
             </h1>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
-              {viewMode === 'month'
-                ? 'Monthly schedule with daily cash flows, credit card bill dues, and loan EMI status tracking.'
-                : 'Annual 12-month calendar overview comparing inflow, outflow, net savings, and EMI status counts.'}
+            <p style={{ fontSize: 11.5, color: '#94A3B8', margin: '2px 0 0' }}>
+              Year, month, date, and daily money activity in one view
             </p>
           </div>
         </div>
 
-        {/* Action Controls & View Switcher */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Month / Year Switcher */}
+        {/* Interactive Filter Pills & Expected Amounts Toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700 }}>
+            {/* 1. Income Filter */}
+            <button
+              type="button"
+              onClick={() => setFilterIncome(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: filterIncome ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                border: filterIncome ? '1.5px solid rgba(16, 185, 129, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: filterIncome ? '#10B981' : '#64748B',
+                borderRadius: 20,
+                padding: '4px 10px',
+                fontSize: 11,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Click to toggle Income"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterIncome ? '#10B981' : '#64748B' }} />
+              <span>Income</span>
+            </button>
+
+            {/* 2. Expense Filter */}
+            <button
+              type="button"
+              onClick={() => setFilterExpense(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: filterExpense ? 'rgba(239, 68, 68, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                border: filterExpense ? '1.5px solid rgba(239, 68, 68, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: filterExpense ? '#EF4444' : '#64748B',
+                borderRadius: 20,
+                padding: '4px 10px',
+                fontSize: 11,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Click to toggle Expense"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterExpense ? '#EF4444' : '#64748B' }} />
+              <span>Expense</span>
+            </button>
+
+            {/* 3. Savings Filter */}
+            <button
+              type="button"
+              onClick={() => setFilterSavings(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: filterSavings ? 'rgba(139, 92, 246, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                border: filterSavings ? '1.5px solid rgba(139, 92, 246, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: filterSavings ? '#8B5CF6' : '#64748B',
+                borderRadius: 20,
+                padding: '4px 10px',
+                fontSize: 11,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Click to toggle Savings"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterSavings ? '#8B5CF6' : '#64748B' }} />
+              <span>Savings</span>
+            </button>
+
+            {/* 4. Credit Card & Loan EMI Filter */}
+            <button
+              type="button"
+              onClick={() => setFilterDues(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                background: filterDues ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255, 255, 255, 0.04)',
+                border: filterDues ? '1.5px solid rgba(245, 158, 11, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: filterDues ? '#F59E0B' : '#64748B',
+                borderRadius: 20,
+                padding: '4px 10px',
+                fontSize: 11,
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+              title="Click to toggle Credit Card & Loan EMI"
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: filterDues ? '#F59E0B' : '#64748B' }} />
+              <span>Credit Card & Loan EMI</span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={toggleShowExpectedAmounts}
+            style={{
+              background: showExpectedAmounts ? 'rgba(16, 185, 129, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+              border: showExpectedAmounts ? '1.5px solid rgba(16, 185, 129, 0.4)' : '1px solid rgba(255, 255, 255, 0.08)',
+              color: showExpectedAmounts ? '#10B981' : '#94A3B8',
+              borderRadius: 20,
+              padding: '5px 12px',
+              fontSize: 11,
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 7,
+              cursor: 'pointer',
+              transition: 'all 0.15s ease'
+            }}
+            title="Toggle showing expected/budgeted amounts"
+          >
+            <Target size={13} style={{ color: showExpectedAmounts ? '#10B981' : '#64748B' }} />
+            <span>Expected Amounts</span>
+            <span
+              style={{
+                fontSize: 9.5,
+                fontWeight: 900,
+                padding: '1px 5px',
+                borderRadius: 4,
+                background: showExpectedAmounts ? '#10B981' : 'rgba(255, 255, 255, 0.1)',
+                color: showExpectedAmounts ? '#064E3B' : '#94A3B8'
+              }}
+            >
+              {showExpectedAmounts ? 'ON' : 'OFF'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* 4-PANEL LAYOUT CONTAINER */}
+      <div className="fintrack-calendar-grid-container">
+        {/* ============================================================== */}
+        {/* PANEL 1: VERTICAL YEAR SELECTOR                                */}
+        {/* ============================================================== */}
+        <div
+          style={{
+            background: '#0D1322',
+            borderRadius: 14,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '12px 6px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            height: '100%',
+            boxSizing: 'border-box'
+          }}
+        >
+          <div style={{ width: '100%' }}>
+            <div
+              style={{
+                fontSize: 9.5,
+                fontWeight: 800,
+                letterSpacing: 1.5,
+                color: '#64748B',
+                textAlign: 'center',
+                marginBottom: 10,
+                textTransform: 'uppercase'
+              }}
+            >
+              YEAR
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+              {availableYears.map(yr => {
+                const isSelected = selectedYears.includes(yr);
+                return (
+                  <button
+                    key={yr}
+                    type="button"
+                    onMouseDown={(e) => handleYearMouseDown(yr, e)}
+                    onMouseEnter={() => handleYearMouseEnter(yr)}
+                    style={{
+                      width: '100%',
+                      padding: '8px 0',
+                      borderRadius: 10,
+                      border: isSelected ? '1.5px solid #3B82F6' : '1px solid transparent',
+                      background: isSelected
+                        ? 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)'
+                        : 'rgba(255, 255, 255, 0.03)',
+                      color: isSelected ? '#FFFFFF' : '#94A3B8',
+                      fontSize: 12,
+                      fontWeight: isSelected ? 800 : 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      boxShadow: isSelected ? '0 4px 12px rgba(37, 99, 235, 0.35)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 4
+                    }}
+                  >
+                    <span>{yr}</span>
+                    {isSelected && (
+                      <span
+                        style={{
+                          width: 4,
+                          height: 4,
+                          borderRadius: '50%',
+                          background: '#60A5FA'
+                        }}
+                      />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div
             style={{
-              display: 'inline-flex',
-              background: 'var(--bg-card)',
-              padding: 3,
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
+              textAlign: 'center',
+              paddingTop: 8,
+              borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+              width: '100%'
             }}
           >
-            <button
-              type="button"
-              onClick={() => setViewMode('month')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 7,
-                border: 'none',
-                background: viewMode === 'month' ? '#3B82F6' : 'transparent',
-                color: viewMode === 'month' ? '#FFF' : 'var(--text-secondary)',
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <CalendarDays size={14} />
-              <span>Month</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('year')}
-              style={{
-                padding: '6px 14px',
-                borderRadius: 7,
-                border: 'none',
-                background: viewMode === 'year' ? '#3B82F6' : 'transparent',
-                color: viewMode === 'year' ? '#FFF' : 'var(--text-secondary)',
-                fontSize: 12.5,
-                fontWeight: 700,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <CalendarIcon size={14} />
-              <span>Year</span>
-            </button>
+            <div style={{ fontSize: 13, fontWeight: 900, color: '#38BDF8' }}>
+              {totalYearEventsCount}
+            </div>
+            <div style={{ fontSize: 8, fontWeight: 800, color: '#64748B', letterSpacing: 1 }}>
+              EVENTS
+            </div>
           </div>
-
-          <button
-            type="button"
-            onClick={handleToday}
-            style={{
-              padding: '8px 16px',
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              background: 'var(--bg-card)',
-              color: 'var(--text-primary)',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-          >
-            <Clock size={14} />
-            <span>{viewMode === 'month' ? 'Go to Today' : 'Current Year'}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleTriggerEod}
-            disabled={sendingEod}
-            style={{
-              padding: '8px 16px',
-              borderRadius: 8,
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              background: 'rgba(99, 102, 241, 0.12)',
-              color: '#818CF8',
-              fontWeight: 700,
-              fontSize: 13,
-              cursor: sendingEod ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6
-            }}
-            title="Generate and email official daily digest"
-          >
-            <Send size={14} />
-            <span>{sendingEod ? 'Sending Digest...' : 'Email Daily Digest'}</span>
-          </button>
-
-          {onOpenNewTransaction && (
-            <button
-              type="button"
-              onClick={() => onOpenNewTransaction()}
-              style={{
-                padding: '8px 18px',
-                borderRadius: 8,
-                border: 'none',
-                background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
-                color: '#FFF',
-                fontWeight: 700,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
-              }}
-            >
-              <Plus size={15} />
-              <span>Add Transaction</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Year Selector Pills Bar (2024, 2025, 2026, 2027, ...) */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          marginBottom: 20,
-          padding: '10px 16px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 14,
-          overflowX: 'auto',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
-          <CalendarIcon size={15} color="#3B82F6" />
-          <span>Financial Year:</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
-          {availableYears.map(yr => {
-            const isSelected = yr === currentYear;
-            const isCurrentRealYear = yr === todayYear;
-            return (
-              <button
-                key={`year-pill-${yr}`}
-                type="button"
-                onClick={() => handleSelectYear(yr)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 8,
-                  border: isSelected ? '1px solid #3B82F6' : '1px solid var(--border-color)',
-                  background: isSelected
-                    ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)'
-                    : 'rgba(255, 255, 255, 0.04)',
-                  color: isSelected ? '#FFF' : 'var(--text-primary)',
-                  fontWeight: isSelected ? 800 : 600,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  boxShadow: isSelected ? '0 2px 10px rgba(37, 99, 235, 0.4)' : 'none',
-                  transition: 'all 0.15s ease',
-                  whiteSpace: 'nowrap'
-                }}
-              >
-                <span>{yr}</span>
-                {isCurrentRealYear && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 800,
-                      padding: '1px 5px',
-                      borderRadius: 4,
-                      background: isSelected ? 'rgba(255, 255, 255, 0.3)' : 'rgba(59, 130, 246, 0.15)',
-                      color: isSelected ? '#FFF' : '#60A5FA'
-                    }}
-                  >
-                    CURRENT
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Multi-Month Selector Bar with Drag-to-Select & Select All Months */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          marginBottom: 20,
-          padding: '10px 16px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 14,
-          overflowX: 'auto',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          userSelect: 'none'
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-secondary)', fontSize: 12, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, whiteSpace: 'nowrap' }}>
-          <CalendarDays size={15} color="#3B82F6" />
-          <span>Months:</span>
         </div>
 
-        {/* Select All Months (Full Year) Button */}
-        <button
-          type="button"
-          onClick={selectFullYear}
+        {/* ============================================================== */}
+        {/* PANEL 2: 12-MONTH CARDS GRID (Multi-select Supported)          */}
+        {/* ============================================================== */}
+        <div
           style={{
-            padding: '6px 14px',
-            borderRadius: 8,
-            border: selectedMonths.length === 12 ? '1px solid #3B82F6' : '1px solid var(--border-color)',
-            background: selectedMonths.length === 12
-              ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)'
-              : 'rgba(255, 255, 255, 0.04)',
-            color: selectedMonths.length === 12 ? '#FFF' : 'var(--text-primary)',
-            fontWeight: selectedMonths.length === 12 ? 800 : 600,
-            fontSize: 12.5,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            whiteSpace: 'nowrap',
-            boxShadow: selectedMonths.length === 12 ? '0 2px 8px rgba(37, 99, 235, 0.3)' : 'none',
-            transition: 'all 0.15s ease'
+            background: '#0D1322',
+            borderRadius: 14,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '12px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%',
+            overflowY: 'auto',
+            boxSizing: 'border-box'
           }}
-          title="Click to select all 12 months at the same time"
         >
-          <CheckCircle2 size={13} />
-          <span>Select All Months (12M)</span>
-        </button>
-
-        {/* Current Month Quick Button */}
-        <button
-          type="button"
-          onClick={selectCurrentMonth}
-          style={{
-            padding: '6px 12px',
-            borderRadius: 8,
-            border: '1px solid var(--border-color)',
-            background: (selectedMonths.length === 1 && selectedMonths[0] === todayMonth)
-              ? 'rgba(59, 130, 246, 0.18)'
-              : 'rgba(255, 255, 255, 0.03)',
-            color: (selectedMonths.length === 1 && selectedMonths[0] === todayMonth) ? '#60A5FA' : 'var(--text-secondary)',
-            fontWeight: 700,
-            fontSize: 12,
-            cursor: 'pointer',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 5,
-            whiteSpace: 'nowrap',
-            transition: 'all 0.15s ease'
-          }}
-          title="Jump to current real calendar month"
-        >
-          <Clock size={12} />
-          <span>Current Month</span>
-        </button>
-
-        {/* Quarters (Q1, Q2, Q3, Q4) */}
-        <div style={{ display: 'inline-flex', background: 'rgba(255,255,255,0.02)', padding: 2, borderRadius: 8, border: '1px solid var(--border-color)', gap: 2, flexShrink: 0 }}>
-          {[
-            { label: 'Q1', q: 1, range: 'Jan - Mar' },
-            { label: 'Q2', q: 2, range: 'Apr - Jun' },
-            { label: 'Q3', q: 3, range: 'Jul - Sep' },
-            { label: 'Q4', q: 4, range: 'Oct - Dec' }
-          ].map(({ label, q, range }) => {
-            const start = (q - 1) * 3;
-            const isQSelected = selectedMonths.length === 3 && [start, start + 1, start + 2].every(m => selectedMonths.includes(m));
-            return (
-              <button
-                key={label}
-                type="button"
-                onClick={() => selectQuarter(q as any)}
-                style={{
-                  padding: '4px 8px',
-                  borderRadius: 6,
-                  border: 'none',
-                  background: isQSelected ? '#3B82F6' : 'transparent',
-                  color: isQSelected ? '#FFF' : 'var(--text-secondary)',
-                  fontSize: 11,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s ease'
-                }}
-                title={`Select Quarter ${q}: ${range}`}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div style={{ width: 1, height: 22, background: 'var(--border-color)', margin: '0 2px', flexShrink: 0 }} />
-
-        {/* 12 Individual Month Pills with Drag-to-Select & Multi-Select */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap' }}>
-          {MONTH_NAMES.map((mName, mIdx) => {
-            const isSelected = selectedMonths.includes(mIdx);
-            const isCurrentRealMonth = mIdx === todayMonth && currentYear === todayYear;
-            const mData = yearlyData.monthsData[mIdx];
-            const net = mData ? mData.net : 0;
-            const hasOverdue = mData && mData.overdueCount > 0;
+          {selectedYears.map(year => {
+            const yearTxs = transactions.filter(t => t.date && String(t.date).startsWith(String(year)));
 
             return (
-              <button
-                key={`month-pill-${mIdx}`}
-                type="button"
-                onMouseDown={(e) => handleMonthMouseDown(mIdx, e)}
-                onMouseEnter={() => handleMonthMouseEnter(mIdx)}
-                onClick={(e) => {
-                  if (e.ctrlKey || e.metaKey) {
-                    toggleMonth(mIdx);
-                  } else if (!isDraggingMonths) {
-                    if (selectedMonths.length > 1 || !isSelected) {
-                      setSelectedMonths([mIdx]);
-                    }
-                  }
-                }}
-                style={{
-                  padding: '5px 10px',
-                  borderRadius: 8,
-                  border: isSelected ? '1px solid #3B82F6' : '1px solid var(--border-color)',
-                  background: isSelected
-                    ? 'rgba(59, 130, 246, 0.2)'
-                    : 'rgba(255, 255, 255, 0.03)',
-                  color: isSelected ? '#60A5FA' : 'var(--text-primary)',
-                  fontWeight: isSelected ? 800 : 600,
-                  fontSize: 12,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  minWidth: 54,
-                  transition: 'all 0.12s ease',
-                  whiteSpace: 'nowrap',
-                  boxShadow: isSelected ? '0 2px 8px rgba(59, 130, 246, 0.25)' : 'none',
-                  position: 'relative'
-                }}
-                title={`${mName} ${currentYear}: Inflow +${currencyService.format(mData?.income || 0)} | Outflow -${currencyService.format(mData?.expense || 0)} | Net: ${currencyService.format(net)} (Drag across months to select range, Ctrl+click to toggle)`}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-                  <span>{mName.slice(0, 3)}</span>
-                  {isSelected && <span style={{ fontSize: 9, fontWeight: 900 }}>✓</span>}
-                  {isCurrentRealMonth && !isSelected && (
-                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#3B82F6' }} />
-                  )}
-                  {hasOverdue && (
-                    <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#EF4444' }} title="Has overdue payment dues" />
-                  )}
-                </div>
-                {mData && (
-                  <span
-                    style={{
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: net > 0 ? '#10B981' : net < 0 ? '#EF4444' : 'var(--text-muted)',
-                      lineHeight: 1,
-                      marginTop: 2
-                    }}
-                  >
-                    {net > 0 ? `+${currencyService.format(net).replace(/\.\d+/, '')}` : net < 0 ? `-${currencyService.format(Math.abs(net)).replace(/\.\d+/, '')}` : '—'}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* KPI Overview Bar */}
-      {viewMode === 'month' ? (
-        /* Monthly KPI Bar */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
-          {/* Total Inflow */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                {selectedMonths.length === 1 ? 'Month Inflow' : `Inflow (${selectedMonths.length}M)`}
-              </span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingUp size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 6 }}>
-              +{currencyService.format(selectedMonthsIncome)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {selectedMonths.length === 1 ? 'Income this month' : `Income for ${getSelectedMonthsLabel()}`}
-            </span>
-          </div>
-
-          {/* Total Outflow */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
-                {selectedMonths.length === 1 ? 'Month Outflow' : `Outflow (${selectedMonths.length}M)`}
-              </span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingDown size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444', marginTop: 6 }}>
-              -{currencyService.format(selectedMonthsExpense)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {selectedMonths.length === 1 ? 'Expenses this month' : `Expenses for ${getSelectedMonthsLabel()}`}
-            </span>
-          </div>
-
-          {/* Net Cash Flow */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Net Cash Flow</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Wallet size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: selectedMonthsSavings >= 0 ? '#10B981' : '#EF4444', marginTop: 6 }}>
-              {currencyService.format(selectedMonthsSavings)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {selectedMonths.length === 1 ? 'Net balance saved' : `Net balance for ${getSelectedMonthsLabel()}`}
-            </span>
-          </div>
-
-          {/* Upcoming Dues (Cards + Loans) */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Pending Dues</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(245, 158, 11, 0.12)', color: '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CreditCard size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#F59E0B', marginTop: 6 }}>
-              {currencyService.format(selectedMonthsPendingAmount)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {selectedMonthsPendingCount} pending dues in period
-            </span>
-          </div>
-
-          {/* Overdue Alerts */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Overdue Dues</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <AlertTriangle size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: selectedMonthsOverdueAmount > 0 ? '#EF4444' : '#10B981', marginTop: 6 }}>
-              {selectedMonthsOverdueCount > 0 ? `${selectedMonthsOverdueCount} Overdue (${currencyService.format(selectedMonthsOverdueAmount)})` : 'None (All Clear)'}
-            </div>
-            <span style={{ fontSize: 11, color: selectedMonthsOverdueAmount > 0 ? '#EF4444' : '#10B981' }}>
-              {selectedMonthsOverdueAmount > 0 ? 'Action required immediately' : 'No past-due payments'}
-            </span>
-          </div>
-        </div>
-      ) : (
-        /* Yearly KPI Bar with Income, Expense, Savings, EMI Count, Paid Count, Upcoming Count */
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
-          {/* Year Inflow (Income) */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total Inflow</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingUp size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 6 }}>
-              +{currencyService.format(yearlyData.totalYearIncome)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>12 Months Income</span>
-          </div>
-
-          {/* Year Outflow (Expense) */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total Outflow</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(239, 68, 68, 0.12)', color: '#EF4444', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <TrendingDown size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#EF4444', marginTop: 6 }}>
-              -{currencyService.format(yearlyData.totalYearExpense)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>12 Months Expenses</span>
-          </div>
-
-          {/* Year Net Savings */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Net Savings</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Wallet size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: yearlyData.totalYearNet >= 0 ? '#10B981' : '#EF4444', marginTop: 6 }}>
-              {currencyService.format(yearlyData.totalYearNet)}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Annual Retained Surplus</span>
-          </div>
-
-          {/* Total Year EMI Count */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>{currentYear} Total EMIs</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(129, 140, 248, 0.15)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Coins size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#818CF8', marginTop: 6 }}>
-              {yearlyData.totalYearEmiCount} EMIs
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {yearlyData.totalYearPaidCount + yearlyData.totalYearPendingCount + yearlyData.totalYearOverdueCount} total dues scheduled
-            </span>
-          </div>
-
-          {/* Year Paid EMI Count */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Year Paid Count</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(16, 185, 129, 0.12)', color: '#10B981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <CheckCircle2 size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 6 }}>
-              {yearlyData.totalYearEmiPaidCount} Paid
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {currencyService.format(yearlyData.totalYearPaidAmount)} cleared
-            </span>
-          </div>
-
-          {/* Year Upcoming EMI Count */}
-          <div className="kpi-card" style={{ padding: '16px 18px', borderRadius: 14, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Year Upcoming Count</span>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: yearlyData.totalYearEmiOverdueCount > 0 ? 'rgba(239, 68, 68, 0.12)' : 'rgba(245, 158, 11, 0.12)', color: yearlyData.totalYearEmiOverdueCount > 0 ? '#EF4444' : '#F59E0B', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Clock size={15} />
-              </div>
-            </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: '#F59E0B', marginTop: 6 }}>
-              {yearlyData.totalYearEmiUpcomingCount} Due {yearlyData.totalYearEmiOverdueCount > 0 ? `• ${yearlyData.totalYearEmiOverdueCount} Overdue` : ''}
-            </div>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-              {currencyService.format(yearlyData.totalYearPendingAmount + yearlyData.totalYearOverdueAmount)} outstanding
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Navigation & Filter Bar */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 14,
-          padding: '14px 20px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 14,
-          marginBottom: 20
-        }}
-      >
-        {/* Selector Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <button
-            type="button"
-            onClick={handlePrevMonth}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              background: 'rgba(255, 255, 255, 0.04)',
-              color: 'var(--text-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-            title={viewMode === 'month' ? 'Previous Month' : 'Previous Year'}
-          >
-            <ChevronLeft size={18} />
-          </button>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)', textAlign: 'center' }}>
-              {viewMode === 'month' ? `${getSelectedMonthsLabel()} ${currentYear}` : `${currentYear} Annual Overview`}
-            </h2>
-            {viewMode === 'month' && selectedMonths.length > 1 && (
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 800,
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  background: 'rgba(59, 130, 246, 0.15)',
-                  color: '#60A5FA',
-                  border: '1px solid rgba(59, 130, 246, 0.3)'
-                }}
-              >
-                {selectedMonths.length} Months Active
-              </span>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleNextMonth}
-            style={{
-              width: 34,
-              height: 34,
-              borderRadius: 8,
-              border: '1px solid var(--border-color)',
-              background: 'rgba(255, 255, 255, 0.04)',
-              color: 'var(--text-primary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              cursor: 'pointer'
-            }}
-            title={viewMode === 'month' ? 'Next Month' : 'Next Year'}
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        {/* Filter Pills (for Month View) */}
-        {viewMode === 'month' && (
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {[
-              { id: 'all', label: 'All Items' },
-              { id: 'transactions', label: 'Transactions' },
-              { id: 'dues', label: 'Payment Dues' },
-              { id: 'overdue', label: 'Overdue Only' }
-            ].map(f => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setFilterMode(f.id as any)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 8,
-                  border: filterMode === f.id ? '1px solid #3B82F6' : '1px solid var(--border-color)',
-                  background: filterMode === f.id ? 'rgba(59, 130, 246, 0.15)' : 'rgba(255, 255, 255, 0.03)',
-                  color: filterMode === f.id ? '#60A5FA' : 'var(--text-secondary)',
-                  fontWeight: 700,
-                  fontSize: 12,
-                  cursor: 'pointer'
-                }}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Main Grid + Inspector Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 390px', gap: 20, alignItems: 'start' }}>
-        {/* Main Calendar View Area */}
-        {viewMode === 'month' ? (
-          /* ========================================================================= */
-          /* 1. MONTH VIEW (Multi-Month Day-by-Day Calendar Grids)                     */
-          /* ========================================================================= */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 24, minWidth: 0 }}>
-            {/* Quick Jump Bar when multiple months are active */}
-            {selectedMonths.length > 1 && (
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  padding: '10px 16px',
-                  background: 'rgba(59, 130, 246, 0.08)',
-                  border: '1px solid rgba(59, 130, 246, 0.25)',
-                  borderRadius: 12,
-                  fontSize: 12.5,
-                  color: '#60A5FA',
-                  fontWeight: 700,
-                  flexWrap: 'wrap',
-                  gap: 10
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <CalendarDays size={16} />
-                  <span>
-                    Viewing {selectedMonths.length} Months ({getSelectedMonthsLabel()} {currentYear})
-                  </span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>Jump to:</span>
-                  {selectedMonthsCalendarData.map(({ monthIndex, monthName }) => (
-                    <button
-                      key={`jump-btn-${monthIndex}`}
-                      type="button"
-                      onClick={() => {
-                        const el = document.getElementById(`cal-month-${monthIndex}`);
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                      }}
-                      style={{
-                        padding: '3px 9px',
-                        borderRadius: 6,
-                        background: 'rgba(255, 255, 255, 0.06)',
-                        border: '1px solid var(--border-color)',
-                        color: 'var(--text-primary)',
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      {monthName.slice(0, 3)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Render Each Selected Month Calendar Grid */}
-            {selectedMonthsCalendarData.map(({ monthIndex, monthName, cells, mData }) => (
-              <div
-                id={`cal-month-${monthIndex}`}
-                key={`cal-month-box-${monthIndex}`}
-                style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 18,
-                  overflow: 'hidden',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.1)'
-                }}
-              >
-                {/* Month Header Banner */}
+              <div key={year} style={{ marginBottom: 14 }}>
+                {/* Year Header & Multi-select Hint */}
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
                     alignItems: 'center',
-                    padding: '12px 18px',
-                    background: 'rgba(255, 255, 255, 0.025)',
-                    borderBottom: '1px solid var(--border-color)',
-                    flexWrap: 'wrap',
-                    gap: 10
+                    justifyContent: 'space-between',
+                    marginBottom: 8
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <h3 style={{ margin: 0, fontSize: 16.5, fontWeight: 800, color: 'var(--text-primary)' }}>
-                      {monthName} {currentYear}
-                    </h3>
-                    {monthIndex === todayMonth && currentYear === todayYear && (
-                      <span style={{ fontSize: 9.5, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
-                        CURRENT MONTH
-                      </span>
-                    )}
+                  <div>
+                    <h2 style={{ fontSize: 15, fontWeight: 900, color: '#F8FAFC', margin: 0 }}>
+                      {year}
+                    </h2>
+                    <span style={{ fontSize: 9.5, color: '#64748B' }}>
+                      Drag or Ctrl+Click to select months
+                    </span>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, fontSize: 12, flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Inflow:</span>
-                      <strong style={{ color: '#10B981' }}>+{currencyService.format(mData?.income || 0)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Outflow:</span>
-                      <strong style={{ color: '#EF4444' }}>-{currencyService.format(mData?.expense || 0)}</strong>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Net:</span>
-                      <strong style={{ color: (mData?.net || 0) >= 0 ? '#10B981' : '#EF4444' }}>
-                        {currencyService.format(mData?.net || 0)}
-                      </strong>
-                    </div>
-
-                    {selectedMonths.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setSelectedMonths([monthIndex])}
-                        style={{
-                          padding: '3px 9px',
-                          borderRadius: 6,
-                          border: '1px solid var(--border-color)',
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          color: '#60A5FA',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer'
-                        }}
-                        title="Focus only on this month"
-                      >
-                        Focus Month
-                      </button>
-                    )}
-                  </div>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: '#94A3B8',
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      padding: '3px 8px',
+                      borderRadius: 10
+                    }}
+                  >
+                    {yearTxs.length} activities
+                  </span>
                 </div>
 
-                {/* Day of Week Header */}
+                {/* 3x4 Grid of Mini Month Cards with Generous Width */}
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                    background: 'rgba(255, 255, 255, 0.015)',
-                    borderBottom: '1px solid var(--border-color)',
-                    textAlign: 'center',
-                    padding: '11px 0',
-                    fontWeight: 800,
-                    fontSize: 12,
-                    color: 'var(--text-secondary)',
-                    letterSpacing: 0.5,
-                    width: '100%',
-                    tableLayout: 'fixed'
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gap: 8
                   }}
                 >
-                  <div style={{ color: '#EF4444' }}>SUN</div>
-                  <div>MON</div>
-                  <div>TUE</div>
-                  <div>WED</div>
-                  <div>THU</div>
-                  <div>FRI</div>
-                  <div style={{ color: '#3B82F6' }}>SAT</div>
-                </div>
-
-                {/* Calendar Cells Grid: Strict minmax(0, 1fr) ensures columns never stretch */}
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                    gridAutoRows: selectedMonths.length > 1 ? 'minmax(105px, auto)' : 'minmax(115px, auto)',
-                    gap: 1,
-                    background: 'var(--border-color)',
-                    width: '100%',
-                    tableLayout: 'fixed'
-                  }}
-                >
-                  {cells.map((cell, idx) => {
-                    if (cell.type === 'empty') {
-                      return (
-                        <div
-                          key={`empty-${monthIndex}-${idx}`}
-                          style={{
-                            background: 'var(--bg-primary)',
-                            opacity: 0.4,
-                            minHeight: selectedMonths.length > 1 ? 105 : 115,
-                            minWidth: 0
-                          }}
-                        />
-                      );
-                    }
-
-                    const day = cell.day!;
-                    const isToday = cell.isToday;
-                    const isSelected = cell.isSelected;
-                    const duesList = cell.duesList || [];
-                    const dayIncome = cell.dayIncome || 0;
-                    const dayExpense = cell.dayExpense || 0;
-                    const daySavings = cell.daySavings || 0;
-
-                    const showTxs = filterMode === 'all' || filterMode === 'transactions';
-                    const showDues = filterMode === 'all' || filterMode === 'dues' || filterMode === 'overdue';
-                    const hasOverdue = duesList.some(d => d.isOverdue && !d.isPaid);
-
-                    // Group dues by status as requested by user
-                    const overdueList = duesList.filter(d => !d.isPaid && d.isOverdue);
-                    const dueTodayList = duesList.filter(d => !d.isPaid && d.isDueToday);
-                    const upcomingList = duesList.filter(d => !d.isPaid && d.isUpcoming && !d.isDueToday);
-                    const paidList = duesList.filter(d => d.isPaid);
+                  {MONTH_SHORT_NAMES.map((mName, mIdx) => {
+                    const isMonthSelected = selectedMonths.includes(mIdx);
+                    const mData = getMonthData(year, mIdx);
+                    const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
+                    const firstDay = new Date(year, mIdx, 1).getDay();
 
                     return (
                       <div
-                        key={`day-${monthIndex}-${day}`}
-                        onClick={() => {
-                          setSelectedDate(new Date(currentYear, monthIndex, day));
-                          setDrawerTab('day');
-                        }}
+                        key={mName}
+                        onMouseDown={(e) => handleMonthMouseDown(mIdx, e)}
+                        onMouseEnter={() => handleMonthMouseEnter(mIdx)}
                         style={{
-                          background: isSelected
-                            ? 'rgba(59, 130, 246, 0.12)'
-                            : isToday
-                            ? 'rgba(255, 255, 255, 0.05)'
-                            : 'var(--bg-card)',
-                          border: isSelected
-                            ? '2px solid #3B82F6'
-                            : isToday
-                            ? '1px solid rgba(59, 130, 246, 0.5)'
-                            : 'none',
+                          background: isMonthSelected
+                            ? 'linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%)'
+                            : 'rgba(15, 23, 42, 0.65)',
+                          borderRadius: 10,
+                          border: isMonthSelected
+                            ? '1.5px solid #3B82F6'
+                            : '1px solid rgba(255, 255, 255, 0.06)',
                           padding: '7px 7px',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                          boxShadow: isMonthSelected ? '0 0 12px rgba(59, 130, 246, 0.25)' : 'none',
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                          position: 'relative',
-                          minHeight: selectedMonths.length > 1 ? 105 : 115,
-                          minWidth: 0,
-                          overflow: 'hidden',
-                          boxSizing: 'border-box'
+                          minHeight: 110
                         }}
                       >
-                        {/* Top Cell Bar (Day number & Overdue indicator) */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, minWidth: 0 }}>
-                          <span
-                            style={{
-                              fontSize: 12,
-                              fontWeight: isToday || isSelected ? 800 : 700,
-                              width: 22,
-                              height: 22,
-                              borderRadius: '50%',
-                              background: isToday ? '#3B82F6' : 'transparent',
-                              color: isToday ? '#FFF' : (isSelected ? '#3B82F6' : 'var(--text-primary)'),
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center'
-                            }}
-                          >
-                            {day}
+                        {/* Mini Month Header: Month name + items count (e.g. "40 items") */}
+                        <div
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            marginBottom: 4
+                          }}
+                        >
+                          <span style={{ fontSize: 11.5, fontWeight: 800, color: isMonthSelected ? '#60A5FA' : '#F1F5F9' }}>
+                            {mName}
                           </span>
-
-                          {hasOverdue && (
-                            <span
-                              style={{
-                                fontSize: 8.5,
-                                fontWeight: 800,
-                                padding: '1px 4px',
-                                borderRadius: 4,
-                                background: '#EF4444',
-                                color: '#FFF',
-                                letterSpacing: 0.3
-                              }}
-                              title="Payment Overdue!"
-                            >
-                              OVERDUE
-                            </span>
-                          )}
+                          <span style={{ fontSize: 8.5, color: '#64748B' }}>
+                            {mData.itemCount > 0 ? `${mData.itemCount} items` : '0 items'}
+                          </span>
                         </div>
 
-                        {/* Middle Area: Inflow / Outflow & Dues Status Badges */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2.5, flexGrow: 1, minWidth: 0, overflow: 'hidden' }}>
-                          {/* Daily Income Trend */}
-                          {showTxs && dayIncome > 0 && (
-                            <div
-                              style={{
-                                fontSize: 9.5,
-                                fontWeight: 700,
-                                color: '#10B981',
-                                background: 'rgba(16, 185, 129, 0.12)',
-                                padding: '1.5px 4px',
-                                borderRadius: 4,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                              }}
-                              title={`Income: +${currencyService.format(dayIncome)}`}
-                            >
-                              +{currencyService.format(dayIncome)}
-                            </div>
-                          )}
+                        {/* Mini Calendar Dots Matrix showing ALL days of the month */}
+                        <div
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(7, 1fr)',
+                            gap: 1.5,
+                            fontSize: 7.5,
+                            color: '#475569',
+                            textAlign: 'center',
+                            marginBottom: 5
+                          }}
+                        >
+                          {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                            <span key={i} style={{ color: '#475569', fontWeight: 600 }}>{d}</span>
+                          ))}
 
-                          {/* Daily Expense Trend */}
-                          {showTxs && dayExpense > 0 && (
-                            <div
-                              style={{
-                                fontSize: 9.5,
-                                fontWeight: 700,
-                                color: '#EF4444',
-                                background: 'rgba(239, 68, 68, 0.12)',
-                                padding: '1.5px 4px',
-                                borderRadius: 4,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                              }}
-                              title={`Expense: -${currencyService.format(dayExpense)}`}
-                            >
-                              -{currencyService.format(dayExpense)}
-                            </div>
-                          )}
+                          {Array.from({ length: firstDay }).map((_, i) => (
+                            <span key={`empty-${i}`} />
+                          ))}
 
-                          {/* Daily Savings Trend */}
-                          {showTxs && daySavings > 0 && (
-                            <div
-                              style={{
-                                fontSize: 9.5,
-                                fontWeight: 700,
-                                color: '#818CF8',
-                                background: 'rgba(99, 102, 241, 0.12)',
-                                padding: '1.5px 4px',
-                                borderRadius: 4,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap'
-                              }}
-                              title={`Savings: ${currencyService.format(daySavings)}`}
-                            >
-                              🏦 {currencyService.format(daySavings)}
-                            </div>
-                          )}
+                          {Array.from({ length: daysInMonth }).map((_, i) => {
+                            const dayNum = i + 1;
+                            const dayTxs = mData.transactions.filter(t => {
+                              const d = Number(String(t.date || '').slice(0, 10).split('-')[2]);
+                              return d === dayNum;
+                            });
+                            const hasTx = dayTxs.length > 0;
+                            const txInc = dayTxs.some(t => (t.type || '').toLowerCase() === 'income');
+                            const txSav = dayTxs.some(t => {
+                              const type = (t.type || '').toLowerCase();
+                              const cat = String(t.category || '').toLowerCase();
+                              return type === 'savings' || cat.includes('invest') || cat.includes('saving');
+                            });
+                            const txExp = dayTxs.some(t => (t.type || '').toLowerCase() === 'expense');
 
-                          {/* EMI & Credit Card Status ONLY */}
-                          {showDues && duesList.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 2, minWidth: 0 }}>
-                              {/* Overdue Badge */}
-                              {overdueList.length > 0 && (
-                                <div
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 800,
-                                    padding: '1.5px 4px',
-                                    borderRadius: 4,
-                                    background: 'rgba(239, 68, 68, 0.2)',
-                                    color: '#EF4444',
-                                    border: '1px solid rgba(239, 68, 68, 0.4)',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 2
-                                  }}
-                                  title={`${overdueList.length} Overdue: ${overdueList.map(d => `${d.name} (${currencyService.format(d.amount)})`).join(', ')}`}
-                                >
-                                  <span>⚠</span>
-                                  <span>Overdue ({overdueList.length})</span>
-                                </div>
-                              )}
+                            const dayDues = mData.duesMap[dayNum] || [];
+                            const hasDue = dayDues.length > 0;
+                            const dueOverdue = dayDues.some(d => d.isOverdue);
+                            const dueAllPaid = hasDue && dayDues.every(d => d.isPaid);
 
-                              {/* Due Today Badge */}
-                              {dueTodayList.length > 0 && (
-                                <div
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 800,
-                                    padding: '1.5px 4px',
-                                    borderRadius: 4,
-                                    background: 'rgba(239, 68, 68, 0.25)',
-                                    color: '#DC2626',
-                                    border: '1px solid #DC2626',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 2
-                                  }}
-                                  title={`${dueTodayList.length} Due Today: ${dueTodayList.map(d => `${d.name} (${currencyService.format(d.amount)})`).join(', ')}`}
-                                >
-                                  <span>🔴</span>
-                                  <span>Due Today ({dueTodayList.length})</span>
-                                </div>
-                              )}
+                            const dayPlans = mData.plannedItems.filter(p => p.day === dayNum);
+                            const planInc = dayPlans.some(p => p.type === 'income');
+                            const planSav = dayPlans.some(p => p.type === 'savings');
+                            const planExp = dayPlans.some(p => p.type === 'expense');
 
-                              {/* Upcoming Badge */}
-                              {upcomingList.length > 0 && (
-                                <div
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 700,
-                                    padding: '1.5px 4px',
-                                    borderRadius: 4,
-                                    background: 'rgba(245, 158, 11, 0.15)',
-                                    color: '#F59E0B',
-                                    border: '1px solid rgba(245, 158, 11, 0.35)',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 2
-                                  }}
-                                  title={`${upcomingList.length} Upcoming: ${upcomingList.map(d => `${d.name} (${currencyService.format(d.amount)})`).join(', ')}`}
-                                >
-                                  <span>⏰</span>
-                                  <span>Upcoming ({upcomingList.length})</span>
-                                </div>
-                              )}
+                            let dotColor = '#334155';
+                            let isBold = false;
 
-                              {/* Paid Badge */}
-                              {paidList.length > 0 && (
-                                <div
-                                  style={{
-                                    fontSize: 9,
-                                    fontWeight: 700,
-                                    padding: '1.5px 4px',
-                                    borderRadius: 4,
-                                    background: 'rgba(16, 185, 129, 0.15)',
-                                    color: '#10B981',
-                                    border: '1px solid rgba(16, 185, 129, 0.35)',
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: 2
-                                  }}
-                                  title={`${paidList.length} Paid: ${paidList.map(d => d.name).join(', ')}`}
-                                >
-                                  <span>✓</span>
-                                  <span>Paid ({paidList.length})</span>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                            // 1. Dues color takes highest priority
+                            if (hasDue) {
+                              isBold = true;
+                              if (dueOverdue) dotColor = '#EF4444';
+                              else if (dueAllPaid) dotColor = '#10B981';
+                              else dotColor = '#F59E0B';
+                            } else if (hasTx) {
+                              isBold = true;
+                              if (txInc) dotColor = '#10B981';
+                              else if (txSav) dotColor = '#8B5CF6';
+                              else if (txExp) dotColor = '#EF4444';
+                            } else if (showExpectedAmounts && dayPlans.length > 0) {
+                              isBold = true;
+                              if (planInc) dotColor = '#10B981';
+                              else if (planSav) dotColor = '#8B5CF6';
+                              else if (planExp) dotColor = '#EF4444';
+                            }
+
+                            return (
+                              <span
+                                key={dayNum}
+                                style={{
+                                  display: 'inline-block',
+                                  width: '100%',
+                                  color: dotColor,
+                                  fontWeight: isBold ? 800 : 400
+                                }}
+                              >
+                                {dayNum}
+                              </span>
+                            );
+                          })}
+                        </div>
+
+                        {/* Mini Month Footer Metrics in clean single row */}
+                        <div
+                          style={{
+                            borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                            paddingTop: 3,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            fontSize: 8.5,
+                            fontWeight: 800
+                          }}
+                        >
+                          <span style={{ color: '#10B981' }}>+{currencyService.format(mData.income)}</span>
+                          <span style={{ color: '#EF4444' }}>-{currencyService.format(mData.expense)}</span>
                         </div>
                       </div>
                     );
                   })}
                 </div>
               </div>
-            ))}
-          </div>
-        ) : (
-          /* ========================================================================= */
-          /* 2. YEAR VIEW (12 Months Calendar Grid with Financial & Dues Summary)       */
-          /* ========================================================================= */
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Multi-Year Overview Comparison Grid */}
-            <div
-              style={{
-                background: 'var(--bg-card)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 16,
-                padding: '16px 18px',
-                boxShadow: '0 4px 16px rgba(0,0,0,0.06)'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Coins size={16} color="#818CF8" />
-                  <span style={{ fontSize: 13.5, fontWeight: 800, color: 'var(--text-primary)' }}>
-                    Annual Financial &amp; EMI Performance by Year
-                  </span>
-                </div>
-                <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-                  Click any year to view that year's 12-month calendar &amp; EMI breakdown
-                </span>
-              </div>
+            );
+          })}
+        </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10 }}>
-                {allYearsSummary.map(ySum => {
-                  const isSelected = ySum.year === currentYear;
-                  return (
+        {/* ============================================================== */}
+        {/* PANEL 3: CALENDAR DATES GRID (Calendar View Only)              */}
+        {/* ============================================================== */}
+        <div
+          style={{
+            background: '#0D1322',
+            borderRadius: 14,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '12px 14px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+            overflowY: 'auto',
+            height: '100%',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            boxSizing: 'border-box'
+          }}
+        >
+          {selectedYears.map(year => {
+            return selectedMonths.map(mIdx => {
+              const monthName = MONTH_NAMES[mIdx];
+              const mData = getMonthData(year, mIdx);
+              const daysInMonth = new Date(year, mIdx + 1, 0).getDate();
+              const firstDayOfWeek = new Date(year, mIdx, 1).getDay();
+
+              return (
+                <div key={`${year}-${mIdx}`} style={{ display: 'flex', flexDirection: 'column', height: '100%', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+                    {/* Month Header Navigation with Prev & Next buttons */}
                     <div
-                      key={`multi-yr-card-${ySum.year}`}
-                      onClick={() => handleSelectYear(ySum.year)}
                       style={{
-                        padding: '12px 14px',
-                        borderRadius: 10,
-                        background: isSelected ? 'rgba(59, 130, 246, 0.12)' : 'rgba(255, 255, 255, 0.02)',
-                        border: isSelected ? '2px solid #3B82F6' : '1px solid var(--border-color)',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
-                        boxShadow: isSelected ? '0 2px 10px rgba(59, 130, 246, 0.2)' : 'none',
                         display: 'flex',
-                        flexDirection: 'column',
-                        gap: 6
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        marginBottom: 10
                       }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: isSelected ? '#3B82F6' : 'var(--text-primary)' }}>
-                          {ySum.year}
-                        </span>
-                        {isSelected && (
-                          <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
-                            ACTIVE
-                          </span>
-                        )}
-                      </div>
+                      <button
+                        type="button"
+                        onClick={handlePrevMonth}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.06)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          color: '#94A3B8',
+                          borderRadius: 8,
+                          width: 30,
+                          height: 30,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          cursor: 'pointer'
+                        }}
+                        title="Previous Month"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
 
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 11 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>Income:</span>
-                          <strong style={{ color: '#10B981' }}>+{currencyService.format(ySum.income)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>Expense:</span>
-                          <strong style={{ color: '#EF4444' }}>-{currencyService.format(ySum.expense)}</strong>
-                        </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>Savings:</span>
-                          <strong style={{ color: ySum.savings >= 0 ? '#10B981' : '#EF4444' }}>{currencyService.format(ySum.savings)}</strong>
-                        </div>
-                        <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 5, marginTop: 2, display: 'flex', justifyContent: 'space-between', fontSize: 10.5 }}>
-                          <span style={{ color: 'var(--text-muted)' }}>EMIs:</span>
-                          <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
-                            {ySum.totalEmiCount} Total • <span style={{ color: '#10B981' }}>{ySum.paidEmiCount} Paid</span> • <span style={{ color: '#F59E0B' }}>{ySum.upcomingEmiCount} Due</span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* 12 Months Grid */}
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
-                gap: 16
-              }}
-            >
-              {yearlyData.monthsData.map(mData => {
-                const mIdx = mData.monthIndex;
-                const isSelectedInMulti = selectedMonths.includes(mIdx);
-                const isInspected = selectedYearMonth === mIdx;
-                const isCurrent = mIdx === todayMonth && currentYear === todayYear;
-
-                return (
-                  <div
-                    key={`year-m-${mIdx}`}
-                    onClick={() => {
-                      setSelectedYearMonth(mIdx);
-                      toggleMonth(mIdx);
-                    }}
-                    style={{
-                      background: isSelectedInMulti
-                        ? 'rgba(59, 130, 246, 0.09)'
-                        : isInspected
-                        ? 'rgba(59, 130, 246, 0.05)'
-                        : 'var(--bg-card)',
-                      border: isSelectedInMulti
-                        ? '2px solid #3B82F6'
-                        : isCurrent
-                        ? '1px solid rgba(59, 130, 246, 0.5)'
-                        : '1px solid var(--border-color)',
-                      borderRadius: 14,
-                      padding: 16,
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease',
-                      boxShadow: isSelectedInMulti ? '0 4px 16px rgba(59, 130, 246, 0.2)' : 'none',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'space-between',
-                      gap: 12
-                    }}
-                  >
-                    {/* Card Header: Month Name + Badges */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 15, fontWeight: 800, color: isSelectedInMulti ? '#3B82F6' : 'var(--text-primary)' }}>
-                          {mData.monthName}
-                        </span>
-                        {isCurrent && (
-                          <span style={{ fontSize: 9.5, fontWeight: 800, padding: '1px 6px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
-                            CURRENT
-                          </span>
-                        )}
-                        {isSelectedInMulti && (
-                          <span style={{ fontSize: 9, fontWeight: 800, padding: '1px 5px', borderRadius: 999, background: 'rgba(59, 130, 246, 0.25)', color: '#60A5FA' }}>
-                            ACTIVE
-                          </span>
-                        )}
+                      <div style={{ textAlign: 'center' }}>
+                        <h2 style={{ fontSize: 17, fontWeight: 800, color: '#F8FAFC', margin: 0 }}>
+                          {monthName} {year}
+                        </h2>
+                        <p style={{ fontSize: 11, color: '#64748B', margin: '2px 0 0' }}>
+                          {mData.itemCount} scheduled activities
+                        </p>
                       </div>
 
                       <button
                         type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedMonths([mIdx]);
-                          setSelectedDate(new Date(currentYear, mIdx, 1));
-                          setViewMode('month');
-                        }}
+                        onClick={handleNextMonth}
                         style={{
-                          padding: '3px 8px',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 6,
-                          color: '#60A5FA',
+                          background: 'rgba(255, 255, 255, 0.06)',
+                          border: '1px solid rgba(255, 255, 255, 0.08)',
+                          color: '#94A3B8',
+                          borderRadius: 8,
+                          width: 30,
+                          height: 30,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           cursor: 'pointer'
                         }}
-                        title="Open full day calendar for this month"
+                        title="Next Month"
                       >
-                        Open Month ↗
+                        <ChevronRight size={16} />
                       </button>
                     </div>
 
-                    {/* Financial Flow Overview */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: 'rgba(255, 255, 255, 0.02)', padding: '10px 12px', borderRadius: 8 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Inflow:</span>
-                        <strong style={{ color: '#10B981' }}>+{currencyService.format(mData.income)}</strong>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Outflow:</span>
-                        <strong style={{ color: '#EF4444' }}>-{currencyService.format(mData.expense)}</strong>
-                      </div>
-                      {mData.savings > 0 && (
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>Savings:</span>
-                          <strong style={{ color: '#818CF8' }}>{currencyService.format(mData.savings)}</strong>
+                    {/* Day of Week Headers */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(7, 1fr)',
+                        gap: 6,
+                        textAlign: 'center',
+                        marginBottom: 6
+                      }}
+                    >
+                      {WEEKDAY_NAMES.map(dayName => (
+                        <div
+                          key={dayName}
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            color: '#64748B',
+                            padding: '3px 0'
+                          }}
+                        >
+                          {dayName}
                         </div>
-                      )}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, paddingTop: 4, borderTop: '1px solid rgba(255, 255, 255, 0.05)' }}>
-                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Net Flow:</span>
-                        <strong style={{ color: mData.net >= 0 ? '#10B981' : '#EF4444' }}>
-                          {currencyService.format(mData.net)}
-                        </strong>
-                      </div>
+                      ))}
                     </div>
 
-                    {/* EMI / Bill Due Status Pill Badges */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {mData.paidCount > 0 && (
-                        <span
+                    {/* Calendar Dates Grid with Taller Date Cells to Utilize Empty Space */}
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(7, 1fr)',
+                        gridAutoRows: '1fr',
+                        gap: 6,
+                        flex: 1,
+                        minHeight: 0
+                      }}
+                    >
+                      {Array.from({ length: firstDayOfWeek }).map((_, i) => (
+                        <div
+                          key={`empty-${i}`}
                           style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: '2px 7px',
-                            borderRadius: 999,
-                            background: 'rgba(16, 185, 129, 0.15)',
-                            color: '#10B981',
-                            border: '1px solid rgba(16, 185, 129, 0.3)'
+                            height: '100%',
+                            minHeight: 50,
+                            background: 'rgba(15, 23, 42, 0.2)',
+                            borderRadius: 10
                           }}
-                        >
-                          ✓ {mData.paidCount} Paid
-                        </span>
-                      )}
+                        />
+                      ))}
 
-                      {mData.upcomingCount > 0 && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 700,
-                            padding: '2px 7px',
-                            borderRadius: 999,
-                            background: 'rgba(245, 158, 11, 0.15)',
-                            color: '#F59E0B',
-                            border: '1px solid rgba(245, 158, 11, 0.3)'
-                          }}
-                        >
-                          ⏰ {mData.upcomingCount} Due
-                        </span>
-                      )}
+                      {Array.from({ length: daysInMonth }).map((_, i) => {
+                        const day = i + 1;
+                        const dateObj = new Date(year, mIdx, day);
+                        const dateStr = formatYmd(year, mIdx, day);
 
-                      {mData.overdueCount > 0 && (
-                        <span
-                          style={{
-                            fontSize: 10,
-                            fontWeight: 800,
-                            padding: '2px 7px',
-                            borderRadius: 999,
-                            background: 'rgba(239, 68, 68, 0.2)',
-                            color: '#EF4444',
-                            border: '1px solid rgba(239, 68, 68, 0.4)'
-                          }}
-                        >
-                          ⚠ {mData.overdueCount} Overdue
-                        </span>
-                      )}
+                        const isToday = year === todayYear && mIdx === todayMonth && day === todayDay;
 
-                      {mData.allDues.length === 0 && (
-                        <span style={{ fontSize: 10.5, color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                          No EMIs or card bills
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+                        // Range selection status
+                        const inDateRange = dateStr >= rangeStartStr && dateStr <= rangeEndStr;
+                        const isRangeStart = dateStr === rangeStartStr;
+                        const isRangeEnd = dateStr === rangeEndStr;
 
-        {/* ========================================================================= */}
-        {/* Right-Side Inspector Drawer (Daily in Month View / Monthly in Year View)  */}
-        {/* ========================================================================= */}
-        <div
-          style={{
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 18,
-            padding: 20,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16
-          }}
-        >
-          {viewMode === 'month' ? (
-            /* Month View Inspector (Day Ledger vs Period Dues Switcher) */
-            <>
-              {/* Tab Switcher: Day Ledger vs Period Dues */}
-              <div
-                style={{
-                  display: 'flex',
-                  background: 'rgba(255, 255, 255, 0.03)',
-                  padding: 3,
-                  borderRadius: 10,
-                  border: '1px solid var(--border-color)'
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => setDrawerTab('day')}
-                  style={{
-                    flex: 1,
-                    padding: '6px 10px',
-                    borderRadius: 7,
-                    border: 'none',
-                    background: drawerTab === 'day' ? '#3B82F6' : 'transparent',
-                    color: drawerTab === 'day' ? '#FFF' : 'var(--text-secondary)',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  📅 Day Ledger
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDrawerTab('period')}
-                  style={{
-                    flex: 1,
-                    padding: '6px 10px',
-                    borderRadius: 7,
-                    border: 'none',
-                    background: drawerTab === 'period' ? '#3B82F6' : 'transparent',
-                    color: drawerTab === 'period' ? '#FFF' : 'var(--text-secondary)',
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: 'pointer',
-                    transition: 'all 0.15s ease'
-                  }}
-                >
-                  📋 Period Dues ({allSelectedMonthsDues.length})
-                </button>
-              </div>
+                        // Transactions on this day
+                        const dayTxs = mData.transactions.filter(t => String(t.date || '').slice(0, 10) === dateStr);
+                        const dayDuesList = mData.duesMap[day] || [];
+                        const dayPlannedList = mData.plannedItems.filter(p => p.day === day);
 
-              {drawerTab === 'day' ? (
-                /* Tab 1: Day Details */
-                <>
-                  {/* Day Header */}
-                  <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                        Daily Ledger &amp; Due Audit
-                      </span>
-                      {selectedDate.toDateString() === today.toDateString() && (
-                        <span style={{ fontSize: 11, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: '#3B82F6', color: '#FFF' }}>
-                          TODAY
-                        </span>
-                      )}
-                    </div>
-                    <h3 style={{ margin: '6px 0 0', fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
-                      {selectedDate.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                    </h3>
-                  </div>
+                        let dActualInc = 0;
+                        let dActualExp = 0;
+                        let dActualSav = 0;
 
-                  {/* Daily Totals Pills */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#10B981', display: 'block' }}>DAILY INFLOW</span>
-                      <span style={{ fontSize: 16, fontWeight: 800, color: '#10B981' }}>+{currencyService.format(selectedDayIncome)}</span>
-                    </div>
-                    <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-                      <span style={{ fontSize: 10.5, fontWeight: 700, color: '#EF4444', display: 'block' }}>DAILY OUTFLOW</span>
-                      <span style={{ fontSize: 16, fontWeight: 800, color: '#EF4444' }}>-{currencyService.format(selectedDayExpense)}</span>
-                    </div>
-                  </div>
+                        dayTxs.forEach(t => {
+                          const amt = Number(t.amount) || 0;
+                          const type = (t.type || 'expense').toLowerCase();
+                          const cat = String(t.category || '').toLowerCase();
+                          const isInvest = cat.includes('invest') || cat.includes('saving') || cat.includes('sip') || cat.includes('mutual');
 
-                  {/* Dues on This Date */}
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Scheduled Payment Dues ({selectedDayDues.length})
-                      </span>
-                    </div>
+                          if (type === 'income') dActualInc += amt;
+                          else if (type === 'savings' || isInvest) dActualSav += amt;
+                          else dActualExp += amt;
+                        });
 
-                    {selectedDayDues.length === 0 ? (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '6px 0' }}>
-                        No credit card bills or loan EMIs mapped to this day.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {selectedDayDues.map(due => (
+                        const dayPaidDuesList = dayDuesList.filter(d => d.isPaid);
+                        const dayUnpaidDuesList = dayDuesList.filter(d => !d.isPaid);
+                        const dayPaidDuesTotal = dayPaidDuesList.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+                        const dayUnpaidDuesTotal = dayUnpaidDuesList.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+                        const allDuesPaid = dayDuesList.length > 0 && dayDuesList.every(d => d.isPaid);
+                        const hasOverdueDues = dayUnpaidDuesList.some(d => d.isOverdue);
+
+                        // Expected values on this day (strictly from planned transactions)
+                        let dayExpIncome = dayPlannedList
+                          .filter(p => p.type === 'income')
+                          .reduce((s, p) => s + p.amount, 0);
+
+                        let dayExpExpenseOnly = dayPlannedList
+                          .filter(p => p.type === 'expense')
+                          .reduce((s, p) => s + p.amount, 0);
+
+                        let dayExpSavings = dayPlannedList
+                          .filter(p => p.type === 'savings')
+                          .reduce((s, p) => s + p.amount, 0);
+
+                        return (
                           <div
-                            key={due.id}
+                            key={day}
+                            onMouseDown={(e) => handleDateMouseDown(dateObj, e)}
+                            onMouseEnter={() => handleDateMouseEnter(dateObj)}
                             style={{
-                              background: 'rgba(255, 255, 255, 0.03)',
-                              border: due.isOverdue ? '1px solid #EF4444' : '1px solid var(--border-color)',
+                              height: '100%',
+                              minHeight: 'clamp(62px, 8.2vh, 88px)',
                               borderRadius: 10,
-                              padding: 12
+                              background: inDateRange
+                                ? (isSingleDateSelected
+                                    ? 'linear-gradient(135deg, #1E293B 0%, #1E3A8A 100%)'
+                                    : 'linear-gradient(135deg, rgba(30, 58, 138, 0.45) 0%, rgba(37, 99, 235, 0.28) 100%)')
+                                : 'rgba(15, 23, 42, 0.7)',
+                              border: (isRangeStart || isRangeEnd)
+                                ? '1.5px solid #3B82F6'
+                                : inDateRange
+                                  ? '1px solid rgba(96, 165, 250, 0.4)'
+                                  : isToday
+                                    ? '1px solid rgba(96, 165, 250, 0.5)'
+                                    : '1px solid rgba(255, 255, 255, 0.05)',
+                              padding: '4px 6px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              justifyContent: 'space-between',
+                              transition: 'all 0.15s ease',
+                              boxShadow: inDateRange ? '0 3px 12px rgba(59, 130, 246, 0.25)' : 'none',
+                              position: 'relative'
                             }}
                           >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                              <div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  {due.type === 'card' ? <CreditCard size={15} color="#F59E0B" /> : <Coins size={15} color="#818CF8" />}
-                                  <strong style={{ fontSize: 13, color: 'var(--text-primary)' }}>{due.name}</strong>
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                                  {due.subtext}
-                                </div>
-                              </div>
-
+                            {/* Top Row: Date Number & Badges */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                               <span
                                 style={{
-                                  fontSize: 10,
-                                  fontWeight: 800,
-                                  padding: '2px 7px',
-                                  borderRadius: 999,
-                                  background: due.isPaid
-                                    ? 'rgba(16, 185, 129, 0.15)'
-                                    : due.isOverdue
-                                    ? '#EF4444'
-                                    : '#F59E0B',
-                                  color: due.isPaid || !due.isOverdue ? (due.isPaid ? '#10B981' : '#000') : '#FFF'
+                                  fontSize: 11,
+                                  fontWeight: inDateRange || isToday ? 900 : 600,
+                                  color: (isRangeStart || isRangeEnd) ? '#FFFFFF' : isToday ? '#60A5FA' : '#CBD5E1',
+                                  width: 18,
+                                  height: 18,
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  borderRadius: '50%',
+                                  background: (isRangeStart || isRangeEnd) ? '#2563EB' : 'transparent'
                                 }}
                               >
-                                {due.isPaid ? 'PAID' : due.isOverdue ? 'OVERDUE' : due.isDueToday ? 'DUE TODAY' : 'UPCOMING'}
+                                {day}
                               </span>
+
+                              {filterDues && dayDuesList.length > 0 && (
+                                <span
+                                  style={{
+                                    width: 5,
+                                    height: 5,
+                                    borderRadius: '50%',
+                                    background: allDuesPaid ? '#10B981' : hasOverdueDues ? '#EF4444' : '#F59E0B'
+                                  }}
+                                  title={allDuesPaid ? `${dayDuesList.length} Due(s) Paid` : `${dayDuesList.length} Due(s)`}
+                                />
+                              )}
                             </div>
 
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-                              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Amount Payable:</span>
+                            {/* Middle: Horizontal Color Indicator Dash Pills Matching Figma & Filters */}
+                            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 3, alignItems: 'center', margin: '3px 0' }}>
+                              {filterIncome && (dActualInc > 0 || (showExpectedAmounts && dayExpIncome > 0)) && (
+                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#10B981', flexShrink: 0 }} title="Income" />
+                              )}
+                              {filterExpense && (dActualExp > 0 || (showExpectedAmounts && dayExpExpenseOnly > 0)) && (
+                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#EF4444', flexShrink: 0 }} title="Expense" />
+                              )}
+                              {filterSavings && (dActualSav > 0 || (showExpectedAmounts && dayExpSavings > 0)) && (
+                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#8B5CF6', flexShrink: 0 }} title="Savings" />
+                              )}
+                              {filterDues && dayPaidDuesList.length > 0 && (
+                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#10B981', flexShrink: 0 }} title="Paid Loan / Due" />
+                              )}
+                              {filterDues && dayUnpaidDuesList.length > 0 && (
+                                <div
+                                  style={{
+                                    width: 14,
+                                    height: 3,
+                                    borderRadius: 2,
+                                    background: hasOverdueDues ? '#EF4444' : '#F59E0B',
+                                    flexShrink: 0
+                                  }}
+                                  title="Upcoming Loan / Card Due"
+                                />
+                              )}
+                            </div>
+
+                            {/* Bottom: Left = Actual in Color, Right = Expected in Gray (+/-) */}
+                            <div
+                              style={{
+                                display: 'flex',
+                                alignItems: 'flex-end',
+                                justifyContent: 'space-between',
+                                gap: 4,
+                                width: '100%',
+                                marginTop: 'auto'
+                              }}
+                            >
+                              {/* Bottom-Left: ACTUAL amounts and Dues (Color-coded) */}
                               <div
-                                onClick={() => {
-                                  if (due.type === 'loan' && due.loanId && onNavigateToLoan) {
-                                    onNavigateToLoan(due.loanId);
-                                  }
-                                }}
                                 style={{
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                  cursor: due.type === 'loan' && due.loanId ? 'pointer' : 'default',
-                                  padding: '2px 6px',
-                                  borderRadius: 4,
-                                  background: due.type === 'loan' && due.loanId ? 'rgba(99, 102, 241, 0.12)' : 'transparent',
-                                  transition: 'all 0.15s ease'
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
+                                  minWidth: 0,
+                                  textAlign: 'left'
                                 }}
-                                title={due.type === 'loan' && due.loanId ? 'Click to open and inspect loan details in Loans & EMI' : undefined}
                               >
-                                <strong style={{ fontSize: 14, color: due.isPaid ? '#10B981' : '#EF4444', textDecoration: due.type === 'loan' && due.loanId ? 'underline' : 'none' }}>
-                                  {currencyService.format(due.amount)}
-                                </strong>
-                                {due.type === 'loan' && due.loanId && (
-                                  <span style={{ fontSize: 11, color: '#818CF8', fontWeight: 800 }}>↗</span>
+                                {/* Actual Income */}
+                                {filterIncome && dActualInc > 0 && (
+                                  <div
+                                    style={{
+                                      fontSize: 8.5,
+                                      fontWeight: 800,
+                                      color: '#10B981',
+                                      lineHeight: 1.1,
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title={`Actual Income: +${currencyService.format(dActualInc)}`}
+                                  >
+                                    +{currencyService.format(dActualInc)}
+                                  </div>
+                                )}
+
+                                {/* Actual Outflow (Expense + Savings combined as requested) */}
+                                {((filterExpense && dActualExp > 0) || (filterSavings && dActualSav > 0)) && (
+                                  <div
+                                    style={{
+                                      fontSize: 8.5,
+                                      fontWeight: 800,
+                                      color: '#EF4444',
+                                      lineHeight: 1.1,
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title={`Actual Outflow: -${currencyService.format((filterExpense ? dActualExp : 0) + (filterSavings ? dActualSav : 0))}`}
+                                  >
+                                    -{currencyService.format((filterExpense ? dActualExp : 0) + (filterSavings ? dActualSav : 0))}
+                                  </div>
+                                )}
+
+                                {/* Paid Dues */}
+                                {filterDues && dayPaidDuesTotal > 0 && (
+                                  <div
+                                    style={{
+                                      fontSize: 8.5,
+                                      fontWeight: 800,
+                                      color: '#10B981',
+                                      lineHeight: 1.1,
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title={`Paid Due: -${currencyService.format(dayPaidDuesTotal)}`}
+                                  >
+                                    -{currencyService.format(dayPaidDuesTotal)}
+                                  </div>
+                                )}
+
+                                {/* Unpaid / Upcoming Dues */}
+                                {filterDues && dayUnpaidDuesTotal > 0 && (
+                                  <div
+                                    style={{
+                                      fontSize: 8.5,
+                                      fontWeight: 800,
+                                      color: hasOverdueDues ? '#EF4444' : '#F59E0B',
+                                      lineHeight: 1.1,
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                    title={`Pending Due: -${currencyService.format(dayUnpaidDuesTotal)}`}
+                                  >
+                                    -{currencyService.format(dayUnpaidDuesTotal)}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Bottom-Right: EXPECTED amounts (Gray with + / -) */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  gap: 1,
+                                  minWidth: 0,
+                                  textAlign: 'right'
+                                }}
+                              >
+                                {showExpectedAmounts && (
+                                  <>
+                                    {filterIncome && dayExpIncome > 0 && (
+                                      <div
+                                        style={{
+                                          fontSize: 8,
+                                          fontWeight: 700,
+                                          color: '#94A3B8',
+                                          lineHeight: 1.1,
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                        title={`Expected Income: +${currencyService.format(dayExpIncome)}`}
+                                      >
+                                        +{currencyService.format(dayExpIncome)}
+                                      </div>
+                                    )}
+                                    {((filterExpense && dayExpExpenseOnly > 0) || (filterSavings && dayExpSavings > 0)) && (
+                                      <div
+                                        style={{
+                                          fontSize: 8,
+                                          fontWeight: 700,
+                                          color: '#94A3B8',
+                                          lineHeight: 1.1,
+                                          whiteSpace: 'nowrap'
+                                        }}
+                                        title={`Expected Outflow: -${currencyService.format((filterExpense ? dayExpExpenseOnly : 0) + (filterSavings ? dayExpSavings : 0))}`}
+                                      >
+                                        -{currencyService.format((filterExpense ? dayExpExpenseOnly : 0) + (filterSavings ? dayExpSavings : 0))}
+                                      </div>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             </div>
-
-                            {due.type === 'loan' && due.loanId && onNavigateToLoan && (
-                              <div style={{ marginTop: 8 }}>
-                                <button
-                                  type="button"
-                                  onClick={() => onNavigateToLoan(due.loanId!)}
-                                  style={{
-                                    width: '100%',
-                                    padding: '6px 10px',
-                                    borderRadius: 6,
-                                    border: '1px solid rgba(129, 140, 248, 0.35)',
-                                    background: 'rgba(99, 102, 241, 0.1)',
-                                    color: '#818CF8',
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    transition: 'all 0.15s ease'
-                                  }}
-                                >
-                                  <span>View Loan &amp; EMI Details ↗</span>
-                                </button>
-                              </div>
-                            )}
-
-                            {!due.isPaid && onOpenNewTransaction && (
-                              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (due.type === 'loan') {
-                                      onOpenNewTransaction('Debt Repayment', `${due.name} EMI`, 'expense');
-                                    } else {
-                                      onOpenNewTransaction('Utilities & Bills', 'Credit Card Bill Payment', 'expense');
-                                    }
-                                  }}
-                                  style={{
-                                    width: '100%',
-                                    padding: '7px 12px',
-                                    borderRadius: 6,
-                                    border: 'none',
-                                    background: due.isDueToday || due.isOverdue
-                                      ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)'
-                                      : 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
-                                    color: '#FFF',
-                                    fontSize: 11.5,
-                                    fontWeight: 700,
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    gap: 6,
-                                    boxShadow: '0 2px 8px rgba(0,0,0,0.2)'
-                                  }}
-                                >
-                                  <span>{due.type === 'loan' ? '⚡ Record Loan EMI Payment' : '⚡ Record Card Bill Payment'}</span>
-                                </button>
-                              </div>
-                            )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Transactions on This Date */}
-                  <div style={{ flexGrow: 1 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
-                        Transactions ({selectedDayTxs.length})
-                      </span>
-
-                      {onOpenNewTransaction && (
-                        <button
-                          type="button"
-                          onClick={() => onOpenNewTransaction()}
-                          style={{
-                            background: 'transparent',
-                            border: 'none',
-                            color: '#60A5FA',
-                            fontSize: 11.5,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 4
-                          }}
-                        >
-                          <Plus size={12} />
-                          <span>Add for Today</span>
-                        </button>
-                      )}
-                    </div>
-
-                    {selectedDayTxs.length === 0 ? (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '12px 0', textAlign: 'center' }}>
-                        No transactions recorded on this date.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 250, overflowY: 'auto' }}>
-                        {selectedDayTxs.map((t, idx) => {
-                          const amt = Number(t.amount) || 0;
-                          const isInc = (t.type || '').toLowerCase() === 'income';
-
-                          return (
-                            <div
-                              key={t.id || idx}
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.02)',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: 8,
-                                padding: '9px 12px',
-                                display: 'flex',
-                                justifyContent: 'space-between',
-                                alignItems: 'center',
-                                fontSize: 12
-                              }}
-                            >
-                              <div>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                                  {t.category || t.description || 'Transaction'}
-                                </div>
-                                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                  {t.paymentMode ? `via ${t.paymentMode}` : 'Direct'}
-                                  {t.subcategory && ` • ${t.subcategory}`}
-                                </div>
-                              </div>
-
-                              <div style={{ fontWeight: 800, color: isInc ? '#10B981' : '#EF4444' }}>
-                                {isInc ? '+' : '-'}{currencyService.format(amt)}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
-                /* Tab 2: All Dues Across Selected Months */
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  <div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                      Period Summary
-                    </span>
-                    <h3 style={{ margin: '4px 0 0', fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
-                      {getSelectedMonthsLabel()} {currentYear}
-                    </h3>
-                  </div>
-
-                  {/* Summary Dues Pills */}
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
-                    <div style={{ background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#10B981', display: 'block' }}>PAID</span>
-                      <strong style={{ fontSize: 14, color: '#10B981' }}>
-                        {allSelectedMonthsDues.filter(d => d.isPaid).length}
-                      </strong>
-                    </div>
-                    <div style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.25)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#F59E0B', display: 'block' }}>UPCOMING</span>
-                      <strong style={{ fontSize: 14, color: '#F59E0B' }}>
-                        {selectedMonthsPendingCount}
-                      </strong>
-                    </div>
-                    <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, padding: '8px 6px', textAlign: 'center' }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: '#EF4444', display: 'block' }}>OVERDUE</span>
-                      <strong style={{ fontSize: 14, color: '#EF4444' }}>
-                        {selectedMonthsOverdueCount}
-                      </strong>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* All Dues List */}
-                  <div>
-                    <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--text-primary)', display: 'block', marginBottom: 8 }}>
-                      All Scheduled Dues ({allSelectedMonthsDues.length})
-                    </span>
-
-                    {allSelectedMonthsDues.length === 0 ? (
-                      <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '10px 0' }}>
-                        No dues scheduled in the selected months.
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto' }}>
-                        {allSelectedMonthsDues
-                          .sort((a, b) => {
-                            if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
-                            if (a.isPaid !== b.isPaid) return a.isPaid ? 1 : -1;
-                            return a.dueDate.localeCompare(b.dueDate);
-                          })
-                          .map(due => (
-                            <div
-                              key={due.id}
-                              style={{
-                                background: 'rgba(255, 255, 255, 0.03)',
-                                border: due.isOverdue ? '1px solid #EF4444' : '1px solid var(--border-color)',
-                                borderRadius: 8,
-                                padding: 10
-                              }}
-                            >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                <div>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                    {due.type === 'card' ? <CreditCard size={14} color="#F59E0B" /> : <Coins size={14} color="#818CF8" />}
-                                    <strong style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>{due.name}</strong>
-                                  </div>
-                                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
-                                    {due.dueDate} • {currencyService.format(due.amount)}
-                                  </div>
-                                </div>
-
-                                <span
-                                  style={{
-                                    fontSize: 9.5,
-                                    fontWeight: 800,
-                                    padding: '2px 6px',
-                                    borderRadius: 999,
-                                    background: due.isPaid
-                                      ? 'rgba(16, 185, 129, 0.15)'
-                                      : due.isOverdue
-                                      ? '#EF4444'
-                                      : '#F59E0B',
-                                    color: due.isPaid || !due.isOverdue ? (due.isPaid ? '#10B981' : '#000') : '#FFF'
-                                  }}
-                                >
-                                  {due.isPaid ? 'PAID' : due.isOverdue ? 'OVERDUE' : 'UPCOMING'}
-                                </span>
-                              </div>
-
-                              {!due.isPaid && onOpenNewTransaction && (
-                                <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (due.type === 'loan') {
-                                        onOpenNewTransaction('Debt Repayment', `${due.name} EMI`, 'expense');
-                                      } else {
-                                        onOpenNewTransaction('Utilities & Bills', 'Credit Card Bill Payment', 'expense');
-                                      }
-                                    }}
-                                    style={{
-                                      width: '100%',
-                                      padding: '5px 10px',
-                                      borderRadius: 6,
-                                      border: 'none',
-                                      background: due.isOverdue
-                                        ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)'
-                                        : 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
-                                      color: '#FFF',
-                                      fontSize: 11,
-                                      fontWeight: 700,
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    Pay {currencyService.format(due.amount)}
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          ) : (
-            /* Year View: Selected Month Due & Audit Inspector */
-            <>
-              {/* Month Header */}
-              <div style={{ borderBottom: '1px solid var(--border-color)', paddingBottom: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-                    Monthly Due &amp; Audit
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedMonths([selectedYearMonth]);
-                      setSelectedDate(new Date(currentYear, selectedYearMonth, 1));
-                      setViewMode('month');
-                    }}
+                  {/* Panel 3 Footer Summary Cards: Monthly Income, Monthly Outflow, Monthly Savings */}
+                  <div
                     style={{
-                      fontSize: 11,
-                      fontWeight: 700,
-                      padding: '3px 10px',
-                      borderRadius: 6,
-                      background: 'rgba(59, 130, 246, 0.15)',
-                      border: '1px solid #3B82F6',
-                      color: '#60A5FA',
-                      cursor: 'pointer'
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: 8,
+                      marginTop: 10,
+                      paddingTop: 8,
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)'
                     }}
                   >
-                    View Day Calendar
-                  </button>
+                    <div
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(16, 185, 129, 0.2)',
+                        borderRadius: 10,
+                        padding: '6px 10px'
+                      }}
+                    >
+                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                        Monthly income
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#10B981' }}>
+                        +{currencyService.format(showExpectedAmounts ? mData.expectedIncome : mData.income)}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(239, 68, 68, 0.2)',
+                        borderRadius: 10,
+                        padding: '6px 10px'
+                      }}
+                    >
+                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                        Monthly outflow
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#EF4444' }}>
+                        -{currencyService.format(showExpectedAmounts ? mData.expectedExpense : mData.expense)}
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        background: 'rgba(15, 23, 42, 0.6)',
+                        border: '1px solid rgba(139, 92, 246, 0.2)',
+                        borderRadius: 10,
+                        padding: '6px 10px'
+                      }}
+                    >
+                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                        Monthly savings
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 900, color: '#8B5CF6' }}>
+                        +{currencyService.format(showExpectedAmounts ? (mData.expectedSavings || mData.savings) : mData.savings)}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <h3 style={{ margin: '6px 0 0', fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
-                  {selectedYearMonthData.monthName} {currentYear}
+              );
+            });
+          })}
+        </div>
+
+        {/* ============================================================== */}
+        {/* PANEL 4: DAY & DATE RANGE LEDGER (Live Details View)           */}
+        {/* ============================================================== */}
+        <div
+          className="fintrack-calendar-day-panel"
+          style={{
+            background: '#0D1322',
+            borderRadius: 14,
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            padding: '12px 14px',
+            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'space-between',
+            height: '100%',
+            boxSizing: 'border-box',
+            overflow: 'hidden'
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            {/* Header: Date Details + Day Navigation Buttons (< and >) */}
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                justifyContent: 'space-between',
+                marginBottom: 10,
+                paddingBottom: 8,
+                borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+              }}
+            >
+              <div>
+                <span
+                  style={{
+                    fontSize: 9.5,
+                    fontWeight: 800,
+                    letterSpacing: 1,
+                    color: '#38BDF8',
+                    textTransform: 'uppercase'
+                  }}
+                >
+                  {isSingleDateSelected ? singleDateWeekday : 'DATE RANGE SELECTION'}
+                </span>
+                <h3
+                  style={{
+                    fontSize: isSingleDateSelected ? 18 : 16,
+                    fontWeight: 900,
+                    color: '#F8FAFC',
+                    margin: '2px 0 1px'
+                  }}
+                >
+                  {isSingleDateSelected ? singleDateFullMonthDay : `${rangeStartLabel} – ${rangeEndLabel}`}
                 </h3>
-              </div>
-
-              {/* Monthly Flow Pills */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#10B981', display: 'block' }}>INFLOW</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: '#10B981' }}>+{currencyService.format(selectedYearMonthData.income)}</span>
-                </div>
-                <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 10, padding: 10, textAlign: 'center' }}>
-                  <span style={{ fontSize: 10.5, fontWeight: 700, color: '#EF4444', display: 'block' }}>OUTFLOW</span>
-                  <span style={{ fontSize: 16, fontWeight: 800, color: '#EF4444' }}>-{currencyService.format(selectedYearMonthData.expense)}</span>
-                </div>
-              </div>
-
-              {/* EMI & Dues Counts Status Box */}
-              <div style={{ background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
-                <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)', display: 'block', marginBottom: 10 }}>
-                  Payment Dues Breakdown ({selectedYearMonthData.allDues.length} Total)
+                <span style={{ fontSize: 10.5, color: '#94A3B8' }}>
+                  {isSingleDateSelected
+                    ? `${selectedDateRange.start.getFullYear()} • ${totalRangeActivities} activities`
+                    : `${selectedDaysCount} days selected • ${totalRangeActivities} activities`}
                 </span>
+              </div>
 
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {/* Paid Count */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#10B981', fontWeight: 700 }}>
-                      <CheckCircle2 size={14} />
-                      <span>Paid EMIs &amp; Bills</span>
-                    </div>
-                    <strong style={{ color: '#10B981' }}>
-                      {selectedYearMonthData.paidCount} Paid ({currencyService.format(selectedYearMonthData.paidAmount)})
-                    </strong>
-                  </div>
+              {/* Day Navigation Controls: < [Day Badge] > */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <button
+                  type="button"
+                  onClick={handlePrevDay}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    color: '#94A3B8',
+                    borderRadius: 7,
+                    width: 26,
+                    height: 26,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                  }}
+                  title="Previous Day"
+                >
+                  <ChevronLeft size={14} />
+                </button>
 
-                  {/* Upcoming / Pending Count */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#F59E0B', fontWeight: 700 }}>
-                      <Clock size={14} />
-                      <span>Pending / Upcoming</span>
-                    </div>
-                    <strong style={{ color: '#F59E0B' }}>
-                      {selectedYearMonthData.upcomingCount} Due ({currencyService.format(selectedYearMonthData.upcomingAmount)})
-                    </strong>
+                <div
+                  style={{
+                    background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%)',
+                    borderRadius: 8,
+                    padding: '3px 8px',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)',
+                    minWidth: 32
+                  }}
+                >
+                  <div style={{ fontSize: 7.5, fontWeight: 800, color: '#BFDBFE', textTransform: 'uppercase' }}>
+                    {isSingleDateSelected ? MONTH_SHORT_NAMES[selectedDateRange.start.getMonth()] : 'DAYS'}
                   </div>
+                  <div style={{ fontSize: 13, fontWeight: 900, color: '#FFFFFF' }}>
+                    {isSingleDateSelected ? selectedDateRange.start.getDate() : `${selectedDaysCount}`}
+                  </div>
+                </div>
 
-                  {/* Overdue Count */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#EF4444', fontWeight: 700 }}>
-                      <AlertTriangle size={14} />
-                      <span>Overdue Dues</span>
-                    </div>
-                    <strong style={{ color: '#EF4444' }}>
-                      {selectedYearMonthData.overdueCount} Overdue ({currencyService.format(selectedYearMonthData.overdueAmount)})
-                    </strong>
-                  </div>
+                <button
+                  type="button"
+                  onClick={handleNextDay}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    color: '#94A3B8',
+                    borderRadius: 7,
+                    width: 26,
+                    height: 26,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    cursor: 'pointer'
+                  }}
+                  title="Next Day"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            {/* Range Money In & Money Out Cards */}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 8,
+                marginBottom: 8
+              }}
+            >
+              <div
+                style={{
+                  background: 'rgba(16, 185, 129, 0.08)',
+                  border: '1px solid rgba(16, 185, 129, 0.2)',
+                  borderRadius: 10,
+                  padding: '7px 10px'
+                }}
+              >
+                <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600 }}>Money in</div>
+                <div style={{ fontSize: 13, fontWeight: 900, color: '#10B981', marginTop: 1 }}>
+                  +{currencyService.format(rangeActualIncome)}
                 </div>
               </div>
 
-              {/* Scheduled Dues for this Month */}
-              <div style={{ flexGrow: 1 }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)', display: 'block', marginBottom: 10 }}>
-                  Scheduled Dues List ({selectedYearMonthData.allDues.length})
-                </span>
+              <div
+                style={{
+                  background: 'rgba(239, 68, 68, 0.08)',
+                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                  borderRadius: 10,
+                  padding: '7px 10px'
+                }}
+              >
+                <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600 }}>Money out</div>
+                <div style={{ fontSize: 13, fontWeight: 900, color: '#EF4444', marginTop: 1 }}>
+                  -{currencyService.format(rangeActualExpense + rangePaidDuesTotal)}
+                </div>
+              </div>
+            </div>
 
-                {selectedYearMonthData.allDues.length === 0 ? (
-                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontStyle: 'italic', padding: '10px 0' }}>
-                    No loans or credit card dues scheduled for {selectedYearMonthData.monthName} {currentYear}.
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 280, overflowY: 'auto' }}>
-                    {selectedYearMonthData.allDues.map(due => (
+            {/* Expected Summary Banner (when Expected Toggle is ON) */}
+            {showExpectedAmounts && (
+              <div
+                style={{
+                  background: 'linear-gradient(135deg, rgba(37, 99, 235, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%)',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  borderRadius: 8,
+                  padding: '5px 9px',
+                  marginBottom: 8,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  fontSize: 10.5
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#93C5FD', fontWeight: 700 }}>
+                  <Target size={11} />
+                  <span>Expected:</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontWeight: 800 }}>
+                  <span style={{ color: '#10B981' }}>+{currencyService.format(rangeExpectedInflow)}</span>
+                  <span style={{ color: '#EF4444' }}>-{currencyService.format(rangeExpectedOutflow)}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Scrollable Activities Ledger */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 7,
+                flex: 1,
+                overflowY: 'auto',
+                paddingRight: 3,
+                minHeight: 0
+              }}
+            >
+              {totalRangeActivities === 0 ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '28px 12px',
+                    textAlign: 'center',
+                    color: '#64748B'
+                  }}
+                >
+                  <CalendarDays size={26} style={{ color: '#334155', marginBottom: 8 }} />
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#94A3B8' }}>No activities on this date</div>
+                  <div style={{ fontSize: 10.5, marginTop: 3 }}>Tap below to record an entry</div>
+                </div>
+              ) : (
+                <>
+                  {/* 1. ACTUAL TRANSACTIONS (Figma Card Style) */}
+                  {filteredRangeTransactions.map(t => {
+                    const amt = Number(t.amount) || 0;
+                    const type = (t.type || 'expense').toLowerCase();
+                    const isIncome = type === 'income';
+                    const isSavings = type === 'savings';
+                    const iconColor = isIncome ? '#10B981' : isSavings ? '#8B5CF6' : '#EF4444';
+                    const iconBg = isIncome ? 'rgba(16, 185, 129, 0.15)' : isSavings ? 'rgba(139, 92, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+                    const tagLabel = isIncome ? 'Income' : isSavings ? 'Investment' : 'Expense';
+
+                    return (
                       <div
-                        key={due.id}
+                        key={t.id}
                         style={{
-                          background: 'rgba(255, 255, 255, 0.02)',
-                          border: due.isOverdue ? '1px solid #EF4444' : '1px solid var(--border-color)',
-                          borderRadius: 10,
-                          padding: 10
+                          background: 'rgba(15, 23, 42, 0.7)',
+                          border: '1px solid rgba(255, 255, 255, 0.07)',
+                          borderRadius: 12,
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          transition: 'all 0.15s ease'
                         }}
                       >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                              {due.type === 'card' ? <CreditCard size={14} color="#F59E0B" /> : <Coins size={14} color="#818CF8" />}
-                              <strong style={{ fontSize: 12.5, color: 'var(--text-primary)' }}>{due.name}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              background: iconBg,
+                              color: iconColor,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}
+                          >
+                            {isIncome ? <ArrowUpRight size={18} /> : isSavings ? <TrendingUp size={18} /> : <ArrowDownRight size={18} />}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: '#F8FAFC',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}
+                            >
+                              {t.description || t.subcategory || t.category || 'Transaction'}
                             </div>
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <span>Due on {due.dueDay}th •</span>
+                            <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {t.category || 'General'} • {t.paymentMode || 'Bank Transfer'}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
                               <span
-                                onClick={() => {
-                                  if (due.type === 'loan' && due.loanId && onNavigateToLoan) {
-                                    onNavigateToLoan(due.loanId);
-                                  }
-                                }}
                                 style={{
-                                  cursor: due.type === 'loan' && due.loanId ? 'pointer' : 'default',
-                                  textDecoration: due.type === 'loan' && due.loanId ? 'underline' : 'none',
-                                  fontWeight: 700,
-                                  color: due.isPaid ? '#10B981' : '#EF4444'
+                                  fontSize: 8.5,
+                                  fontWeight: 800,
+                                  padding: '1.5px 6px',
+                                  borderRadius: 4,
+                                  background: iconBg,
+                                  color: iconColor,
+                                  textTransform: 'capitalize'
                                 }}
-                                title={due.type === 'loan' && due.loanId ? 'Click to open loan in Loans & EMI' : undefined}
                               >
-                                {currencyService.format(due.amount)} {due.type === 'loan' && due.loanId ? '↗' : ''}
+                                {tagLabel}
                               </span>
                             </div>
                           </div>
-
-                          <span
-                            style={{
-                              fontSize: 9.5,
-                              fontWeight: 800,
-                              padding: '2px 7px',
-                              borderRadius: 999,
-                              background: due.isPaid
-                                ? 'rgba(16, 185, 129, 0.15)'
-                                : due.isOverdue
-                                ? '#EF4444'
-                                : '#F59E0B',
-                              color: due.isPaid || !due.isOverdue ? (due.isPaid ? '#10B981' : '#000') : '#FFF'
-                            }}
-                          >
-                            {due.isPaid ? 'PAID' : due.isOverdue ? 'OVERDUE' : 'UPCOMING'}
-                          </span>
                         </div>
 
-                        {due.type === 'loan' && due.loanId && onNavigateToLoan && (
-                          <div style={{ marginTop: 6 }}>
-                            <button
-                              type="button"
-                              onClick={() => onNavigateToLoan(due.loanId!)}
-                              style={{
-                                width: '100%',
-                                padding: '5px 8px',
-                                borderRadius: 6,
-                                border: '1px solid rgba(129, 140, 248, 0.35)',
-                                background: 'rgba(99, 102, 241, 0.1)',
-                                color: '#818CF8',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 4,
-                                transition: 'all 0.15s ease'
-                              }}
-                            >
-                              <span>View Loan &amp; EMI Details ↗</span>
-                            </button>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 13, fontWeight: 900, color: iconColor }}>
+                              {isIncome ? '+' : '-'}{currencyService.format(amt)}
+                            </div>
+                            <div style={{ fontSize: 9.5, color: '#10B981', display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end', marginTop: 2 }}>
+                              ✓ completed
+                            </div>
                           </div>
-                        )}
-
-                        {!due.isPaid && onOpenNewTransaction && (
-                          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (due.type === 'loan') {
-                                  onOpenNewTransaction('Debt Repayment', `${due.name} EMI`, 'expense');
-                                } else {
-                                  onOpenNewTransaction('Utilities & Bills', 'Credit Card Bill Payment', 'expense');
-                                }
-                              }}
-                              style={{
-                                width: '100%',
-                                padding: '6px 10px',
-                                borderRadius: 6,
-                                border: 'none',
-                                background: due.isOverdue
-                                  ? 'linear-gradient(135deg, #EF4444 0%, #DC2626 100%)'
-                                  : 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
-                                color: '#FFF',
-                                fontSize: 11,
-                                fontWeight: 700,
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: 4
-                              }}
-                            >
-                              <span>{due.type === 'loan' ? '⚡ Record EMI' : '⚡ Record Bill'}</span>
-                            </button>
-                          </div>
-                        )}
+                          <ChevronRight size={14} style={{ color: '#475569', marginLeft: 2 }} />
+                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+                    );
+                  })}
+
+                  {/* 2. DUES: LOANS & CREDIT CARDS (Figma Due Card Style with Paid Status Color) */}
+                  {filteredRangeDues.map(due => {
+                    const isPaid = due.isPaid;
+                    const isOverdue = !isPaid && due.isOverdue;
+                    const dueColor = isPaid ? '#10B981' : isOverdue ? '#EF4444' : '#F59E0B';
+                    const dueBg = isPaid
+                      ? 'rgba(16, 185, 129, 0.15)'
+                      : isOverdue
+                        ? 'rgba(239, 68, 68, 0.15)'
+                        : 'rgba(245, 158, 11, 0.15)';
+                    const dueBorder = isPaid
+                      ? '1px solid rgba(16, 185, 129, 0.25)'
+                      : isOverdue
+                        ? '1px solid rgba(239, 68, 68, 0.35)'
+                        : '1px solid rgba(245, 158, 11, 0.25)';
+                    const badgeText = isPaid ? 'Paid' : isOverdue ? 'Overdue' : 'Due';
+                    const statusText = isPaid ? '✓ paid' : isOverdue ? '⚠ overdue' : '⏱ due';
+
+                    return (
+                      <div
+                        key={due.id}
+                        onClick={() => {
+                          if (due.type === 'loan' && due.loanId) onNavigateToLoan?.(due.loanId);
+                        }}
+                        style={{
+                          background: 'rgba(15, 23, 42, 0.7)',
+                          border: dueBorder,
+                          borderRadius: 12,
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          cursor: due.type === 'loan' ? 'pointer' : 'default',
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              background: dueBg,
+                              color: dueColor,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}
+                          >
+                            <CreditCard size={18} />
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: '#F8FAFC',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}
+                            >
+                              {due.name}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {due.dueDate} • {due.subtext}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                              <span
+                                style={{
+                                  fontSize: 8.5,
+                                  fontWeight: 800,
+                                  padding: '1.5px 6px',
+                                  borderRadius: 4,
+                                  background: dueBg,
+                                  color: dueColor
+                                }}
+                              >
+                                {badgeText}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 13, fontWeight: 900, color: dueColor }}>
+                              -{currencyService.format(due.amount)}
+                            </div>
+                            <div style={{ fontSize: 9.5, color: dueColor, display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end', marginTop: 2 }}>
+                              {statusText}
+                            </div>
+                          </div>
+                          <ChevronRight size={14} style={{ color: '#475569', marginLeft: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* 3. PLANNED / EXPECTED TRANSACTIONS (ONLY when Expected Toggle is ON) */}
+                  {showExpectedAmounts && filteredRangePlannedItems.map((plan: PlannedItem) => {
+                    const isIncome = plan.type === 'income';
+                    const isSavings = plan.type === 'savings';
+                    const tagLabel = isIncome ? 'Income' : isSavings ? 'Investment' : 'Expense';
+
+                    return (
+                      <div
+                        key={plan.id}
+                        style={{
+                          background: 'rgba(15, 23, 42, 0.45)',
+                          border: '1px dashed rgba(148, 163, 184, 0.22)',
+                          borderRadius: 12,
+                          padding: '10px 12px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: 10,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <div
+                            style={{
+                              width: 36,
+                              height: 36,
+                              borderRadius: 10,
+                              background: 'rgba(148, 163, 184, 0.1)',
+                              color: '#94A3B8',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              flexShrink: 0
+                            }}
+                          >
+                            {isIncome ? <ArrowUpRight size={18} /> : isSavings ? <TrendingUp size={18} /> : <ArrowDownRight size={18} />}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div
+                              style={{
+                                fontSize: 12.5,
+                                fontWeight: 600,
+                                color: '#CBD5E1',
+                                whiteSpace: 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
+                              }}
+                            >
+                              {plan.name}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: '#64748B', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              {plan.category} • {plan.paymentMode || 'Bank Transfer'}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 3 }}>
+                              <span
+                                style={{
+                                  fontSize: 8.5,
+                                  fontWeight: 700,
+                                  padding: '1.5px 6px',
+                                  borderRadius: 4,
+                                  background: 'rgba(148, 163, 184, 0.12)',
+                                  color: '#94A3B8',
+                                  textTransform: 'capitalize'
+                                }}
+                              >
+                                Expected {tagLabel}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: 12.5, fontWeight: 700, color: '#94A3B8' }}>
+                              {isIncome ? '+' : '-'}{currencyService.format(plan.amount)}
+                            </div>
+                            <div style={{ fontSize: 9.5, color: '#64748B', display: 'flex', alignItems: 'center', gap: 3, justifyContent: 'flex-end', marginTop: 2 }}>
+                              ⏱ scheduled
+                            </div>
+                          </div>
+                          <ChevronRight size={14} style={{ color: '#475569', marginLeft: 2 }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Action Button */}
+          <div style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              onClick={() => onOpenNewTransaction?.()}
+              style={{
+                width: '100%',
+                padding: '9px 16px',
+                borderRadius: 10,
+                border: 'none',
+                background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
+                color: '#FFFFFF',
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Plus size={15} />
+              <span>
+                {isSingleDateSelected
+                  ? `Record Transaction on ${singleDateFullMonthDay}`
+                  : `Record Transaction in Range`}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

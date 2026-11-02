@@ -1,3 +1,4 @@
+import api from './api';
 import { getUserStorageKey } from './storageHelper';
 
 export interface LoanModel {
@@ -268,6 +269,85 @@ export const loanService = {
     } catch (err) {
       console.error('Failed to save loans to storage:', err);
     }
+
+    // Persist to backend database asynchronously
+    const payload = loans.map(l => ({
+      id: l.id,
+      name: l.name,
+      loanNumber: l.loanNumber,
+      lender: l.lender,
+      principal: l.principal,
+      emiAmount: l.emiAmount,
+      remainingAmount: l.remainingAmount,
+      startDate: l.startDate,
+      endDate: l.endDate,
+      includeInNetWorth: l.includeInNetWorth,
+      type: l.type,
+      interestRate: l.interestRate,
+      tenureMonths: l.tenureMonths,
+      paidMonths: l.paidMonths,
+      paidScheduleIndicesJson: l.paidScheduleIndices ? JSON.stringify(l.paidScheduleIndices) : null,
+      dueDay: l.dueDay,
+      description: l.description,
+      status: l.status,
+      repaymentSource: l.repaymentSource,
+      linkedCardId: l.linkedCardId,
+      linkedCardName: l.linkedCardName
+    }));
+    api.post('/loans/sync', payload).catch(err => {
+      console.debug('Async loans sync notice:', err?.message);
+    });
+  },
+
+  async fetchLoansFromServer(email?: string): Promise<LoanModel[]> {
+    try {
+      const res = await api.get('/loans');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const serverLoans: LoanModel[] = res.data.data.map((l: any) => {
+          let paidScheduleIndices: number[] = [];
+          try {
+            if (l.paidScheduleIndicesJson) paidScheduleIndices = JSON.parse(l.paidScheduleIndicesJson);
+          } catch {}
+          return {
+            id: l.id,
+            name: l.name,
+            loanNumber: l.loanNumber,
+            lender: l.lender,
+            principal: l.principal,
+            emiAmount: l.emiAmount,
+            remainingAmount: l.remainingAmount,
+            startDate: l.startDate,
+            endDate: l.endDate,
+            includeInNetWorth: l.includeInNetWorth !== false,
+            type: l.type,
+            interestRate: l.interestRate,
+            tenureMonths: l.tenureMonths,
+            paidMonths: l.paidMonths,
+            paidScheduleIndices,
+            dueDay: l.dueDay,
+            description: l.description,
+            status: l.status,
+            repaymentSource: l.repaymentSource,
+            linkedCardId: l.linkedCardId,
+            linkedCardName: l.linkedCardName
+          };
+        });
+
+        const local = this.getLoans(email);
+        if (serverLoans.length > 0) {
+          const key = getUserStorageKey('fintrack_loans_list', email);
+          localStorage.setItem(key, JSON.stringify(serverLoans));
+          window.dispatchEvent(new CustomEvent('fintrack-loans-changed', { detail: serverLoans }));
+          return serverLoans;
+        } else if (local.length > 0) {
+          this.saveLoans(local, email);
+          return local;
+        }
+      }
+    } catch (err) {
+      console.debug('Could not fetch loans from server:', err);
+    }
+    return this.getLoans(email);
   },
 
   /**

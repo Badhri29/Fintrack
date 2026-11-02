@@ -127,6 +127,7 @@ public class EmailService {
         return sendHtmlEmail(toEmail, subject, htmlContent, isVerificationFlow);
     }
 
+    @org.springframework.scheduling.annotation.Async
     public boolean sendLoginAlertEmail(String toEmail, String name, String ip, String time) {
         String subject = "FinTrack Security Alert: New Sign-in Detected";
         String html = "<!DOCTYPE html><html><body style='margin:0;padding:24px;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#1E293B;'>"
@@ -146,6 +147,7 @@ public class EmailService {
         return sendHtmlEmail(toEmail, subject, html);
     }
 
+    @org.springframework.scheduling.annotation.Async
     public boolean sendLogoutAlertEmail(String toEmail, String name, String time) {
         String subject = "FinTrack: Account Session Ended";
         String html = "<!DOCTYPE html><html><body style='margin:0;padding:24px;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#1E293B;'>"

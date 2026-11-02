@@ -1,4 +1,5 @@
-// Centralized Credit Card Service with User Scoping and Event Synchronization
+// Centralized Credit Card Service with User Scoping, Event Synchronization, and Backend API Persistence
+import api from './api';
 
 export interface CardModel {
   id: string;
@@ -129,7 +130,6 @@ export const cardService = {
             return c;
           });
         }
-
       }
     } catch (err) {
       console.error('Error loading cards from storage:', err);
@@ -140,7 +140,6 @@ export const cardService = {
       return DEFAULT_CARDS;
     }
 
-    // Every other user starts with an empty cards list
     return [];
   },
 
@@ -156,6 +155,54 @@ export const cardService = {
     } catch (err) {
       console.error('Error saving cards to storage:', err);
     }
+
+    // Persist to backend API asynchronously
+    api.post('/credit-cards/sync', cards).catch((err) => {
+      console.debug('Async credit cards sync notice:', err?.message);
+    });
+  },
+
+  async fetchCardsFromServer(email?: string): Promise<CardModel[]> {
+    try {
+      const res = await api.get('/credit-cards');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const serverCards: CardModel[] = res.data.data.map((c: any) => ({
+          id: c.id,
+          name: c.name,
+          bank: c.bank,
+          network: c.network,
+          cardNumber: c.cardNumber,
+          last4: c.last4 || '0000',
+          expiryMonth: c.expiryMonth,
+          expiryYear: c.expiryYear,
+          cvv: c.cvv,
+          limit: c.limit || 0,
+          billingDay: c.billingDay || 1,
+          dueDay: c.dueDay || 1,
+          gradient: c.gradient,
+          accent: c.accent,
+          isActive: c.isActive !== false,
+          isAddon: Boolean(c.isAddon),
+          primaryCardId: c.primaryCardId,
+          holderName: c.holderName
+        }));
+
+        const local = this.getCards(email);
+        if (serverCards.length > 0) {
+          const userEmail = getActiveUserEmail(email);
+          localStorage.setItem(getStorageKey(userEmail), JSON.stringify(serverCards));
+          window.dispatchEvent(new CustomEvent('fintrack-cards-updated', { detail: serverCards }));
+          return serverCards;
+        } else if (local.length > 0) {
+          // Sync local cards to backend
+          this.saveCards(local, email);
+          return local;
+        }
+      }
+    } catch (err) {
+      console.debug('Could not fetch credit cards from server:', err);
+    }
+    return this.getCards(email);
   },
 
   addCard(cardData: Omit<CardModel, 'id'>, email?: string): CardModel {
@@ -169,6 +216,8 @@ export const cardService = {
     };
     const updated = [...cards, newCard];
     this.saveCards(updated, email);
+
+    api.post('/credit-cards', newCard).catch(() => {});
     return newCard;
   },
 
@@ -185,6 +234,8 @@ export const cardService = {
     };
     cards[idx] = updatedCard;
     this.saveCards(cards, email);
+
+    api.put(`/credit-cards/${id}`, updatedCard).catch(() => {});
     return updatedCard;
   },
 
@@ -192,6 +243,7 @@ export const cardService = {
     const cards = this.getCards(email);
     const filtered = cards.filter(c => c.id !== id);
     this.saveCards(filtered, email);
+    api.delete(`/credit-cards/${id}`).catch(() => {});
     return true;
   }
 };

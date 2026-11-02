@@ -305,14 +305,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           userData.mustChangePassword = true;
           userData.isTemporaryPassword = true;
         }
-        const profRes = await api.get('/profile').catch(() => null);
-        if (profRes?.data?.success && profRes.data.data) {
-          if (profRes.data.data.name) userData.name = profRes.data.data.name;
-          if (profRes.data.data.photo) userData.photo = profRes.data.data.photo;
-        }
         yearService.resetToCurrentYear();
         localStorage.setItem('fintrack_user_cache', JSON.stringify(userData));
         setUser(userData);
+        // Non-blocking profile sync in background
+        api.get('/profile').then((profRes) => {
+          if (profRes?.data?.success && profRes.data.data) {
+            const p = profRes.data.data;
+            setUser((prev) => {
+              if (!prev) return prev;
+              const merged = { ...prev, name: p.name || prev.name, photo: p.photo || prev.photo };
+              localStorage.setItem('fintrack_user_cache', JSON.stringify(merged));
+              return merged;
+            });
+          }
+        }).catch(() => {});
         return { success: true };
       }
 

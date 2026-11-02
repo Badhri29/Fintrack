@@ -1,3 +1,4 @@
+import api from './api';
 import { getActiveUserEmail } from './cardService';
 
 export interface BankDebitCard {
@@ -131,6 +132,70 @@ export const bankAccountService = {
     } catch (err) {
       console.error('Error saving bank accounts:', err);
     }
+
+    // Persist to backend database via REST API
+    const payload = accounts.map(a => ({
+      id: a.id,
+      bankName: a.bankName,
+      accountType: a.accountType,
+      accountNumberLast4: a.accountNumberLast4,
+      holderName: a.holderName,
+      ifscCode: a.ifscCode,
+      branch: a.branch,
+      balance: a.balance,
+      isPrimary: a.isPrimary,
+      debitCardsJson: a.debitCards ? JSON.stringify(a.debitCards) : null,
+      creditCardsJson: a.creditCards ? JSON.stringify(a.creditCards) : null
+    }));
+    api.post('/bank-accounts/sync', payload).catch((err) => {
+      console.debug('Async bank accounts sync notice:', err?.message);
+    });
+  },
+
+  async fetchAccountsFromServer(email?: string): Promise<BankAccountModel[]> {
+    try {
+      const res = await api.get('/bank-accounts');
+      if (res.data?.success && Array.isArray(res.data.data)) {
+        const serverAccounts: BankAccountModel[] = res.data.data.map((item: any) => {
+          let debitCards: BankDebitCard[] = [];
+          let creditCards: BankCreditCard[] = [];
+          try {
+            if (item.debitCardsJson) debitCards = JSON.parse(item.debitCardsJson);
+          } catch {}
+          try {
+            if (item.creditCardsJson) creditCards = JSON.parse(item.creditCardsJson);
+          } catch {}
+          return {
+            id: item.id,
+            bankName: item.bankName,
+            accountType: item.accountType,
+            accountNumberLast4: item.accountNumberLast4,
+            holderName: item.holderName,
+            ifscCode: item.ifscCode,
+            branch: item.branch,
+            balance: item.balance || 0,
+            isPrimary: Boolean(item.isPrimary),
+            debitCards,
+            creditCards
+          };
+        });
+
+        const local = this.getAccounts(email);
+        if (serverAccounts.length > 0) {
+          const userEmail = getActiveUserEmail(email);
+          localStorage.setItem(getStorageKey(userEmail), JSON.stringify(serverAccounts));
+          window.dispatchEvent(new CustomEvent('fintrack-accounts-updated', { detail: serverAccounts }));
+          return serverAccounts;
+        } else if (local.length > 0) {
+          // Sync local accounts to backend
+          this.saveAccounts(local, email);
+          return local;
+        }
+      }
+    } catch (err) {
+      console.debug('Could not fetch bank accounts from server:', err);
+    }
+    return this.getAccounts(email);
   },
 
   addAccount(data: Omit<BankAccountModel, 'id'>, email?: string): BankAccountModel {
@@ -153,6 +218,21 @@ export const bankAccountService = {
     };
     const updated = [...current, newAcc];
     this.saveAccounts(updated, email);
+
+    api.post('/bank-accounts', {
+      id: newAcc.id,
+      bankName: newAcc.bankName,
+      accountType: newAcc.accountType,
+      accountNumberLast4: newAcc.accountNumberLast4,
+      holderName: newAcc.holderName,
+      ifscCode: newAcc.ifscCode,
+      branch: newAcc.branch,
+      balance: newAcc.balance,
+      isPrimary: newAcc.isPrimary,
+      debitCardsJson: JSON.stringify(debitCards),
+      creditCardsJson: JSON.stringify(newAcc.creditCards)
+    }).catch(() => {});
+
     return newAcc;
   },
 
@@ -172,6 +252,20 @@ export const bankAccountService = {
 
     current[index] = updatedAcc;
     this.saveAccounts(current, email);
+
+    api.put(`/bank-accounts/${id}`, {
+      bankName: updatedAcc.bankName,
+      accountType: updatedAcc.accountType,
+      accountNumberLast4: updatedAcc.accountNumberLast4,
+      holderName: updatedAcc.holderName,
+      ifscCode: updatedAcc.ifscCode,
+      branch: updatedAcc.branch,
+      balance: updatedAcc.balance,
+      isPrimary: updatedAcc.isPrimary,
+      debitCardsJson: JSON.stringify(updatedAcc.debitCards || []),
+      creditCardsJson: JSON.stringify(updatedAcc.creditCards || [])
+    }).catch(() => {});
+
     return updatedAcc;
   },
 
@@ -183,6 +277,7 @@ export const bankAccountService = {
     const current = this.getAccounts(email);
     const updated = current.filter(a => a.id !== id);
     this.saveAccounts(updated, email);
+    api.delete(`/bank-accounts/${id}`).catch(() => {});
     return true;
   },
 
@@ -199,43 +294,21 @@ export const bankAccountService = {
     return this.updateAccount(accountId, { debitCards, hasDebitCard: true }, email);
   },
 
-  addCreditCardToAccount(accountId: string, card: Omit<BankCreditCard, 'id'>, email?: string): BankAccountModel | null {
+  updateDebitCard(accountId: string, cardId: string, updates: Partial<BankDebitCard>, email?: string): BankAccountModel | null {
     const current = this.getAccounts(email);
     const acc = current.find(a => a.id === accountId);
-    if (!acc) return null;
+    if (!acc || !acc.debitCards) return null;
 
-    const newCard: BankCreditCard = {
-      ...card,
-      id: `cc-${Date.now()}`
-    };
-    const creditCards = [...(acc.creditCards || []), newCard];
-    return this.updateAccount(accountId, { creditCards }, email);
+    const debitCards = acc.debitCards.map(dc => dc.id === cardId ? { ...dc, ...updates } : dc);
+    return this.updateAccount(accountId, { debitCards }, email);
   },
 
   removeDebitCardFromAccount(accountId: string, cardId: string, email?: string): BankAccountModel | null {
-    const current = this.getAccounts(email);
-    const acc = current.find(a => a.id === accountId);
-    if (!acc) return null;
-
-    const debitCards = (acc.debitCards || []).filter(c => c.id !== cardId);
-    return this.updateAccount(accountId, { debitCards, hasDebitCard: debitCards.length > 0 }, email);
+    return this.deleteDebitCard(accountId, cardId, email);
   },
 
-  removeCreditCardFromAccount(accountId: string, cardId: string, email?: string): BankAccountModel | null {
-    const current = this.getAccounts(email);
-    const acc = current.find(a => a.id === accountId);
-    if (!acc) return null;
-
-    const creditCards = (acc.creditCards || []).filter(c => c.id !== cardId);
-    return this.updateAccount(accountId, { creditCards }, email);
-  },
-
-  /**
-   * Applies the financial impact of a transaction to the corresponding bank account or cash wallet.
-   * If revert is true, reverses the effect (used when deleting a transaction or before updating it).
-   */
   applyTransactionImpact(
-    tx: { type?: string; amount?: number | string; paymentMode?: string; card?: string | null },
+    tx: { amount?: number | string; type?: string; paymentMode?: string },
     revert: boolean = false,
     email?: string
   ): void {
@@ -245,9 +318,6 @@ export const bankAccountService = {
     const type = String(tx.type || 'expense').toLowerCase();
     const mode = String(tx.paymentMode || '').toLowerCase().trim();
 
-    // Determine balance delta:
-    // For expense: normally reduces balance (-amt). If revert, adds back (+amt).
-    // For income: normally increases balance (+amt). If revert, reduces (-amt).
     const isIncome = type === 'income';
     const delta = isIncome ? (revert ? -rawAmt : rawAmt) : (revert ? rawAmt : -rawAmt);
 
@@ -269,12 +339,9 @@ export const bankAccountService = {
     const accounts = this.getAccounts(email);
     if (accounts.length === 0) return;
 
-    // Check if mode points to a specific bank account or debit card
     let targetAccount = accounts.find(acc => {
       if (acc.id && (mode === acc.id.toLowerCase() || mode.includes(acc.id.toLowerCase()))) return true;
-      // bank_{name}_{last4}
       if (acc.accountNumberLast4 && acc.accountNumberLast4.length >= 4 && mode.includes(acc.accountNumberLast4)) return true;
-      // debit cards
       if (acc.debitCards?.some(dc => dc.last4 && dc.last4.length >= 4 && mode.includes(dc.last4))) return true;
       if (acc.debitCardLast4 && acc.debitCardLast4.length >= 4 && mode.includes(acc.debitCardLast4)) return true;
       const bClean = acc.bankName.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -283,8 +350,6 @@ export const bankAccountService = {
       return false;
     });
 
-    // If generic mode like 'upi', 'netbanking', 'bank_transfer', 'debit', 'bank':
-    // assign to primary account or the first account
     if (!targetAccount && !mode.includes('credit')) {
       targetAccount = accounts.find(a => a.isPrimary) || accounts[0];
     }
@@ -296,9 +361,38 @@ export const bankAccountService = {
     }
   },
 
-  // =========================================================================
-  // CASH IN HAND & WALLET MANAGEMENT (Requirement: Cash Option)
-  // =========================================================================
+  deleteDebitCard(accountId: string, cardId: string, email?: string): BankAccountModel | null {
+    const current = this.getAccounts(email);
+    const acc = current.find(a => a.id === accountId);
+    if (!acc || !acc.debitCards) return null;
+
+    const debitCards = acc.debitCards.filter(dc => dc.id !== cardId);
+    return this.updateAccount(accountId, { debitCards, hasDebitCard: debitCards.length > 0 }, email);
+  },
+
+  addCreditCardToAccount(accountId: string, card: Omit<BankCreditCard, 'id'>, email?: string): BankAccountModel | null {
+    const current = this.getAccounts(email);
+    const acc = current.find(a => a.id === accountId);
+    if (!acc) return null;
+
+    const newCard: BankCreditCard = {
+      ...card,
+      id: `cc-${Date.now()}`
+    };
+    const creditCards = [...(acc.creditCards || []), newCard];
+    return this.updateAccount(accountId, { creditCards }, email);
+  },
+
+  deleteCreditCardFromAccount(accountId: string, cardId: string, email?: string): BankAccountModel | null {
+    const current = this.getAccounts(email);
+    const acc = current.find(a => a.id === accountId);
+    if (!acc || !acc.creditCards) return null;
+
+    const creditCards = acc.creditCards.filter(cc => cc.id !== cardId);
+    return this.updateAccount(accountId, { creditCards }, email);
+  },
+
+  // CASH IN HAND & WALLET MANAGEMENT
   getCashBalance(email?: string): CashWalletModel {
     const userEmail = getActiveUserEmail(email);
     try {
@@ -332,12 +426,36 @@ export const bankAccountService = {
     } catch (err) {
       console.error('Error saving cash balance:', err);
     }
+
+    api.put('/bank-accounts/cash-wallet', {
+      balance: model.balance,
+      notes: model.notes
+    }).catch(() => {});
+
     return model;
   },
 
-  /**
-   * Returns formatted dynamic payment modes including all custom Bank Accounts, Debit Cards, Cash & Bank Credit Cards
-   */
+  async fetchCashBalanceFromServer(email?: string): Promise<CashWalletModel> {
+    try {
+      const res = await api.get('/bank-accounts/cash-wallet');
+      if (res.data?.success && res.data.data) {
+        const d = res.data.data;
+        const model: CashWalletModel = {
+          balance: d.balance || 0,
+          lastUpdated: d.lastUpdated || new Date().toISOString(),
+          notes: d.notes || 'Cash in Hand'
+        };
+        const userEmail = getActiveUserEmail(email);
+        localStorage.setItem(getCashStorageKey(userEmail), JSON.stringify(model));
+        window.dispatchEvent(new CustomEvent('fintrack-cash-updated', { detail: model }));
+        return model;
+      }
+    } catch (err) {
+      console.debug('Could not fetch cash wallet from server:', err);
+    }
+    return this.getCashBalance(email);
+  },
+
   getPaymentModeOptions(email?: string): { value: string; label: string; group?: string }[] {
     const accounts = this.getAccounts(email);
     const options: { value: string; label: string; group?: string }[] = [
@@ -349,7 +467,6 @@ export const bankAccountService = {
 
     if (accounts.length > 0) {
       accounts.forEach(acc => {
-        // Add Bank Account
         const accLabel = `🏦 ${acc.bankName} (${acc.accountType} •••• ${acc.accountNumberLast4})`;
         const accVal = `bank_${acc.bankName.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${acc.accountNumberLast4}`;
         options.push({
@@ -358,7 +475,6 @@ export const bankAccountService = {
           group: 'Bank Accounts'
         });
 
-        // Add Debit Cards
         if (acc.debitCards && acc.debitCards.length > 0) {
           acc.debitCards.forEach(dc => {
             const debitLabel = `💳 ${dc.name} (•••• ${dc.last4})`;
@@ -379,7 +495,6 @@ export const bankAccountService = {
           });
         }
 
-        // Add Credit Cards under this Bank
         if (acc.creditCards && acc.creditCards.length > 0) {
           acc.creditCards.forEach(cc => {
             const ccLabel = `💳 ${cc.name} (•••• ${cc.last4})`;
@@ -393,7 +508,6 @@ export const bankAccountService = {
         }
       });
     } else {
-      // Fallback default options
       options.push({ value: 'debit', label: '💳 Debit Card', group: 'Standard' });
       options.push({ value: 'bank_transfer', label: '🏦 Bank Transfer', group: 'Standard' });
     }

@@ -28,7 +28,9 @@ import {
   SlidersHorizontal,
   ExternalLink,
   Calendar,
-  Building2
+  Building2,
+  Smartphone,
+  Monitor
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -38,6 +40,7 @@ import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
 import { cardService } from '../services/cardService';
 import { bankAccountService } from '../services/bankAccountService';
+import { budgetService } from '../services/budgetService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
 
@@ -126,6 +129,9 @@ interface TransactionDetail extends Line {
   date: string;
   paymentMode?: string;
   monthPaymentModes?: string[];
+  type?: string;
+  category?: string;
+  subcategory?: string;
 }
 
 interface Category extends Line {
@@ -175,6 +181,38 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   );
   const [selectedYear, setSelectedYear] = useState<number>(() => yearService.getSelectedYear());
   const [mode, setMode] = useState<Mode>('actual');
+
+  // Mobile View state (auto-detects width <= 768px, also supports manual toggle)
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+  const [forceMobileView, setForceMobileView] = useState<boolean>(false);
+  const isMobileEffective = isMobile || forceMobileView;
+
+  const [mobileSelectedMonth, setMobileSelectedMonth] = useState<number>(() => new Date().getMonth());
+  const [mobileExpandedCategories, setMobileExpandedCategories] = useState<Set<string>>(new Set());
+  const [mobileDrilldown, setMobileDrilldown] = useState<{
+    section: Section;
+    category: Category;
+    subcategory: Line;
+    monthIdx: number;
+  } | null>(null);
+  const [mobileSearchQuery, setMobileSearchQuery] = useState<string>('');
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const toggleMobileCategoryExpanded = (catKey: string) => {
+    setMobileExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(catKey)) next.delete(catKey);
+      else next.add(catKey);
+      return next;
+    });
+  };
 
   // Sync year changes across pages
   useEffect(() => {
@@ -660,6 +698,13 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     const budgetKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
     const stored = localStorage.getItem(budgetKey);
     setBudgetValues(stored ? JSON.parse(stored) : {});
+
+    // Fetch and sync budgets with backend database
+    budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
+      if (serverBudgets && Object.keys(serverBudgets).length > 0) {
+        setBudgetValues(serverBudgets);
+      }
+    }).catch(() => {});
   }, [selectedYear, user]);
 
   useEffect(() => {
@@ -863,6 +908,27 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         }
       }),
     );
+
+    try {
+      const lookup: Record<string, { type: Section; categoryName: string; subcategoryName: string }> = {};
+      (Object.keys(result) as Section[]).forEach((sec) => {
+        result[sec].forEach((cat) => {
+          lookup[cat.id] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
+          lookup[cat.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
+          if (cat.categoryId) {
+            lookup[String(cat.categoryId)] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
+          }
+          cat.subcategories.forEach((sub) => {
+            lookup[sub.id] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
+            lookup[sub.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
+            if (sub.id.startsWith('sub:')) {
+              lookup[sub.id.slice(4)] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
+            }
+          });
+        });
+      });
+      localStorage.setItem('fintrack_category_sections_lookup', JSON.stringify(lookup));
+    } catch {}
 
     return result;
   };
@@ -1376,10 +1442,25 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       return;
     }
 
+    let foundSection: Section = 'expense';
+    let foundCategoryName = '';
+    for (const sec of ['income', 'savings', 'expense'] as Section[]) {
+      for (const cat of sections[sec]) {
+        if (cat.subcategories.some((s) => s.id === subcategory.id)) {
+          foundSection = sec;
+          foundCategoryName = cat.name;
+          break;
+        }
+      }
+    }
+
     const nextTransaction: TransactionDetail = {
       ...draft,
       name: draft.name.trim() || 'Transaction',
       date: draft.date || `${selectedYear}-01-01`,
+      type: foundSection,
+      category: foundCategoryName,
+      subcategory: subcategory.name,
     };
 
     const existingList = budgetTransactions[subcategory.id] || [];
@@ -1405,6 +1486,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
       JSON.stringify(next),
     );
+    window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed'));
 
     cancelBudgetTransactionDraft(subcategory);
   };
@@ -1446,9 +1528,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             const nextList = (curr[subcategory.id] || []).filter((t) => t.id !== transactionId);
             const next = { ...curr, [subcategory.id]: nextList };
             localStorage.setItem(
-      getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
+              getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
               JSON.stringify(next),
             );
+            window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed'));
             return next;
           });
         },
@@ -2128,11 +2211,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                   style={isBtxPending ? { opacity: 0.5, filter: 'grayscale(0.6)', cursor: 'not-allowed' } : undefined}
                                 >
                                   <td className="sticky-col budget-transaction-label">
-                                    <small>{displayDay}</small>
-                                    <span>{detail.name}</span>
-
-                                    {mode === 'budget' && !isViewOnly && (
-                                      <div className="budget-row-actions">
+                                    <span title={detail.name}>{detail.name}</span>
+                                    <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                      <small>{displayDay}</small>
+                                      {mode === 'budget' && !isViewOnly && (
+                                        <div className="budget-row-actions">
                                         <button
                                           className="budget-edit-button"
                                           type="button"
@@ -2163,8 +2246,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                             <Trash2 size={12} />
                                           )}
                                         </button>
-                                      </div>
-                                    )}
+                                        </div>
+                                      )}
+                                    </div>
                                   </td>
 
                                   {MONTHS.map((monthName, month) => {
@@ -2431,6 +2515,830 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const expenseTotals = sectionTotals('expense');
   const savingsTotals = sectionTotals('savings');
 
+  // Mobile Drilldown Items & Calculations
+  const drilldownActualTransactions = useMemo(() => {
+    if (!mobileDrilldown) return [];
+    const catName = mobileDrilldown.category.name.toLowerCase();
+    const subName = mobileDrilldown.subcategory.name.toLowerCase();
+    const mIdx = mobileDrilldown.monthIdx;
+
+    return rawTransactions
+      .filter(t => {
+        if (!t.date) return false;
+        const d = String(t.date).slice(0, 10);
+        const [y, m] = d.split('-').map(Number);
+        if (y !== selectedYear || m !== (mIdx + 1)) return false;
+        const tCat = String(t.category || '').toLowerCase();
+        const tSub = String(t.subcategory || '').toLowerCase();
+        const matchCat = tCat === catName;
+        const matchSub = !subName || tSub === subName || tSub === '';
+        if (!matchCat || !matchSub) return false;
+        if (mobileSearchQuery.trim()) {
+          const q = mobileSearchQuery.toLowerCase();
+          const desc = String(t.description || t.subcategory || t.category || '').toLowerCase();
+          return desc.includes(q);
+        }
+        return true;
+      })
+      .map((t, idx) => {
+        const dStr = String(t.date).slice(0, 10);
+        const dayPart = dStr.split('-')[2] || String(idx + 1).padStart(2, '0');
+        return {
+          id: t.id || `act-${idx}`,
+          date: dStr,
+          day: dayPart,
+          description: t.description || t.subcategory || t.category || 'Transaction',
+          paymentMode: t.paymentMode || 'Bank Transfer',
+          amount: Number(t.amount) || 0
+        };
+      });
+  }, [mobileDrilldown, rawTransactions, selectedYear, mobileSearchQuery]);
+
+  const drilldownPlannedItems = useMemo(() => {
+    if (!mobileDrilldown) return [];
+    const mIdx = mobileDrilldown.monthIdx;
+    const txs = getLineBudgetTxs(mobileDrilldown.subcategory);
+    return txs
+      .filter(tx => (tx.values[mIdx] || 0) > 0)
+      .map((tx, idx) => {
+        const dayStr = tx.monthPaymentModes?.[mIdx] || tx.paymentMode || String(idx + 1).padStart(2, '0');
+        const dayNum = parseInt(dayStr, 10) || (idx + 1);
+        return {
+          id: tx.id || `plan-${idx}`,
+          date: `${selectedYear}-${String(mIdx + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`,
+          day: String(dayNum).padStart(2, '0'),
+          description: tx.name || mobileDrilldown.subcategory.name,
+          paymentMode: tx.paymentMode && tx.paymentMode.length > 2 ? tx.paymentMode : 'Bank Transfer',
+          amount: tx.values[mIdx] || 0
+        };
+      })
+      .filter(item => {
+        if (!mobileSearchQuery.trim()) return true;
+        return item.description.toLowerCase().includes(mobileSearchQuery.toLowerCase());
+      });
+  }, [mobileDrilldown, getLineBudgetTxs, selectedYear, mobileSearchQuery]);
+
+  const drilldownItems = mode === 'actual' ? drilldownActualTransactions : drilldownPlannedItems;
+  const drilldownTotal = drilldownItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+
+  // Figma Mobile View: Budget & transactions (Image 1)
+  const renderMobileView = () => {
+    const sectionList: Section[] = ['income', 'expense', 'savings'];
+
+    return (
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '16px 14px 60px', boxSizing: 'border-box' }}>
+        {/* Top Header: App Icon, Title, Subtitle, Currency symbol button */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 10,
+                background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#FFFFFF',
+                boxShadow: '0 4px 12px rgba(37, 99, 235, 0.3)'
+              }}
+            >
+              <CalendarDays size={18} />
+            </div>
+            <div>
+              <h1 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: '#F8FAFC' }}>
+                Budget & transactions
+              </h1>
+              <p style={{ fontSize: 10.5, color: '#94A3B8', margin: '2px 0 0' }}>
+                Expected and actual monthly breakdown
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {forceMobileView && (
+              <button
+                type="button"
+                onClick={() => setForceMobileView(false)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.08)',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#94A3B8',
+                  borderRadius: 8,
+                  padding: '4px 8px',
+                  fontSize: 10.5,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Switch back to desktop view"
+              >
+                <Monitor size={12} />
+                <span>Desktop</span>
+              </button>
+            )}
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.06)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#94A3B8',
+                fontSize: 13,
+                fontWeight: 700
+              }}
+            >
+              ₹
+            </div>
+          </div>
+        </div>
+
+        {/* Segmented Mode Switcher: [ Expected ] vs [ Actual ] */}
+        <div
+          style={{
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 12,
+            padding: 4,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 4,
+            marginBottom: 14
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setMode('budget')}
+            style={{
+              background: mode === 'budget' ? '#3B82F6' : 'transparent',
+              color: mode === 'budget' ? '#FFFFFF' : '#94A3B8',
+              border: 'none',
+              borderRadius: 8,
+              padding: '7px 0',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: mode === 'budget' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            Expected
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('actual')}
+            style={{
+              background: mode === 'actual' ? '#3B82F6' : 'transparent',
+              color: mode === 'actual' ? '#FFFFFF' : '#94A3B8',
+              border: 'none',
+              borderRadius: 8,
+              padding: '7px 0',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              boxShadow: mode === 'actual' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            Actual
+          </button>
+        </div>
+
+        {/* Year Chips Selector: [ 2026 ] [ 2027 ] [ 2028 ] */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            marginBottom: 16,
+            overflowX: 'auto',
+            paddingBottom: 2
+          }}
+        >
+          {[selectedYear - 1, selectedYear, selectedYear + 1, selectedYear + 2].map(y => {
+            const isActive = y === selectedYear;
+            return (
+              <button
+                key={y}
+                type="button"
+                onClick={() => {
+                  setSelectedYear(y);
+                  yearService.setSelectedYear(y);
+                }}
+                style={{
+                  background: isActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+                  border: isActive ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  borderRadius: 8,
+                  padding: '5px 14px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  flexShrink: 0
+                }}
+              >
+                {y}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Category Cards: Income, Expense, Savings */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {sectionList.map(sec => {
+            const isInc = sec === 'income';
+            const isSav = sec === 'savings';
+            const secColor = isInc ? '#10B981' : isSav ? '#8B5CF6' : '#EF4444';
+            const secBg = isInc ? 'rgba(16, 185, 129, 0.15)' : isSav ? 'rgba(139, 92, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)';
+            const secIcon = isInc ? <ArrowUpRight size={18} /> : isSav ? <TrendingUp size={18} /> : <ArrowDownRight size={18} />;
+            const secTitle = isInc ? 'Income' : isSav ? 'Savings' : 'Expense';
+            const secSubtitle = `${mode === 'budget' ? 'Expected' : 'Actual'} ${secTitle}`;
+            const secTotals = sectionTotals(sec);
+            const secTotalAnnual = total(secTotals);
+            const catList = sections[sec] || [];
+
+            return (
+              <div
+                key={sec}
+                style={{
+                  background: '#0D1322',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 14,
+                  padding: 14,
+                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)'
+                }}
+              >
+                {/* Section Card Top Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 8,
+                        background: secBg,
+                        color: secColor,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0
+                      }}
+                    >
+                      {secIcon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 800, color: '#F8FAFC' }}>{secTitle}</div>
+                      <div style={{ fontSize: 10.5, color: '#94A3B8' }}>{secSubtitle}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 15, fontWeight: 900, color: secColor }}>
+                      {currencyService.format(secTotalAnnual)}
+                    </div>
+                    <div style={{ fontSize: 10, color: '#64748B' }}>
+                      {catList.length} categories
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section Month Horizontal Scrollbar */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 6,
+                    overflowX: 'auto',
+                    margin: '12px 0 14px',
+                    paddingBottom: 4
+                  }}
+                >
+                  {MONTHS.map((mName, mIdx) => {
+                    const mAmt = secTotals[mIdx] || 0;
+                    const isMActive = mIdx === mobileSelectedMonth;
+
+                    return (
+                      <div
+                        key={mName}
+                        onClick={() => setMobileSelectedMonth(mIdx)}
+                        style={{
+                          background: isMActive ? 'rgba(59, 130, 246, 0.2)' : 'rgba(15, 23, 42, 0.6)',
+                          border: isMActive ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.06)',
+                          borderRadius: 8,
+                          padding: '4px 8px',
+                          textAlign: 'center',
+                          minWidth: 54,
+                          cursor: 'pointer',
+                          flexShrink: 0,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ fontSize: 9.5, fontWeight: 700, color: isMActive ? '#93C5FD' : '#94A3B8' }}>
+                          {mName}
+                        </div>
+                        <div style={{ fontSize: 10, fontWeight: 800, color: mAmt > 0 ? secColor : '#64748B', marginTop: 1 }}>
+                          {mAmt > 0 ? currencyService.format(mAmt) : '---'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Category Accordion Items */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {catList.length === 0 ? (
+                    <div style={{ fontSize: 11, color: '#64748B', padding: '6px 0', textAlign: 'center' }}>
+                      No categories in {secTitle.toLowerCase()}
+                    </div>
+                  ) : (
+                    catList.map(cat => {
+                      const catKey = `${sec}:${cat.id || cat.name}`;
+                      const isCatExpanded = mobileExpandedCategories.has(catKey);
+                      const catTotal = total(categoryValues(cat));
+
+                      return (
+                        <div
+                          key={catKey}
+                          style={{
+                            background: 'rgba(15, 23, 42, 0.5)',
+                            border: '1px solid rgba(255, 255, 255, 0.05)',
+                            borderRadius: 10,
+                            overflow: 'hidden'
+                          }}
+                        >
+                          {/* Category Header Row */}
+                          <div
+                            onClick={() => toggleMobileCategoryExpanded(catKey)}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '10px 12px',
+                              cursor: 'pointer',
+                              userSelect: 'none'
+                            }}
+                          >
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#F1F5F9' }}>
+                                {cat.name}
+                              </div>
+                              <div style={{ fontSize: 10, color: '#64748B' }}>
+                                {cat.subcategories.length} subcategories
+                              </div>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: '#E2E8F0' }}>
+                                {currencyService.format(catTotal)}
+                              </div>
+                              <ChevronDown
+                                size={14}
+                                style={{
+                                  color: '#64748B',
+                                  transform: isCatExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                                  transition: 'transform 0.15s ease'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Subcategories Accordion Content */}
+                          {isCatExpanded && (
+                            <div
+                              style={{
+                                borderTop: '1px solid rgba(255, 255, 255, 0.06)',
+                                padding: '8px 12px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 10,
+                                background: 'rgba(11, 15, 25, 0.4)'
+                              }}
+                            >
+                              {cat.subcategories.map(subcat => {
+                                const subcatVals = leafValues(subcat);
+                                const subcatTotal = total(subcatVals);
+
+                                return (
+                                  <div
+                                    key={subcat.id}
+                                    style={{
+                                      background: 'rgba(15, 23, 42, 0.6)',
+                                      border: '1px solid rgba(255, 255, 255, 0.05)',
+                                      borderRadius: 8,
+                                      padding: '8px 10px'
+                                    }}
+                                  >
+                                    <div
+                                      onClick={() => setMobileDrilldown({
+                                        section: sec,
+                                        category: cat,
+                                        subcategory: subcat,
+                                        monthIdx: mobileSelectedMonth
+                                      })}
+                                      style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        cursor: 'pointer',
+                                        marginBottom: 6
+                                      }}
+                                    >
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#93C5FD' }}>
+                                        {subcat.name}
+                                      </div>
+                                      <div style={{ fontSize: 12, fontWeight: 800, color: '#F1F5F9' }}>
+                                        {currencyService.format(subcatTotal)}
+                                      </div>
+                                    </div>
+
+                                    {/* Subcategory Mini Monthly Pills */}
+                                    <div
+                                      style={{
+                                        display: 'flex',
+                                        gap: 5,
+                                        overflowX: 'auto',
+                                        paddingBottom: 2
+                                      }}
+                                    >
+                                      {MONTHS.map((mName, mIdx) => {
+                                        const val = subcatVals[mIdx] || 0;
+                                        const isMActive = mIdx === mobileSelectedMonth;
+
+                                        return (
+                                          <button
+                                            key={mName}
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setMobileSelectedMonth(mIdx);
+                                              setMobileDrilldown({
+                                                section: sec,
+                                                category: cat,
+                                                subcategory: subcat,
+                                                monthIdx: mIdx
+                                              });
+                                            }}
+                                            style={{
+                                              background: isMActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(255, 255, 255, 0.04)',
+                                              border: isMActive ? '1px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.06)',
+                                              color: isMActive ? '#FFFFFF' : '#94A3B8',
+                                              borderRadius: 6,
+                                              padding: '3px 6px',
+                                              fontSize: 9.5,
+                                              fontWeight: 600,
+                                              cursor: 'pointer',
+                                              flexShrink: 0,
+                                              whiteSpace: 'nowrap'
+                                            }}
+                                          >
+                                            <span style={{ color: isMActive ? '#93C5FD' : '#64748B', marginRight: 3 }}>{mName}</span>
+                                            <span style={{ color: val > 0 ? secColor : '#64748B' }}>
+                                              {val > 0 ? currencyService.format(val) : '---'}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  // Figma Mobile Drilldown Sheet: Month Transactions (Image 2)
+  const renderMobileDrilldownSheet = () => {
+    if (!mobileDrilldown) return null;
+    const isInc = mobileDrilldown.section === 'income';
+    const isSav = mobileDrilldown.section === 'savings';
+    const secColor = isInc ? '#10B981' : isSav ? '#8B5CF6' : '#EF4444';
+
+    return (
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0, 0, 0, 0.75)',
+          backdropFilter: 'blur(3px)',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'flex-end',
+          boxSizing: 'border-box'
+        }}
+        onClick={() => setMobileDrilldown(null)}
+      >
+        <div
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            background: '#0D1322',
+            borderTop: '1px solid rgba(255, 255, 255, 0.15)',
+            borderTopLeftRadius: 20,
+            borderTopRightRadius: 20,
+            height: '86vh',
+            maxHeight: '86vh',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '16px 16px 20px',
+            boxSizing: 'border-box',
+            boxShadow: '0 -8px 32px rgba(0, 0, 0, 0.5)',
+            position: 'relative'
+          }}
+        >
+          {/* Sheet Handle */}
+          <div
+            style={{
+              width: 36,
+              height: 4,
+              borderRadius: 2,
+              background: 'rgba(255, 255, 255, 0.2)',
+              margin: '0 auto 12px'
+            }}
+          />
+
+          {/* Top Breadcrumb & Close */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#38BDF8' }}>
+              {mobileDrilldown.category.name} / {mobileDrilldown.subcategory.name}
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileDrilldown(null)}
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: '50%',
+                background: 'rgba(255, 255, 255, 0.08)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                color: '#94A3B8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+
+          {/* Header Title: Dec Transactions */}
+          <h2 style={{ fontSize: 18, fontWeight: 900, color: '#F8FAFC', margin: '2px 0 6px' }}>
+            {MONTHS[mobileDrilldown.monthIdx]} Transactions
+          </h2>
+
+          {/* Subtitle row: 2 transactions • ₹60,000 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <span style={{ fontSize: 12, color: '#94A3B8' }}>
+              {drilldownItems.length} {drilldownItems.length === 1 ? 'transaction' : 'transactions'}
+            </span>
+            <span style={{ fontSize: 16, fontWeight: 900, color: secColor }}>
+              {currencyService.format(drilldownTotal)}
+            </span>
+          </div>
+
+          {/* Search Bar: 🔍 Search transactions... */}
+          <div
+            style={{
+              position: 'relative',
+              marginBottom: 12
+            }}
+          >
+            <Search
+              size={14}
+              style={{
+                position: 'absolute',
+                left: 10,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                color: '#64748B'
+              }}
+            />
+            <input
+              type="text"
+              value={mobileSearchQuery}
+              onChange={(e) => setMobileSearchQuery(e.target.value)}
+              placeholder="Search transactions..."
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: 8,
+                padding: '8px 12px 8px 32px',
+                color: '#F8FAFC',
+                fontSize: 12,
+                outline: 'none'
+              }}
+            />
+            {mobileSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setMobileSearchQuery('')}
+                style={{
+                  position: 'absolute',
+                  right: 8,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  background: 'none',
+                  border: 'none',
+                  color: '#64748B',
+                  cursor: 'pointer',
+                  padding: 2
+                }}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+
+          {/* Transactions List */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              minHeight: 0,
+              paddingRight: 2
+            }}
+          >
+            {drilldownItems.length === 0 ? (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '36px 12px',
+                  textAlign: 'center',
+                  color: '#64748B'
+                }}
+              >
+                <ReceiptText size={28} style={{ color: '#334155', marginBottom: 8 }} />
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#94A3B8' }}>
+                  No transactions found
+                </div>
+                <div style={{ fontSize: 11, marginTop: 4 }}>
+                  Tap below to add a transaction in {MONTHS[mobileDrilldown.monthIdx]}
+                </div>
+              </div>
+            ) : (
+              drilldownItems.map(item => (
+                <div
+                  key={item.id}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.7)',
+                    border: '1px solid rgba(255, 255, 255, 0.06)',
+                    borderRadius: 10,
+                    padding: '10px 12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                    {/* Day Badge */}
+                    <div
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 6,
+                        background: 'rgba(30, 41, 59, 0.8)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#38BDF8',
+                        fontSize: 12,
+                        fontWeight: 800,
+                        flexShrink: 0
+                      }}
+                    >
+                      {item.day}
+                    </div>
+
+                    <div style={{ minWidth: 0 }}>
+                      <div
+                        style={{
+                          fontSize: 13,
+                          fontWeight: 700,
+                          color: '#F8FAFC',
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                      >
+                        {item.description}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 1 }}>
+                        {item.paymentMode}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: 14, fontWeight: 800, color: secColor, flexShrink: 0 }}>
+                    {currencyService.format(item.amount)}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Bottom Floating Action Button: + Add Transaction */}
+          <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(255, 255, 255, 0.08)' }}>
+            <button
+              type="button"
+              onClick={() => {
+                onOpenNewTransaction(
+                  mobileDrilldown.category.name,
+                  mobileDrilldown.subcategory.name,
+                  mobileDrilldown.section
+                );
+                setMobileDrilldown(null);
+              }}
+              style={{
+                width: '100%',
+                background: '#0D9488',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 12,
+                padding: '12px 16px',
+                fontSize: 13.5,
+                fontWeight: 800,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 7,
+                cursor: 'pointer',
+                boxShadow: '0 4px 16px rgba(13, 148, 136, 0.35)',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Plus size={16} />
+              <span>Add Transaction</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Conditional Rendering: Figma Mobile View when on mobile or when toggled
+  if (isMobileEffective) {
+    return (
+      <main className="budget-planning-page" style={{ paddingBottom: 60, minHeight: '100vh', background: '#0B0F19' }}>
+        {renderMobileView()}
+        {renderMobileDrilldownSheet()}
+
+        {/* Edit Transaction Modal */}
+        <TransactionModal
+          isOpen={isEditModalOpen}
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setEditingTransaction(null);
+          }}
+          onSuccess={() => {
+            loadAllData();
+            setIsEditModalOpen(false);
+            setEditingTransaction(null);
+          }}
+          transactionToEdit={editingTransaction}
+        />
+
+        {/* Category & Subcategory Modal */}
+        <CategoryModal
+          isOpen={isCategoryModalOpen}
+          onClose={() => setIsCategoryModalOpen(false)}
+          onSuccess={() => {
+            loadAllData();
+            setIsCategoryModalOpen(false);
+          }}
+          initialMode={categoryModalInitialMode}
+          initialSection={categoryModalInitialSection}
+          initialCategoryName={categoryModalInitialCategoryName}
+          categoriesBySection={modalCategoriesBySection}
+        />
+      </main>
+    );
+  }
+
   return (
     <main className="budget-planning-page" style={{ paddingBottom: 60 }}>
       {/* SECTION 1: BUDGET PLANNER */}
@@ -2443,6 +3351,29 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           {/* Sticky Header for Planner controls */}
           <div className="sticky-section-header budget-section-sticky-bar">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {/* Desktop Mobile View preview toggle */}
+              <button
+                type="button"
+                onClick={() => setForceMobileView(true)}
+                style={{
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  color: '#94A3B8',
+                  borderRadius: 8,
+                  padding: '4px 10px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  cursor: 'pointer'
+                }}
+                title="Preview Mobile View"
+              >
+                <Smartphone size={13} />
+                <span>Mobile View</span>
+              </button>
+
               {viewMode === 'combined' && (
                 <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
                   <button
