@@ -125,7 +125,7 @@ export const formatCompactIndian = (num: number): string => {
     const formatted = parseFloat(lk.toFixed(2));
     return `₹${formatted}L`;
   }
-  if (abs >= 10000) {
+  if (abs >= 1000) {
     const k = abs / 1000;
     const formatted = parseFloat(k.toFixed(1));
     return `₹${formatted}k`;
@@ -1317,14 +1317,33 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           .fintrack-calendar-dates-grid {
             display: grid !important;
             grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
-            gap: 4px !important;
+            gap: 3px !important;
             height: auto !important;
           }
 
           .fintrack-calendar-date-cell {
-            min-height: 52px !important;
-            padding: 4px 3px !important;
+            min-height: 50px !important;
+            padding: 3px 2px !important;
             border-radius: 6px !important;
+          }
+
+          /* Reduced font size for amount under each date on mobile view */
+          .fintrack-date-amount {
+            font-size: 7.2px !important;
+            letter-spacing: -0.3px !important;
+            line-height: 1.05 !important;
+            font-weight: 700 !important;
+          }
+
+          .fintrack-date-cell-num {
+            font-size: 9px !important;
+            width: 16px !important;
+            height: 16px !important;
+          }
+
+          .fintrack-indicator-dash {
+            width: 10px !important;
+            height: 2px !important;
           }
 
           .fintrack-calendar-month-summary {
@@ -1363,8 +1382,33 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             gap: 2px !important;
           }
           .fintrack-calendar-date-cell {
-            min-height: 48px !important;
-            padding: 2px 1px !important;
+            min-height: 46px !important;
+            padding: 2px 1.5px !important;
+          }
+
+          /* Extra compact font size on phone screen widths */
+          .fintrack-date-amount {
+            font-size: 6.5px !important;
+            letter-spacing: -0.35px !important;
+            line-height: 1 !important;
+          }
+
+          .fintrack-date-cell-num {
+            font-size: 8.5px !important;
+            width: 14px !important;
+            height: 14px !important;
+          }
+
+          .fintrack-indicator-dash {
+            width: 8px !important;
+            height: 2px !important;
+          }
+        }
+
+        @media (max-width: 360px) {
+          .fintrack-date-amount {
+            font-size: 6px !important;
+            letter-spacing: -0.4px !important;
           }
         }
       `}</style>
@@ -2104,6 +2148,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             {/* Top Row: Date Number & Badges */}
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                               <span
+                                className="fintrack-date-cell-num"
                                 style={{
                                   fontSize: 11,
                                   fontWeight: inDateRange || isToday ? 900 : 600,
@@ -2134,18 +2179,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             </div>
 
                             {/* Middle: Horizontal Color Indicator Dash Pills Matching Figma & Filters */}
-                            <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 3, alignItems: 'center', margin: '3px 0' }}>
+                            <div className="fintrack-date-indicators" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 3, alignItems: 'center', margin: '3px 0' }}>
                               {filterIncome && (dActualInc > 0 || (showExpectedAmounts && dayExpIncome > 0)) && (
-                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#10B981', flexShrink: 0 }} title="Income" />
+                                <div className="fintrack-indicator-dash" style={{ width: 14, height: 3, borderRadius: 2, background: '#10B981', flexShrink: 0 }} title="Income" />
                               )}
                               {filterExpense && (dActualExp > 0 || (showExpectedAmounts && dayExpExpenseOnly > 0)) && (
-                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#EF4444', flexShrink: 0 }} title="Expense" />
+                                <div className="fintrack-indicator-dash" style={{ width: 14, height: 3, borderRadius: 2, background: '#EF4444', flexShrink: 0 }} title="Expense" />
                               )}
                               {filterSavings && (dActualSav > 0 || (showExpectedAmounts && dayExpSavings > 0)) && (
-                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#8B5CF6', flexShrink: 0 }} title="Savings" />
+                                <div className="fintrack-indicator-dash" style={{ width: 14, height: 3, borderRadius: 2, background: '#8B5CF6', flexShrink: 0 }} title="Savings" />
                               )}
                               {filterDues && dayUnpaidDuesList.length > 0 && (
                                 <div
+                                  className="fintrack-indicator-dash"
                                   style={{
                                     width: 14,
                                     height: 3,
@@ -2183,6 +2229,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 {/* Actual Income */}
                                 {filterIncome && dActualInc > 0 && (
                                   <div
+                                    className="fintrack-date-amount fintrack-actual-income"
                                     style={{
                                       fontSize: 8.5,
                                       fontWeight: 800,
@@ -2201,6 +2248,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 {/* Actual Outflow (Expense + Savings combined as requested) */}
                                 {((filterExpense && dActualExp > 0) || (filterSavings && dActualSav > 0)) && (
                                   <div
+                                    className="fintrack-date-amount fintrack-actual-outflow"
                                     style={{
                                       fontSize: 8.5,
                                       fontWeight: 800,
@@ -2219,6 +2267,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 {/* Unpaid / Upcoming Dues (Strictly show only pending due > 0) */}
                                 {filterDues && dayUnpaidDuesTotal > 0 && (
                                   <div
+                                    className="fintrack-date-amount fintrack-actual-due"
                                     style={{
                                       fontSize: 8.5,
                                       fontWeight: 800,
@@ -2250,6 +2299,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                   <>
                                     {filterIncome && dayExpIncome > 0 && (
                                       <div
+                                        className="fintrack-date-amount fintrack-expected-income"
                                         style={{
                                           fontSize: 8,
                                           fontWeight: 700,
@@ -2266,6 +2316,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                     )}
                                     {((filterExpense && dayExpExpenseOnly > 0) || (filterSavings && dayExpSavings > 0)) && (
                                       <div
+                                        className="fintrack-date-amount fintrack-expected-outflow"
                                         style={{
                                           fontSize: 8,
                                           fontWeight: 700,
