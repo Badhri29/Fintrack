@@ -263,6 +263,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   const [mobileSelectedMonth, setMobileSelectedMonth] = useState<number>(() => new Date().getMonth());
   const [mobileExpandedCategories, setMobileExpandedCategories] = useState<Set<string>>(new Set());
+  const [mobileSectionOpen, setMobileSectionOpen] = useState<Record<Section, boolean>>({
+    income: true,
+    expense: true,
+    savings: true,
+  });
+
+  const toggleMobileSection = (sec: Section) => {
+    setMobileSectionOpen(prev => ({ ...prev, [sec]: !prev[sec] }));
+  };
   const [mobileDrilldown, setMobileDrilldown] = useState<{
     section: Section;
     category: Category;
@@ -2887,6 +2896,55 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           })}
         </div>
 
+        {/* Quick Expand / Collapse All Controls */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 2px',
+            marginBottom: -2
+          }}
+        >
+          <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
+            SECTIONS
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button
+              type="button"
+              onClick={() => setMobileSectionOpen({ income: true, expense: true, savings: true })}
+              style={{
+                background: 'rgba(59, 130, 246, 0.12)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                color: '#93C5FD',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 10.5,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Expand All
+            </button>
+            <button
+              type="button"
+              onClick={() => setMobileSectionOpen({ income: false, expense: false, savings: false })}
+              style={{
+                background: 'rgba(255, 255, 255, 0.04)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#94A3B8',
+                borderRadius: 6,
+                padding: '3px 8px',
+                fontSize: 10.5,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Close All
+            </button>
+          </div>
+        </div>
+
         {/* Category Cards: Income, Expense, Savings */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {sectionList.map(sec => {
@@ -2900,6 +2958,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             const secTotals = sectionTotals(sec);
             const secTotalAnnual = total(secTotals);
             const catList = sections[sec] || [];
+            const isSecOpen = mobileSectionOpen[sec] ?? true;
 
             return (
               <div
@@ -2913,7 +2972,19 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 }}
               >
                 {/* Section Card Top Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div
+                  onClick={() => toggleMobileSection(sec)}
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={isSecOpen}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    cursor: 'pointer',
+                    userSelect: 'none'
+                  }}
+                >
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div
                       style={{
@@ -2936,15 +3007,42 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     </div>
                   </div>
 
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 15, fontWeight: 900, color: secColor }}>
-                      {currencyService.format(secTotalAnnual)}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 15, fontWeight: 900, color: secColor }}>
+                        {currencyService.format(secTotalAnnual)}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#64748B' }}>
+                        {catList.length} categories
+                      </div>
                     </div>
-                    <div style={{ fontSize: 10, color: '#64748B' }}>
-                      {catList.length} categories
+                    <div
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        background: isSecOpen ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.03)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                        transition: 'background 0.2s ease'
+                      }}
+                    >
+                      <ChevronDown
+                        size={15}
+                        style={{
+                          color: isSecOpen ? '#F1F5F9' : '#94A3B8',
+                          transform: isSecOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                          transition: 'transform 0.2s ease'
+                        }}
+                      />
                     </div>
                   </div>
                 </div>
+
+                {isSecOpen && (
+                  <>
 
                 {/* Section Month Horizontal Scrollbar */}
                 <div
@@ -3152,6 +3250,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     })
                   )}
                 </div>
+                  </>
+                )}
               </div>
             );
           })}
