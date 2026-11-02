@@ -52,6 +52,42 @@ export interface PlannedItem {
   subcategory?: string;
 }
 
+export interface PrecomputedLoanSchedule {
+  loan: LoanModel;
+  dueDay: number;
+  scheduleMap: Map<string, { emiAmount: number; index: number; status: string }>;
+}
+
+export interface MonthData {
+  transactions: any[];
+  income: number;
+  expense: number;
+  savings: number;
+  expectedIncome: number;
+  expectedExpense: number;
+  expectedSavings: number;
+  plannedItems: PlannedItem[];
+  activeDaysCount: number;
+  duesMap: Record<number, DueItem[]>;
+  duesTotal: number;
+  itemCount: number;
+}
+
+export const EMPTY_MONTH_DATA: MonthData = {
+  transactions: [],
+  income: 0,
+  expense: 0,
+  savings: 0,
+  expectedIncome: 0,
+  expectedExpense: 0,
+  expectedSavings: 0,
+  plannedItems: [],
+  activeDaysCount: 0,
+  duesMap: {},
+  duesTotal: 0,
+  itemCount: 0
+};
+
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
@@ -63,6 +99,39 @@ const MONTH_SHORT_NAMES = [
 ];
 
 const WEEKDAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+
+/**
+ * Formats a currency amount into compact Indian format (Lakhs, Crores, Thousands)
+ * Examples:
+ *   1,00,000 -> "₹1L"
+ *   1,50,000 -> "₹1.5L"
+ *   1,53,400 -> "₹1.53L"
+ *   4,35,000 -> "₹4.35L"
+ *   18,02,525 -> "₹18.03L"
+ *   1,00,00,000 -> "₹1Cr"
+ *   16,000 -> "₹16k"
+ *   28,320 -> "₹28.3k"
+ *   9,436 -> "₹9,436"
+ */
+export const formatCompactIndian = (num: number): string => {
+  const abs = Math.abs(num);
+  if (abs >= 10000000) {
+    const cr = abs / 10000000;
+    const formatted = parseFloat(cr.toFixed(2));
+    return `₹${formatted}Cr`;
+  }
+  if (abs >= 100000) {
+    const lk = abs / 100000;
+    const formatted = parseFloat(lk.toFixed(2));
+    return `₹${formatted}L`;
+  }
+  if (abs >= 10000) {
+    const k = abs / 1000;
+    const formatted = parseFloat(k.toFixed(1));
+    return `₹${formatted}k`;
+  }
+  return `₹${Math.round(abs).toLocaleString('en-IN')}`;
+};
 
 const formatYmd = (y: number, m: number, d: number) => {
   const mm = String(m + 1).padStart(2, '0');
@@ -282,7 +351,7 @@ const computeDuesForMonth = (
   year: number,
   month: number,
   cardsList: CardModel[],
-  loansList: LoanModel[],
+  loanSchedules: PrecomputedLoanSchedule[],
   transactionsList: any[],
   todayY: number,
   todayM: number,
@@ -418,15 +487,8 @@ const computeDuesForMonth = (
   });
 
   // 2. Loans dues (Strictly EXCLUDE credit_card repayment loans)
-  loansList.forEach(loan => {
-    if (loan.status === 'closed') return;
-    if (loan.repaymentSource === 'credit_card') return;
-
-    const dueDay = Number(loan.dueDay) || 5;
-    const metrics = calculateLoanEMIs(loan);
-    const schedule = generateEmiSchedule(loan, metrics);
-
-    const monthItem = schedule.find(s => s.year === year && s.month === month);
+  loanSchedules.forEach(({ loan, dueDay, scheduleMap }) => {
+    const monthItem = scheduleMap.get(`${year}-${month}`);
     if (!monthItem) return;
 
     const isPaid = monthItem.status === 'paid';
@@ -710,81 +772,137 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     }
   };
 
-  // Helper: Get transactions, metrics, and dues for a specific month & year
-  const getMonthData = (year: number, monthIdx: number) => {
-    const monthTxs = transactions.filter(t => {
-      if (!t.date) return false;
-      const tDate = String(t.date).slice(0, 10);
-      const [y, m] = tDate.split('-').map(Number);
-      return y === year && m === (monthIdx + 1);
+  // Precomputed Loan EMI schedules for zero-overhead dues calculation
+  const precomputedLoanSchedules = useMemo<PrecomputedLoanSchedule[]>(() => {
+    return loans
+      .filter(loan => loan.status !== 'closed' && loan.repaymentSource !== 'credit_card')
+      .map(loan => {
+        const dueDay = Number(loan.dueDay) || 5;
+        const metrics = calculateLoanEMIs(loan);
+        const schedule = generateEmiSchedule(loan, metrics);
+        const scheduleMap = new Map<string, { emiAmount: number; index: number; status: string }>();
+        schedule.forEach(s => {
+          scheduleMap.set(`${s.year}-${s.month}`, {
+            emiAmount: s.emiAmount,
+            index: s.index,
+            status: s.status
+          });
+        });
+        return { loan, dueDay, scheduleMap };
+      });
+  }, [loans]);
+
+  // Cached planned/expected budget items for all selected years
+  const plannedItemsCache = useMemo(() => {
+    const cache = new Map<string, PlannedItem[]>();
+    selectedYears.forEach(year => {
+      for (let m = 0; m < 12; m++) {
+        cache.set(
+          `${year}-${m}`,
+          getPlannedTransactionsForMonth(year, m, user?.email, apiCategories, apiSubcategories)
+        );
+      }
     });
+    return cache;
+  }, [selectedYears, user?.email, apiCategories, apiSubcategories, budgetTxRefreshKey]);
 
-    let income = 0;
-    let expense = 0;
-    let savings = 0;
-    const activeDaysSet = new Set<number>();
-
-    monthTxs.forEach(t => {
-      const amt = Number(t.amount) || 0;
-      const type = (t.type || 'expense').toLowerCase();
-      const cat = String(t.category || '').toLowerCase();
-      const isInvest = cat.includes('invest') || cat.includes('saving') || cat.includes('sip') || cat.includes('mutual');
-
-      const d = Number(String(t.date).slice(0, 10).split('-')[2]);
-      if (d) activeDaysSet.add(d);
-
-      if (type === 'income') income += amt;
-      else if (type === 'savings' || isInvest) savings += amt;
-      else expense += amt;
+  // Cached dues for all months across selected years
+  const duesByMonthCache = useMemo(() => {
+    const cache = new Map<string, Record<number, DueItem[]>>();
+    selectedYears.forEach(year => {
+      for (let m = 0; m < 12; m++) {
+        const dMap = computeDuesForMonth(
+          year,
+          m,
+          cards,
+          precomputedLoanSchedules,
+          transactions,
+          todayYear,
+          todayMonth,
+          todayDay
+        );
+        cache.set(`${year}-${m}`, dMap);
+      }
     });
+    return cache;
+  }, [selectedYears, cards, precomputedLoanSchedules, transactions, todayYear, todayMonth, todayDay]);
 
-    const duesMap = computeDuesForMonth(
-      year,
-      monthIdx,
-      cards,
-      loans,
-      transactions,
-      todayYear,
-      todayMonth,
-      todayDay
-    );
+  // Memoized month metrics & summaries map for instant (0ms) filter reactions
+  const monthDataMap = useMemo(() => {
+    const map = new Map<string, MonthData>();
+    selectedYears.forEach(year => {
+      for (let mIdx = 0; mIdx < 12; mIdx++) {
+        const key = `${year}-${mIdx}`;
+        const monthTxs = transactions.filter(t => {
+          if (!t.date) return false;
+          const tDate = String(t.date).slice(0, 10);
+          const [y, m] = tDate.split('-').map(Number);
+          return y === year && m === (mIdx + 1);
+        });
 
-    const duesTotal = Object.values(duesMap).reduce((acc, list) => {
-      return acc + list.reduce((s, d) => s + (Number(d.amount) || 0), 0);
-    }, 0);
+        let income = 0;
+        let expense = 0;
+        let savings = 0;
+        const activeDaysSet = new Set<number>();
 
-    // Planned items from budget transactions
-    const plannedItems = getPlannedTransactionsForMonth(year, monthIdx, user?.email, apiCategories, apiSubcategories);
-    const plannedIncomeTotal = plannedItems
-      .filter(p => p.type === 'income')
-      .reduce((sum, p) => sum + p.amount, 0);
-    const plannedExpenseTotal = plannedItems
-      .filter(p => p.type === 'expense')
-      .reduce((sum, p) => sum + p.amount, 0);
-    const plannedSavingsTotal = plannedItems
-      .filter(p => p.type === 'savings')
-      .reduce((sum, p) => sum + p.amount, 0);
+        monthTxs.forEach(t => {
+          const amt = Number(t.amount) || 0;
+          const type = (t.type || 'expense').toLowerCase();
+          const cat = String(t.category || '').toLowerCase();
+          const isInvest = cat.includes('invest') || cat.includes('saving') || cat.includes('sip') || cat.includes('mutual');
 
-    const expectedIncome = income > 0 ? (income + plannedIncomeTotal) : plannedIncomeTotal;
-    const expectedExpense = expense + duesTotal + plannedExpenseTotal;
-    const expectedSavings = savings + plannedSavingsTotal;
+          const d = Number(String(t.date).slice(0, 10).split('-')[2]);
+          if (d) activeDaysSet.add(d);
 
-    const totalScheduledActivities = monthTxs.length + Object.values(duesMap).reduce((acc, list) => acc + list.length, 0) + (showExpectedAmounts ? plannedItems.length : 0);
+          if (type === 'income') income += amt;
+          else if (type === 'savings' || isInvest) savings += amt;
+          else expense += amt;
+        });
 
-    return {
-      transactions: monthTxs,
-      income,
-      expense,
-      savings,
-      expectedIncome,
-      expectedExpense,
-      expectedSavings,
-      plannedItems,
-      activeDaysCount: activeDaysSet.size,
-      duesMap,
-      duesTotal,
-      itemCount: totalScheduledActivities
-    };
+        const duesMap = duesByMonthCache.get(key) || {};
+        const duesTotal = Object.values(duesMap).reduce((acc, list) => {
+          return acc + list.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+        }, 0);
+
+        const plannedItems = plannedItemsCache.get(key) || [];
+        const plannedIncomeTotal = plannedItems
+          .filter(p => p.type === 'income')
+          .reduce((sum, p) => sum + p.amount, 0);
+        const plannedExpenseTotal = plannedItems
+          .filter(p => p.type === 'expense')
+          .reduce((sum, p) => sum + p.amount, 0);
+        const plannedSavingsTotal = plannedItems
+          .filter(p => p.type === 'savings')
+          .reduce((sum, p) => sum + p.amount, 0);
+
+        const expectedIncome = income > 0 ? (income + plannedIncomeTotal) : plannedIncomeTotal;
+        const expectedExpense = expense + duesTotal + plannedExpenseTotal;
+        const expectedSavings = savings + plannedSavingsTotal;
+
+        const totalScheduledActivities = monthTxs.length + Object.values(duesMap).reduce((acc, list) => acc + list.length, 0) + (showExpectedAmounts ? plannedItems.length : 0);
+
+        map.set(key, {
+          transactions: monthTxs,
+          income,
+          expense,
+          savings,
+          expectedIncome,
+          expectedExpense,
+          expectedSavings,
+          plannedItems,
+          activeDaysCount: activeDaysSet.size,
+          duesMap,
+          duesTotal,
+          itemCount: totalScheduledActivities
+        });
+      }
+    });
+    return map;
+  }, [selectedYears, transactions, duesByMonthCache, plannedItemsCache, showExpectedAmounts]);
+
+  // Helper: Get cached transactions, metrics, and dues for a specific month & year
+  const getMonthData = (year: number, monthIdx: number): MonthData => {
+    return monthDataMap.get(`${year}-${monthIdx}`) || EMPTY_MONTH_DATA;
   };
 
   // Month navigation in Panel 3
@@ -888,21 +1006,12 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     });
   }, [transactions, rangeStartStr, rangeEndStr]);
 
-  // Dues strictly in the selected date range
+  // Dues strictly in the selected date range (retrieved instantly from cache)
   const rangeDues = useMemo(() => {
     const list: DueItem[] = [];
     selectedYears.forEach(year => {
       selectedMonths.forEach(mIdx => {
-        const dMap = computeDuesForMonth(
-          year,
-          mIdx,
-          cards,
-          loans,
-          transactions,
-          todayYear,
-          todayMonth,
-          todayDay
-        );
+        const dMap = duesByMonthCache.get(`${year}-${mIdx}`) || {};
         Object.entries(dMap).forEach(([dStr, dueItems]) => {
           const day = Number(dStr);
           const dueYmd = formatYmd(year, mIdx, day);
@@ -913,14 +1022,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       });
     });
     return list;
-  }, [selectedYears, selectedMonths, cards, loans, transactions, todayYear, todayMonth, todayDay, rangeStartStr, rangeEndStr]);
+  }, [selectedYears, selectedMonths, duesByMonthCache, rangeStartStr, rangeEndStr]);
 
-  // Planned items from budget strictly in the selected date range
+  // Planned items from budget strictly in the selected date range (retrieved instantly from cache)
   const rangePlannedItems = useMemo(() => {
     const list: PlannedItem[] = [];
     selectedYears.forEach(year => {
       selectedMonths.forEach(mIdx => {
-        const pItems = getPlannedTransactionsForMonth(year, mIdx, user?.email, apiCategories, apiSubcategories);
+        const pItems = plannedItemsCache.get(`${year}-${mIdx}`) || [];
         pItems.forEach(p => {
           if (p.dateStr >= rangeStartStr && p.dateStr <= rangeEndStr) {
             list.push(p);
@@ -929,7 +1038,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       });
     });
     return list;
-  }, [selectedYears, selectedMonths, user?.email, rangeStartStr, rangeEndStr, budgetTxRefreshKey, apiCategories, apiSubcategories]);
+  }, [selectedYears, selectedMonths, plannedItemsCache, rangeStartStr, rangeEndStr]);
 
   // Actual income, expense, and dues in selected range
   // Filtered lists based on top 4 filter pills
@@ -1001,12 +1110,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     <div
       className="fintrack-calendar-outer"
       style={{
-        padding: '8px 16px',
+        padding: '6px 12px',
         color: '#E2E8F0',
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         userSelect: isDraggingYears || isDraggingMonths || isDraggingDates ? 'none' : 'auto',
         boxSizing: 'border-box',
         width: '100%',
+        maxWidth: '100vw',
         height: 'calc(100vh - 72px)',
         maxHeight: 'calc(100vh - 72px)',
         display: 'flex',
@@ -1017,8 +1127,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <style>{`
         .fintrack-calendar-grid-container {
           display: grid;
-          grid-template-columns: 65px 380px minmax(0, 1fr) 340px;
-          gap: 12px;
+          grid-template-columns: 52px clamp(235px, 18.5vw, 265px) minmax(0, 1fr) clamp(255px, 20vw, 285px);
+          gap: 10px;
           align-items: stretch;
           flex: 1;
           min-height: 0;
@@ -1030,8 +1140,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
         @media (max-width: 1440px) {
           .fintrack-calendar-grid-container {
-            grid-template-columns: 60px 350px minmax(0, 1fr) 320px;
-            gap: 10px;
+            grid-template-columns: 50px clamp(220px, 18vw, 245px) minmax(0, 1fr) clamp(240px, 20vw, 270px);
+            gap: 8px;
           }
         }
 
@@ -1430,7 +1540,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         <div
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: 'repeat(7, 1fr)',
+                            gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
                             gap: 1.5,
                             fontSize: 7.5,
                             color: '#475569',
@@ -1508,7 +1618,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           })}
                         </div>
 
-                        {/* Mini Month Footer Metrics in clean single row */}
+                        {/* Mini Month Footer Metrics in clean single row with compact Lakh formatting */}
                         <div
                           style={{
                             borderTop: '1px solid rgba(255, 255, 255, 0.06)',
@@ -1517,11 +1627,22 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             alignItems: 'center',
                             justifyContent: 'space-between',
                             fontSize: 8.5,
-                            fontWeight: 800
+                            fontWeight: 800,
+                            gap: 4
                           }}
                         >
-                          <span style={{ color: '#10B981' }}>+{currencyService.format(mData.income)}</span>
-                          <span style={{ color: '#EF4444' }}>-{currencyService.format(mData.expense)}</span>
+                          <span
+                            style={{ color: '#10B981', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={`Actual Income: +${currencyService.format(mData.income)}`}
+                          >
+                            +{formatCompactIndian(mData.income)}
+                          </span>
+                          <span
+                            style={{ color: '#EF4444', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                            title={`Actual Outflow: -${currencyService.format(mData.expense)}`}
+                          >
+                            -{formatCompactIndian(mData.expense)}
+                          </span>
                         </div>
                       </div>
                     );
@@ -1623,7 +1744,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(7, 1fr)',
+                        gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
                         gap: 6,
                         textAlign: 'center',
                         marginBottom: 6
@@ -1644,11 +1765,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       ))}
                     </div>
 
-                    {/* Calendar Dates Grid with Taller Date Cells to Utilize Empty Space */}
+                    {/* Calendar Dates Grid with Strict Equal Column Widths */}
                     <div
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: 'repeat(7, 1fr)',
+                        gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
                         gridAutoRows: '1fr',
                         gap: 6,
                         flex: 1,
@@ -1661,6 +1782,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           style={{
                             height: '100%',
                             minHeight: 50,
+                            minWidth: 0,
                             background: 'rgba(15, 23, 42, 0.2)',
                             borderRadius: 10
                           }}
@@ -1727,6 +1849,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             style={{
                               height: '100%',
                               minHeight: 'clamp(62px, 8.2vh, 88px)',
+                              minWidth: 0,
+                              overflow: 'hidden',
                               borderRadius: 10,
                               background: inDateRange
                                 ? (isSingleDateSelected
@@ -1821,13 +1945,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 marginTop: 'auto'
                               }}
                             >
-                              {/* Bottom-Left: ACTUAL amounts and Dues (Color-coded) */}
+                              {/* Bottom-Left: ACTUAL amounts and Dues (Color-coded with compact Lakh format) */}
                               <div
                                 style={{
                                   display: 'flex',
                                   flexDirection: 'column',
                                   gap: 1,
                                   minWidth: 0,
+                                  overflow: 'hidden',
                                   textAlign: 'left'
                                 }}
                               >
@@ -1839,11 +1964,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                       fontWeight: 800,
                                       color: '#10B981',
                                       lineHeight: 1.1,
-                                      whiteSpace: 'nowrap'
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
                                     }}
                                     title={`Actual Income: +${currencyService.format(dActualInc)}`}
                                   >
-                                    +{currencyService.format(dActualInc)}
+                                    +{formatCompactIndian(dActualInc)}
                                   </div>
                                 )}
 
@@ -1855,11 +1982,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                       fontWeight: 800,
                                       color: '#EF4444',
                                       lineHeight: 1.1,
-                                      whiteSpace: 'nowrap'
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
                                     }}
                                     title={`Actual Outflow: -${currencyService.format((filterExpense ? dActualExp : 0) + (filterSavings ? dActualSav : 0))}`}
                                   >
-                                    -{currencyService.format((filterExpense ? dActualExp : 0) + (filterSavings ? dActualSav : 0))}
+                                    -{formatCompactIndian((filterExpense ? dActualExp : 0) + (filterSavings ? dActualSav : 0))}
                                   </div>
                                 )}
 
@@ -1871,11 +2000,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                       fontWeight: 800,
                                       color: '#10B981',
                                       lineHeight: 1.1,
-                                      whiteSpace: 'nowrap'
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
                                     }}
                                     title={`Paid Due: -${currencyService.format(dayPaidDuesTotal)}`}
                                   >
-                                    -{currencyService.format(dayPaidDuesTotal)}
+                                    -{formatCompactIndian(dayPaidDuesTotal)}
                                   </div>
                                 )}
 
@@ -1887,22 +2018,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                       fontWeight: 800,
                                       color: hasOverdueDues ? '#EF4444' : '#F59E0B',
                                       lineHeight: 1.1,
-                                      whiteSpace: 'nowrap'
+                                      whiteSpace: 'nowrap',
+                                      overflow: 'hidden',
+                                      textOverflow: 'ellipsis'
                                     }}
                                     title={`Pending Due: -${currencyService.format(dayUnpaidDuesTotal)}`}
                                   >
-                                    -{currencyService.format(dayUnpaidDuesTotal)}
+                                    -{formatCompactIndian(dayUnpaidDuesTotal)}
                                   </div>
                                 )}
                               </div>
 
-                              {/* Bottom-Right: EXPECTED amounts (Gray with + / -) */}
+                              {/* Bottom-Right: EXPECTED amounts (Gray with compact Lakh format) */}
                               <div
                                 style={{
                                   display: 'flex',
                                   flexDirection: 'column',
                                   gap: 1,
                                   minWidth: 0,
+                                  overflow: 'hidden',
                                   textAlign: 'right'
                                 }}
                               >
@@ -1915,11 +2049,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                           fontWeight: 700,
                                           color: '#94A3B8',
                                           lineHeight: 1.1,
-                                          whiteSpace: 'nowrap'
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis'
                                         }}
                                         title={`Expected Income: +${currencyService.format(dayExpIncome)}`}
                                       >
-                                        +{currencyService.format(dayExpIncome)}
+                                        +{formatCompactIndian(dayExpIncome)}
                                       </div>
                                     )}
                                     {((filterExpense && dayExpExpenseOnly > 0) || (filterSavings && dayExpSavings > 0)) && (
@@ -1929,11 +2065,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                           fontWeight: 700,
                                           color: '#94A3B8',
                                           lineHeight: 1.1,
-                                          whiteSpace: 'nowrap'
+                                          whiteSpace: 'nowrap',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis'
                                         }}
                                         title={`Expected Outflow: -${currencyService.format((filterExpense ? dayExpExpenseOnly : 0) + (filterSavings ? dayExpSavings : 0))}`}
                                       >
-                                        -{currencyService.format((filterExpense ? dayExpExpenseOnly : 0) + (filterSavings ? dayExpSavings : 0))}
+                                        -{formatCompactIndian((filterExpense ? dayExpExpenseOnly : 0) + (filterSavings ? dayExpSavings : 0))}
                                       </div>
                                     )}
                                   </>
