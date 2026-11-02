@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Wallet,
   Search,
@@ -107,6 +108,22 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
     const interval = setInterval(fetchUserData, 15000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (isMobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setIsMobileMenuOpen(false);
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => {
+        document.body.style.overflow = '';
+        window.removeEventListener('keydown', handleKeyDown);
+      };
+    } else {
+      document.body.style.overflow = '';
+    }
+  }, [isMobileMenuOpen]);
 
   const fetchUserData = async () => {
     try {
@@ -387,6 +404,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         {/* Demo Timer Pill (If demo account) */}
         {demoTimeRemaining !== null && (
           <div
+            className="demo-timer-badge"
             style={{
               background: 'rgba(59, 130, 246, 0.15)',
               border: '1px solid rgba(59, 130, 246, 0.35)',
@@ -397,12 +415,14 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               fontWeight: 700,
               display: 'flex',
               alignItems: 'center',
-              gap: 6
+              gap: 6,
+              flexShrink: 0
             }}
             title="Demo session auto-logout timer"
           >
             <Clock size={12} />
-            <span>Demo: {Math.floor(demoTimeRemaining / 60)}:{String(demoTimeRemaining % 60).padStart(2, '0')}</span>
+            <span className="demo-timer-label">Demo: </span>
+            <span>{Math.floor(demoTimeRemaining / 60)}:{String(demoTimeRemaining % 60).padStart(2, '0')}</span>
           </div>
         )}
 
@@ -706,8 +726,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         </button>
       </div>
 
-      {/* Mobile Navigation Drawer Backdrop & Panel */}
-      {isMobileMenuOpen && (
+      {/* Mobile Navigation Drawer Backdrop & Panel (Rendered at Body level to escape navbar stacking context) */}
+      {isMobileMenuOpen && createPortal(
         <div className="mobile-drawer-backdrop" onClick={() => setIsMobileMenuOpen(false)}>
           <div className="mobile-drawer-panel" onClick={e => e.stopPropagation()}>
             <div className="mobile-drawer-header">
@@ -716,7 +736,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                   <Wallet size={18} />
                 </div>
                 <div>
-                  <div className="brand-title" style={{ fontSize: 17 }}>FinTrack</div>
+                  <div className="brand-title" style={{ fontSize: 17, color: '#F8FAFC' }}>FinTrack</div>
                   <div className="brand-subtitle">PERSONAL FINANCE</div>
                 </div>
               </div>
@@ -739,7 +759,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               }}
               title="Click to view & edit profile"
             >
-              <div className="user-avatar" style={{ width: 40, height: 40, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <div className="user-avatar" style={{ width: 42, height: 42, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 {profilePhoto ? (
                   <img src={profilePhoto} alt={user?.name || 'Profile'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                 ) : (
@@ -815,10 +835,10 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                       gap: 12,
                       padding: '12px 16px',
                       borderRadius: 10,
-                      border: 'none',
-                      color: isTabActive(tab) ? 'var(--accent-indigo)' : 'var(--text-primary)',
-                      background: isTabActive(tab) ? 'var(--nav-tab-active-bg, rgba(99, 102, 241, 0.12))' : 'transparent',
-                      fontWeight: 600,
+                      border: isTabActive(tab) ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
+                      color: isTabActive(tab) ? '#60A5FA' : 'var(--text-primary)',
+                      background: isTabActive(tab) ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
+                      fontWeight: isTabActive(tab) ? 700 : 600,
                       cursor: 'pointer'
                     }}
                   >
@@ -832,7 +852,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             <div style={{ marginTop: 'auto', paddingTop: 24 }}>
               <button
                 type="button"
-                onClick={logout} className="navbar-logout-btn"
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  logout();
+                }}
+                className="navbar-logout-btn"
                 style={{
                   width: '100%',
                   padding: '12px',
@@ -854,7 +878,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </header>
   );
