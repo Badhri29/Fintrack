@@ -68,6 +68,25 @@ const DEFAULT_CATEGORIES = {
   ],
 };
 
+export const DEFAULT_SUBCATEGORIES_BY_CATEGORY: Record<string, string[]> = {
+  'Salary': ['Monthly Salary', 'Bonus & Incentives', 'Overtime'],
+  'Bonus & Incentives': ['Performance Bonus', 'Festival Bonus', 'Incentives'],
+  'Other Income': ['Cash in Hand', 'Freelance & Consulting', 'Rental Income', 'Dividends', 'Side Business'],
+  'Investments': ['Mutual Funds', 'Stocks & Equity', 'Fixed Deposit', 'Dividends', 'Capital Gains', 'Gold'],
+  'Emergency Fund': ['Savings Account', 'Liquid Funds', 'Emergency Reserve'],
+  'Mutual Funds': ['SIP Investment', 'Index Funds', 'ELSS / Tax Saver'],
+  'Housing & Rent': ['Rent/Mortgage', 'Maintenance', 'Property Tax', 'Electricity', 'Water', 'Gas'],
+  'Housing': ['Rent/Mortgage', 'Utilities', 'Rent', 'Gas', 'Food & Groceries', 'Electricity'],
+  'Food & Groceries': ['Groceries', 'Supermarket', 'Vegetables & Fruits', 'Dairy & Milk'],
+  'Utilities & Internet': ['Network & Internet', 'Electricity', 'Water Bill', 'Mobile Recharge', 'Gas'],
+  'Dining & Entertainment': ['Restaurants', 'Food Delivery', 'Movies & OTT', 'Outing & Events'],
+  'Shopping & Travel': ['Clothing', 'Electronics', 'Petrol & Fuel', 'Travel & Commute', 'Personal Care'],
+  'Health & Insurance': ['Medicine', 'Doctor Consultation', 'Health Insurance', 'Life Insurance'],
+  'Loans & EMI': ['ChitFund', 'Credit Card Bill', 'Personal Loan', 'Home Loan EMI', 'KreditBee'],
+  'Repair & Maintance': ['Bike Maintenance', 'Car Service', 'Home Repair', 'Appliance Repair'],
+  'Repair & Maintenance': ['Bike Maintenance', 'Car Service', 'Home Repair', 'Appliance Repair'],
+};
+
 
 export const getDeletedCategorySet = (email?: string): Set<string> => {
   try {
@@ -98,6 +117,61 @@ export const unmarkDeletedCategory = (email: string | undefined, name: string) =
     set.delete(`savings:${clean}`);
     localStorage.setItem(`fintrack_deleted_categories_${email || 'global'}`, JSON.stringify(Array.from(set)));
   } catch {}
+};
+
+export const getMigratedBudgetTransactions = (year: number, userEmail?: string): Record<string, TransactionDetail[]> => {
+  const primaryKey = getUserStorageKey(`fintrack-budget-transactions-${year}`, userEmail);
+  try {
+    const direct = localStorage.getItem(primaryKey);
+    if (direct) {
+      const parsed = JSON.parse(direct);
+      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        return parsed;
+      }
+    }
+  } catch {}
+
+  const cleanEmail = (userEmail && userEmail.trim()) ? userEmail.trim().toLowerCase() : '';
+  const candidateKeys = [
+    `fintrack-budget-transactions-${year}`,
+    `fintrack-budget-transactions-${year}_guest`,
+    `fintrack-budget-transactions-${year}_${cleanEmail}`,
+    `fintrack_budget_transactions_${year}`,
+    `fintrack_budget_transactions_${year}_${cleanEmail}`,
+    `fintrack-budget-transactions-${year}_global`
+  ];
+
+  for (const k of candidateKeys) {
+    if (k === primaryKey) continue;
+    try {
+      const val = localStorage.getItem(k);
+      if (val) {
+        const parsed = JSON.parse(val);
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+          localStorage.setItem(primaryKey, JSON.stringify(parsed));
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k !== primaryKey && k.includes(String(year)) && (k.startsWith('fintrack-budget-transactions') || k.startsWith('fintrack_budget_transactions'))) {
+        const val = localStorage.getItem(k);
+        if (val) {
+          const parsed = JSON.parse(val);
+          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+            localStorage.setItem(primaryKey, JSON.stringify(parsed));
+            return parsed;
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return {};
 };
 
 const BASE_CATEGORY_FILTERS = [
@@ -690,31 +764,31 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     }
   }, [globalSearchQuery]);
 
-  // Load stored budgets when year changes
+  // Load stored budgets when year changes or user changes
   useEffect(() => {
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
     }
-    const budgetKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
-    const stored = localStorage.getItem(budgetKey);
-    setBudgetValues(stored ? JSON.parse(stored) : {});
+    const retrievedBudget = budgetService.getBudgetMap(selectedYear, user?.email);
+    setBudgetValues(retrievedBudget);
 
     // Fetch and sync budgets with backend database
     budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
       if (serverBudgets && Object.keys(serverBudgets).length > 0) {
-        setBudgetValues(serverBudgets);
+        setBudgetValues((prev) => ({ ...prev, ...serverBudgets }));
+      } else if (retrievedBudget && Object.keys(retrievedBudget).length > 0) {
+        budgetService.saveBudgetMap(selectedYear, retrievedBudget, user?.email);
       }
     }).catch(() => {});
-  }, [selectedYear, user]);
+  }, [selectedYear, user?.email]);
 
   useEffect(() => {
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
     }
-    const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
-    const stored = localStorage.getItem(txKey);
-    setBudgetTransactions(stored ? JSON.parse(stored) : {});
-  }, [selectedYear, user]);
+    const retrievedTx = getMigratedBudgetTransactions(selectedYear, user?.email);
+    setBudgetTransactions(retrievedTx);
+  }, [selectedYear, user?.email]);
 
   // Load data from backend
   useEffect(() => {
@@ -724,34 +798,43 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     };
     window.addEventListener('fintrack-transactions-changed', onTxChange);
     return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
-  }, [selectedYear]);
+  }, [selectedYear, user?.email]);
 
   const loadAllData = async () => {
     setLoadingTransactions(true);
     try {
       const [transactionsResult, categoriesResult, subcategoriesResult] = await Promise.all([
-        api.get('/transactions').catch(() => ({ data: { data: [] } })),
-        api.get('/categories').catch(() => ({ data: { data: [] } })),
-        api.get('/subcategories').catch(() => ({ data: { data: [] } })),
+        api.get('/transactions').catch((err) => {
+          console.debug('Transactions fetch notice:', err?.message);
+          return { data: { data: [] } };
+        }),
+        api.get('/categories').catch((err) => {
+          console.debug('Categories fetch notice:', err?.message);
+          return { data: { data: [] } };
+        }),
+        api.get('/subcategories').catch((err) => {
+          console.debug('Subcategories fetch notice:', err?.message);
+          return { data: { data: [] } };
+        }),
       ]);
 
       const txs = transactionsResult.data?.success && Array.isArray(transactionsResult.data.data)
         ? transactionsResult.data.data
-        : [];
+        : (Array.isArray(transactionsResult.data) ? transactionsResult.data : []);
       const cats = categoriesResult.data?.success && Array.isArray(categoriesResult.data.data)
         ? categoriesResult.data.data
-        : [];
+        : (Array.isArray(categoriesResult.data) ? categoriesResult.data : []);
       const subcats = subcategoriesResult.data?.success && Array.isArray(subcategoriesResult.data.data)
         ? subcategoriesResult.data.data
-        : [];
+        : (Array.isArray(subcategoriesResult.data) ? subcategoriesResult.data : []);
 
       setRawTransactions(txs);
       setApiCategories(cats);
       setApiSubcategories(subcats);
 
       setSections(makeSections(txs, cats, subcats));
-    } catch {
-      setRawTransactions([]);
+    } catch (err) {
+      console.error('Data load notice:', err);
       setSections(makeSections([], [], []));
     } finally {
       setLoadingTransactions(false);
@@ -789,6 +872,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
         map.set(id, category);
         result[section].push(category);
+      } else {
+        const existing = map.get(id)!;
+        if (!existing.categoryId && categoryId) {
+          existing.categoryId = categoryId;
+        }
       }
 
       return map.get(id)!;
@@ -815,19 +903,23 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       return found;
     };
 
+    // Retrieve deleted category blacklist
     const deletedSet = getDeletedCategorySet(user?.email);
 
-    (Object.keys(DEFAULT_CATEGORIES) as Section[]).forEach((section) =>
-      DEFAULT_CATEGORIES[section].forEach((name) => {
-        const clean = name.trim().toLowerCase();
-        if (deletedSet.has(clean) || deletedSet.has(`${section}:${clean}`)) {
-          return; // Skip deleted category
-        }
-        ensureCategory(section, name);
-      }),
-    );
+    // 1. Sanitize deletedSet: ANY category that actively exists in the user's database MUST NOT be deleted!
+    cats.forEach((cat) => {
+      if (cat?.name) {
+        const clean = cat.name.trim().toLowerCase();
+        deletedSet.delete(clean);
+        deletedSet.delete(`income:${clean}`);
+        deletedSet.delete(`expense:${clean}`);
+        deletedSet.delete(`savings:${clean}`);
+      }
+    });
 
+    // 2. Add all custom categories from database FIRST (Source of Truth)
     cats.forEach((category) => {
+      if (!category?.name) return;
       const section: Section =
         category.type === 'income'
           ? 'income'
@@ -835,15 +927,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             ? 'savings'
             : 'expense';
 
-      const clean = (category.name || '').trim().toLowerCase();
-      if (deletedSet.has(clean) || deletedSet.has(`${section}:${clean}`)) {
-        return; // Skip deleted category
-      }
       ensureCategory(section, category.name, category.id);
     });
 
+    // 3. Add all custom subcategories from database
     subcats.forEach((subcategory) => {
-      const parent = cats.find((category) => category.id === subcategory.categoryId);
+      if (!subcategory?.name) return;
+      const parent = cats.find(
+        (category) => String(category.id) === String(subcategory.categoryId)
+      );
 
       if (parent) {
         const section: Section =
@@ -861,6 +953,49 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       }
     });
 
+    // 4. Populate default categories for any missing ones (unless explicitly deleted by user)
+    (Object.keys(DEFAULT_CATEGORIES) as Section[]).forEach((section) =>
+      DEFAULT_CATEGORIES[section].forEach((name) => {
+        const clean = name.trim().toLowerCase();
+        if (deletedSet.has(clean) || deletedSet.has(`${section}:${clean}`)) {
+          return; // Skip deleted category
+        }
+        const cat = ensureCategory(section, name);
+        if (cat.subcategories.length === 0) {
+          const defaultSubs = DEFAULT_SUBCATEGORIES_BY_CATEGORY[name] || DEFAULT_SUBCATEGORIES_BY_CATEGORY[cat.name] || [];
+          defaultSubs.forEach((subName) => {
+            ensureSubcategory(cat, subName);
+          });
+        }
+      }),
+    );
+
+    // 5. Fallback safety net: if ANY section is completely empty, restore default categories
+    (Object.keys(DEFAULT_CATEGORIES) as Section[]).forEach((section) => {
+      if (result[section].length === 0) {
+        DEFAULT_CATEGORIES[section].forEach((name) => {
+          const cat = ensureCategory(section, name);
+          const defaultSubs = DEFAULT_SUBCATEGORIES_BY_CATEGORY[name] || [];
+          defaultSubs.forEach((subName) => {
+            ensureSubcategory(cat, subName);
+          });
+        });
+      }
+    });
+
+    // 6. For any category that still has 0 subcategories, provide standard default subcategories or 'General'
+    (Object.keys(result) as Section[]).forEach((section) => {
+      result[section].forEach((category) => {
+        if (category.subcategories.length === 0) {
+          const defaultSubs = DEFAULT_SUBCATEGORIES_BY_CATEGORY[category.name] || ['General'];
+          defaultSubs.forEach((subName) => {
+            ensureSubcategory(category, subName);
+          });
+        }
+      });
+    });
+
+    // 7. Map actual transactions
     transactions
       .map((item) => ({ item, parsedDate: parseTransactionDate(item.date) }))
       .filter(({ parsedDate }) => parsedDate && parsedDate.year === selectedYear)
@@ -901,27 +1036,26 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         });
       });
 
-    (Object.keys(result) as Section[]).forEach((section) =>
-      result[section].forEach((category) => {
-        if (!category.subcategories.length) {
-          ensureSubcategory(category, 'Unallocated');
-        }
-      }),
-    );
-
+    // 8. Lookup cache
     try {
       const lookup: Record<string, { type: Section; categoryName: string; subcategoryName: string }> = {};
       (Object.keys(result) as Section[]).forEach((sec) => {
-        result[sec].forEach((cat) => {
+        (result[sec] || []).forEach((cat) => {
+          if (!cat) return;
           lookup[cat.id] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
-          lookup[cat.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
+          if (cat.name) {
+            lookup[cat.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
+          }
           if (cat.categoryId) {
             lookup[String(cat.categoryId)] = { type: sec, categoryName: cat.name, subcategoryName: cat.name };
           }
-          cat.subcategories.forEach((sub) => {
+          (cat.subcategories || []).forEach((sub) => {
+            if (!sub) return;
             lookup[sub.id] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
-            lookup[sub.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
-            if (sub.id.startsWith('sub:')) {
+            if (sub.name) {
+              lookup[sub.name.toLowerCase().trim()] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
+            }
+            if (sub.id && sub.id.startsWith('sub:')) {
               lookup[sub.id.slice(4)] = { type: sec, categoryName: cat.name, subcategoryName: sub.name };
             }
           });
@@ -1011,13 +1145,18 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       }
     });
     apiCategories.forEach((c) => {
-      if (!deletedSet.has(c.name.toLowerCase())) set.add(c.name);
+      if (c?.name) set.add(c.name);
     });
     rawTransactions.forEach((t) => {
-      if (t.category && !deletedSet.has(t.category.toLowerCase())) set.add(t.category);
+      if (t?.category) set.add(t.category);
+    });
+    (Object.keys(sections) as Section[]).forEach((sec) => {
+      (sections[sec] || []).forEach((c) => {
+        if (c?.name) set.add(c.name);
+      });
     });
     return Array.from(set);
-  }, [apiCategories, rawTransactions, user?.email]);
+  }, [apiCategories, rawTransactions, sections, user?.email]);
 
   const filteredTransactions = useMemo(() => {
     return rawTransactions.filter((t) => {

@@ -9,23 +9,71 @@ export const budgetService = {
   },
 
   getBudgetMap(year: number, email?: string): Record<string, number[]> {
+    const primaryKey = this.getStorageKey(year, email);
     try {
-      const stored = localStorage.getItem(this.getStorageKey(year, email));
+      const stored = localStorage.getItem(primaryKey);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           return parsed;
         }
       }
     } catch (err) {
       console.error('Error reading budget from storage:', err);
     }
+
+    // Fallback & automatic migration from legacy keys
+    const userEmail = getActiveUserEmail(email);
+    const candidateKeys = [
+      `fintrack-budget-${year}`,
+      `fintrack-budget-${year}_guest`,
+      `fintrack-budget-${year}_${userEmail || ''}`,
+      `fintrack_budget_${year}`,
+      `fintrack_budget_${year}_${userEmail || ''}`,
+      `fintrack-budget-${year}_global`
+    ];
+
+    for (const key of candidateKeys) {
+      if (key === primaryKey) continue;
+      try {
+        const legacyStored = localStorage.getItem(key);
+        if (legacyStored) {
+          const parsed = JSON.parse(legacyStored);
+          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+            localStorage.setItem(primaryKey, JSON.stringify(parsed));
+            // Sync legacy budget to server
+            api.post('/budgets/sync', { year, budgets: parsed }).catch(() => {});
+            return parsed;
+          }
+        }
+      } catch {}
+    }
+
+    // Deep search in all localStorage keys for year match
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k !== primaryKey && k.includes(String(year)) && (k.startsWith('fintrack-budget') || k.startsWith('fintrack_budget'))) {
+          const val = localStorage.getItem(k);
+          if (val) {
+            const parsed = JSON.parse(val);
+            if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+              localStorage.setItem(primaryKey, JSON.stringify(parsed));
+              api.post('/budgets/sync', { year, budgets: parsed }).catch(() => {});
+              return parsed;
+            }
+          }
+        }
+      }
+    } catch {}
+
     return {};
   },
 
   saveBudgetMap(year: number, budgetMap: Record<string, number[]>, email?: string): void {
+    const primaryKey = this.getStorageKey(year, email);
     try {
-      localStorage.setItem(this.getStorageKey(year, email), JSON.stringify(budgetMap));
+      localStorage.setItem(primaryKey, JSON.stringify(budgetMap));
       window.dispatchEvent(new CustomEvent('fintrack-budget-changed', { detail: { year, budgetMap } }));
     } catch (err) {
       console.error('Error saving budget to storage:', err);
