@@ -259,10 +259,111 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
           transform: translateY(-1px);
           filter: brightness(1.15);
         }
+
+        @media (max-width: 768px) {
+          .global-due-ticker-container {
+            height: 28px !important;
+            min-height: 28px !important;
+            max-height: 28px !important;
+          }
+
+          /* Left badge reduction so it takes only ~15% of screen instead of 40% */
+          .global-due-ticker-badge {
+            padding: 0 8px !important;
+            gap: 5px !important;
+          }
+
+          .global-due-ticker-dot {
+            width: 5px !important;
+            height: 5px !important;
+          }
+
+          .global-due-ticker-title-desktop {
+            display: none !important;
+          }
+
+          .global-due-ticker-title-mobile {
+            display: inline !important;
+            font-size: 8px !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.4px !important;
+          }
+
+          /* Ticker items font reduction */
+          .global-ticker-item {
+            gap: 5px !important;
+            padding: 2px 7px !important;
+            margin-right: 12px !important;
+            border-radius: 14px !important;
+          }
+
+          .global-ticker-due-date {
+            font-size: 8px !important;
+            padding: 1px 4px !important;
+            letter-spacing: 0.3px !important;
+          }
+
+          .global-ticker-due-title span {
+            font-size: 9.5px !important;
+          }
+
+          .global-ticker-due-title .global-ticker-icon {
+            width: 10px !important;
+            height: 10px !important;
+          }
+
+          .global-ticker-due-amount {
+            font-size: 9.5px !important;
+          }
+
+          .global-ticker-due-tag {
+            font-size: 7.5px !important;
+          }
+
+          .global-ticker-chevron {
+            display: none !important;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .global-due-ticker-badge {
+            padding: 0 6px !important;
+            gap: 4px !important;
+          }
+
+          .global-due-ticker-title-mobile {
+            font-size: 7.5px !important;
+            letter-spacing: 0.2px !important;
+          }
+
+          .global-ticker-item {
+            gap: 4px !important;
+            padding: 1.5px 6px !important;
+            margin-right: 10px !important;
+          }
+
+          .global-ticker-due-date {
+            font-size: 7.5px !important;
+            padding: 1px 3px !important;
+          }
+
+          .global-ticker-due-title span {
+            font-size: 8.5px !important;
+          }
+
+          .global-ticker-due-amount {
+            font-size: 9px !important;
+          }
+
+          .global-ticker-due-tag {
+            font-size: 7px !important;
+          }
+        }
       `}</style>
 
       {/* Left Fixed Badge */}
       <div
+        className="global-due-ticker-badge"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -277,6 +378,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
         }}
       >
         <span
+          className="global-due-ticker-dot"
           style={{
             width: 7,
             height: 7,
@@ -287,6 +389,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
           }}
         />
         <span
+          className="global-due-ticker-title-desktop"
           style={{
             fontSize: 10,
             fontWeight: 900,
@@ -296,6 +399,19 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
           }}
         >
           {activeDues.length > 0 ? `Upcoming Dues (${activeDues.length})` : 'Dues Cleared'}
+        </span>
+        <span
+          className="global-due-ticker-title-mobile"
+          style={{
+            display: 'none',
+            fontSize: 8.5,
+            fontWeight: 900,
+            color: '#F8FAFC',
+            letterSpacing: 0.5,
+            textTransform: 'uppercase'
+          }}
+        >
+          {activeDues.length > 0 ? `Dues (${activeDues.length})` : 'Cleared'}
         </span>
       </div>
 
@@ -347,6 +463,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                   title={`Click to view ${item.title}`}
                 >
                   <span
+                    className="global-ticker-due-date"
                     style={{
                       fontSize: 9.5,
                       fontWeight: 800,
@@ -360,11 +477,11 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                     {item.dueDateStr}
                   </span>
 
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <span className="global-ticker-due-title" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     {item.type === 'card' ? (
-                      <CreditCard size={12} style={{ color: '#38BDF8' }} />
+                      <CreditCard size={12} className="global-ticker-icon" style={{ color: '#38BDF8' }} />
                     ) : (
-                      <Landmark size={12} style={{ color: '#FCD34D' }} />
+                      <Landmark size={12} className="global-ticker-icon" style={{ color: '#FCD34D' }} />
                     )}
                     <span style={{ fontSize: 11, fontWeight: 700, color: '#F1F5F9' }}>
                       {item.title}
@@ -372,6 +489,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                   </span>
 
                   <span
+                    className="global-ticker-due-amount"
                     style={{
                       fontSize: 11.5,
                       fontWeight: 900,
@@ -382,6 +500,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                   </span>
 
                   <span
+                    className="global-ticker-due-tag"
                     style={{
                       fontSize: 8.5,
                       fontWeight: 800,
@@ -393,7 +512,7 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                     {overdue ? '• Overdue' : dueToday ? '• Due Today' : '• Due'}
                   </span>
 
-                  <ChevronRight size={11} style={{ color: '#64748B' }} />
+                  <ChevronRight size={11} className="global-ticker-chevron" style={{ color: '#64748B' }} />
                 </div>
               );
             })}
