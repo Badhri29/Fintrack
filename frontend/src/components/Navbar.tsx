@@ -623,8 +623,10 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
         {/* User Profile Badge (Click opens ProfileModal directly) */}
         <div
           onClick={onOpenProfile}
+          className="navbar-user-card"
           style={{
             display: 'flex',
+            flexShrink: 0,
             alignItems: 'center',
             gap: 10,
             cursor: 'pointer',
@@ -666,24 +668,30 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             </span>
           </div>
 
-          <ChevronDown size={15} style={{ color: 'var(--text-secondary)' }} />
+          <ChevronDown size={15} className="user-chevron" style={{ color: 'var(--text-secondary)' }} />
         </div>
 
         {/* Logout */}
         <button
           onClick={logout}
+          className="navbar-logout-btn"
           style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-muted)',
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.32)',
+            color: '#EF4444',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',
-            padding: 6
+            justifyContent: 'center',
+            width: 32,
+            height: 32,
+            borderRadius: 8,
+            flexShrink: 0,
+            transition: 'all 0.15s ease'
           }}
-          title="Log Out"
+          title="Log Out of FinTrack"
         >
-          <LogOut size={18} />
+          <LogOut size={16} />
         </button>
 
         {/* Mobile Menu Toggle Button */}
@@ -824,7 +832,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             <div style={{ marginTop: 'auto', paddingTop: 24 }}>
               <button
                 type="button"
-                onClick={logout}
+                onClick={logout} className="navbar-logout-btn"
                 style={{
                   width: '100%',
                   padding: '12px',

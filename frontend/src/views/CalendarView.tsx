@@ -363,10 +363,14 @@ const computeDuesForMonth = (
   const isPastMonth = year < todayY || (year === todayY && month < todayM);
   const isFutureMonth = year > todayY || (year === todayY && month > todayM);
 
-  // 1. Credit Cards dues
+  // 1. Credit Cards dues (Strictly show on card's due date only if due > 0 and unpaid)
   cardsList.forEach(card => {
     if (!card.isActive) return;
     const dueDay = Number(card.dueDay) || 5;
+
+    const cleanCardName = (card.name || '').toLowerCase().trim();
+    const cleanBank = (card.bank || '').toLowerCase().trim();
+    const cleanLast4 = card.last4 ? card.last4.trim() : '';
 
     const billPaymentInViewedMonth = transactionsList.find(t => {
       if (!t.date) return false;
@@ -374,12 +378,21 @@ const computeDuesForMonth = (
       const [y, m] = tDate.split('-').map(Number);
       if (y !== year || m !== (month + 1)) return false;
       if (!isBillPaymentTx(t)) return false;
-      const cName = card.name.toLowerCase();
-      const tCard = String(t.card || '').toLowerCase();
-      const tDesc = String(t.description || '').toLowerCase();
-      const mode = String(t.paymentMode || '').toLowerCase();
-      return mode.includes(cName) || tCard.includes(cName) || tDesc.includes(cName);
+      const tCard = String(t.card || '').toLowerCase().trim();
+      const tDesc = String(t.description || '').toLowerCase().trim();
+      const mode = String(t.paymentMode || '').toLowerCase().trim();
+      return (
+        (tCard && (tCard === cleanCardName || tCard.includes(cleanCardName) || cleanCardName.includes(tCard))) ||
+        (cleanBank && (tCard.includes(cleanBank) || tDesc.includes(cleanBank) || mode.includes(cleanBank))) ||
+        (cleanLast4 && (tCard.includes(cleanLast4) || tDesc.includes(cleanLast4))) ||
+        tDesc.includes(cleanCardName) || mode.includes(cleanCardName)
+      );
     });
+
+    // If bill payment was already made for this month, do NOT display (user requested only pending due > 0)
+    if (billPaymentInViewedMonth) {
+      return;
+    }
 
     let monthSpend = 0;
     let spendUpToMonth = 0;
@@ -392,12 +405,16 @@ const computeDuesForMonth = (
       const tDate = String(t.date).slice(0, 10);
       const [y, m] = tDate.split('-').map(Number);
 
-      const mode = String(t.paymentMode || '').toLowerCase();
-      const tCard = String(t.card || '').toLowerCase();
-      const tDesc = String(t.description || '').toLowerCase();
-      const cName = card.name.toLowerCase();
-      const cLast4 = card.last4 || '';
-      const isThisCard = mode.includes(cName) || tCard.includes(cName) || tDesc.includes(cName) || (cLast4 && (tCard.includes(cLast4) || tDesc.includes(cLast4)));
+      const tCard = String(t.card || '').toLowerCase().trim();
+      const tDesc = String(t.description || '').toLowerCase().trim();
+      const mode = String(t.paymentMode || '').toLowerCase().trim();
+
+      const isThisCard =
+        (tCard && (tCard === cleanCardName || tCard.includes(cleanCardName) || cleanCardName.includes(tCard))) ||
+        (cleanBank && (tCard.includes(cleanBank) || tDesc.includes(cleanBank) || mode.includes(cleanBank))) ||
+        (cleanLast4 && (tCard.includes(cleanLast4) || tDesc.includes(cleanLast4))) ||
+        tDesc.includes(cleanCardName) || mode.includes(cleanCardName);
+
       if (!isThisCard) return;
 
       const amt = Number(t.amount) || 0;
@@ -427,45 +444,42 @@ const computeDuesForMonth = (
       }
     });
 
-    let cardDueAmount = 0;
-    let isPaid = false;
-
-    if (billPaymentInViewedMonth) {
-      isPaid = true;
-      cardDueAmount = Number(billPaymentInViewedMonth.amount) || monthSpend;
-    } else {
-      const historicalUnpaid = Math.max(0, spendUpToMonth - paidUpToMonth);
-      if (isPastMonth) {
-        const liveCurrentOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
-        if (liveCurrentOutstanding === 0) {
-          isPaid = true;
-          cardDueAmount = monthSpend;
-        } else {
-          isPaid = false;
-          cardDueAmount = historicalUnpaid > 0 ? historicalUnpaid : monthSpend;
+    // Include any active linked loan EMIs on this credit card for this viewed month
+    let linkedLoanEmisInMonth = 0;
+    loanSchedules.forEach(({ loan, scheduleMap }) => {
+      if (loan.repaymentSource !== 'credit_card') return;
+      const matchesCard = loan.linkedCardId === card.id ||
+        (loan.linkedCardName && loan.linkedCardName.toLowerCase().trim() === cleanCardName) ||
+        (loan.lender && cleanCardName.includes(loan.lender.toLowerCase().trim()));
+      if (matchesCard) {
+        const item = scheduleMap.get(`${year}-${month}`);
+        if (item && item.status !== 'paid' && item.emiAmount > 0) {
+          linkedLoanEmisInMonth += item.emiAmount;
         }
-      } else if (isViewingCurrentMonth) {
-        cardDueAmount = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
-        isPaid = cardDueAmount === 0 && monthSpend > 0;
-      } else {
-        cardDueAmount = monthSpend;
-        isPaid = false;
       }
+    });
+
+    let cardDueAmount = 0;
+    const historicalUnpaid = Math.max(0, spendUpToMonth - paidUpToMonth);
+
+    if (isPastMonth) {
+      const liveCurrentOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+      cardDueAmount = (liveCurrentOutstanding === 0 ? monthSpend : historicalUnpaid) + linkedLoanEmisInMonth;
+    } else if (isViewingCurrentMonth) {
+      const liveOutstanding = Math.max(0, totalAllTimeSpends - totalAllTimePayments);
+      cardDueAmount = Math.max(0, liveOutstanding + linkedLoanEmisInMonth);
+    } else {
+      cardDueAmount = monthSpend + linkedLoanEmisInMonth;
     }
 
-    if (cardDueAmount <= 0 && !isPaid) {
+    // STRICT USER REQUIREMENT: Only display if credit card due > 0
+    if (cardDueAmount <= 0) {
       return;
     }
 
-    const isOverdue = !isPaid && (
-      isPastMonth ||
-      (isViewingCurrentMonth && dueDay < todayD)
-    );
-    const isDueToday = !isPaid && isViewingCurrentMonth && dueDay === todayD;
-    const isUpcoming = !isPaid && (
-      isFutureMonth ||
-      (isViewingCurrentMonth && dueDay > todayD)
-    );
+    const isOverdue = isPastMonth || (isViewingCurrentMonth && dueDay < todayD);
+    const isDueToday = isViewingCurrentMonth && dueDay === todayD;
+    const isUpcoming = isFutureMonth || (isViewingCurrentMonth && dueDay > todayD);
 
     const dueItem: DueItem = {
       id: `card-due-${card.id}-${year}-${month}`,
@@ -479,28 +493,25 @@ const computeDuesForMonth = (
       isOverdue,
       isDueToday,
       isUpcoming,
-      isPaid
+      isPaid: false
     };
 
     if (!duesByDay[dueDay]) duesByDay[dueDay] = [];
     duesByDay[dueDay].push(dueItem);
   });
 
-  // 2. Loans dues (Strictly EXCLUDE credit_card repayment loans)
+  // 2. Loans dues (Strictly EXCLUDE credit_card repayment loans & hide paid amounts)
   loanSchedules.forEach(({ loan, dueDay, scheduleMap }) => {
     const monthItem = scheduleMap.get(`${year}-${month}`);
     if (!monthItem) return;
 
     const isPaid = monthItem.status === 'paid';
-    const isOverdue = !isPaid && (
-      isPastMonth ||
-      (isViewingCurrentMonth && dueDay < todayD)
-    );
-    const isDueToday = !isPaid && isViewingCurrentMonth && dueDay === todayD;
-    const isUpcoming = !isPaid && (
-      isFutureMonth ||
-      (isViewingCurrentMonth && dueDay > todayD)
-    );
+    // STRICT USER REQUIREMENT: Only show the Due amount, and the Paid amount is not displayed!
+    if (isPaid || monthItem.emiAmount <= 0) return;
+
+    const isOverdue = isPastMonth || (isViewingCurrentMonth && dueDay < todayD);
+    const isDueToday = isViewingCurrentMonth && dueDay === todayD;
+    const isUpcoming = isFutureMonth || (isViewingCurrentMonth && dueDay > todayD);
 
     const dueItem: DueItem = {
       id: `loan-due-${loan.id}-${year}-${month}`,
@@ -514,7 +525,7 @@ const computeDuesForMonth = (
       isOverdue,
       isDueToday,
       isUpcoming,
-      isPaid
+      isPaid: false
     };
 
     if (!duesByDay[dueDay]) duesByDay[dueDay] = [];
@@ -1054,7 +1065,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   }, [rangeTransactions, filterIncome, filterExpense, filterSavings]);
 
   const filteredRangeDues = useMemo(() => {
-    return filterDues ? rangeDues : [];
+    if (!filterDues) return [];
+    return rangeDues.filter(due => !due.isPaid && due.amount > 0);
   }, [rangeDues, filterDues]);
 
   const filteredRangePlannedItems = useMemo(() => {
@@ -1110,15 +1122,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     <div
       className="fintrack-calendar-outer"
       style={{
-        padding: '6px 12px',
+        padding: '4px 10px 6px',
         color: '#E2E8F0',
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         userSelect: isDraggingYears || isDraggingMonths || isDraggingDates ? 'none' : 'auto',
         boxSizing: 'border-box',
         width: '100%',
         maxWidth: '100vw',
-        height: 'calc(100vh - 72px)',
-        maxHeight: 'calc(100vh - 72px)',
+        height: 'calc(100vh - 90px)',
+        maxHeight: 'calc(100vh - 90px)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden'
@@ -1127,7 +1139,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       <style>{`
         .fintrack-calendar-grid-container {
           display: grid;
-          grid-template-columns: 52px clamp(235px, 18.5vw, 265px) minmax(0, 1fr) clamp(255px, 20vw, 285px);
+          grid-template-columns: 50px clamp(280px, 20.5vw, 305px) minmax(0, 1fr) clamp(295px, 22.5vw, 335px);
           gap: 10px;
           align-items: stretch;
           flex: 1;
@@ -1140,7 +1152,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
         @media (max-width: 1440px) {
           .fintrack-calendar-grid-container {
-            grid-template-columns: 50px clamp(220px, 18vw, 245px) minmax(0, 1fr) clamp(240px, 20vw, 270px);
+            grid-template-columns: 48px clamp(265px, 20vw, 290px) minmax(0, 1fr) clamp(285px, 22vw, 315px);
             gap: 8px;
           }
         }
@@ -1167,16 +1179,16 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: 10,
+          marginBottom: 6,
           flexShrink: 0
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <div
             style={{
-              width: 38,
-              height: 38,
-              borderRadius: 10,
+              width: 30,
+              height: 30,
+              borderRadius: 8,
               background: 'linear-gradient(135deg, #1E3A8A 0%, #2563EB 100%)',
               color: '#FFFFFF',
               display: 'flex',
@@ -1185,13 +1197,13 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               boxShadow: '0 4px 14px rgba(37, 99, 235, 0.35)'
             }}
           >
-            <CalendarDays size={20} />
+            <CalendarDays size={16} />
           </div>
           <div>
-            <h1 style={{ fontSize: 18, fontWeight: 900, color: '#F8FAFC', margin: 0, letterSpacing: -0.3 }}>
+            <h1 style={{ fontSize: 15, fontWeight: 900, color: '#F8FAFC', margin: 0, letterSpacing: -0.3 }}>
               Financial calendar
             </h1>
-            <p style={{ fontSize: 11.5, color: '#94A3B8', margin: '2px 0 0' }}>
+            <p style={{ fontSize: 10.5, color: '#94A3B8', margin: '1px 0 0' }}>
               Year, month, date, and daily money activity in one view
             </p>
           </div>
@@ -1338,9 +1350,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         <div
           style={{
             background: '#0D1322',
-            borderRadius: 14,
+            borderRadius: 12,
             border: '1px solid rgba(255, 255, 255, 0.08)',
-            padding: '12px 6px',
+            padding: '8px 4px',
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
             display: 'flex',
             flexDirection: 'column',
@@ -1353,19 +1365,19 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <div style={{ width: '100%' }}>
             <div
               style={{
-                fontSize: 9.5,
+                fontSize: 8,
                 fontWeight: 800,
-                letterSpacing: 1.5,
+                letterSpacing: 1,
                 color: '#64748B',
                 textAlign: 'center',
-                marginBottom: 10,
+                marginBottom: 6,
                 textTransform: 'uppercase'
               }}
             >
               YEAR
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
               {availableYears.map(yr => {
                 const isSelected = selectedYears.includes(yr);
                 return (
@@ -1376,14 +1388,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     onMouseEnter={() => handleYearMouseEnter(yr)}
                     style={{
                       width: '100%',
-                      padding: '8px 0',
-                      borderRadius: 10,
+                      padding: '4px 0',
+                      borderRadius: 6,
                       border: isSelected ? '1.5px solid #3B82F6' : '1px solid transparent',
                       background: isSelected
                         ? 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)'
                         : 'rgba(255, 255, 255, 0.03)',
                       color: isSelected ? '#FFFFFF' : '#94A3B8',
-                      fontSize: 12,
+                      fontSize: 10,
                       fontWeight: isSelected ? 800 : 600,
                       cursor: 'pointer',
                       transition: 'all 0.15s ease',
@@ -1391,15 +1403,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 4
+                      gap: 3
                     }}
                   >
                     <span>{yr}</span>
                     {isSelected && (
                       <span
                         style={{
-                          width: 4,
-                          height: 4,
+                          width: 3,
+                          height: 3,
                           borderRadius: '50%',
                           background: '#60A5FA'
                         }}
@@ -1414,34 +1426,34 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           <div
             style={{
               textAlign: 'center',
-              paddingTop: 8,
+              paddingTop: 6,
               borderTop: '1px solid rgba(255, 255, 255, 0.06)',
               width: '100%'
             }}
           >
-            <div style={{ fontSize: 13, fontWeight: 900, color: '#38BDF8' }}>
+            <div style={{ fontSize: 11, fontWeight: 900, color: '#38BDF8' }}>
               {totalYearEventsCount}
             </div>
-            <div style={{ fontSize: 8, fontWeight: 800, color: '#64748B', letterSpacing: 1 }}>
+            <div style={{ fontSize: 7, fontWeight: 800, color: '#64748B', letterSpacing: 1 }}>
               EVENTS
             </div>
           </div>
         </div>
 
         {/* ============================================================== */}
-        {/* PANEL 2: 12-MONTH CARDS GRID (Multi-select Supported)          */}
+        {/* PANEL 2: 12-MONTH CARDS GRID (Fixed Height, No Scrollbar)      */}
         {/* ============================================================== */}
         <div
           style={{
             background: '#0D1322',
             borderRadius: 14,
             border: '1px solid rgba(255, 255, 255, 0.08)',
-            padding: '12px',
+            padding: '10px 8px',
             boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
             display: 'flex',
             flexDirection: 'column',
             height: '100%',
-            overflowY: 'auto',
+            overflow: 'hidden',
             boxSizing: 'border-box'
           }}
         >
@@ -1449,45 +1461,49 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             const yearTxs = transactions.filter(t => t.date && String(t.date).startsWith(String(year)));
 
             return (
-              <div key={year} style={{ marginBottom: 14 }}>
+              <div key={year} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
                 {/* Year Header & Multi-select Hint */}
                 <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    marginBottom: 8
+                    marginBottom: 6,
+                    flexShrink: 0
                   }}
                 >
                   <div>
-                    <h2 style={{ fontSize: 15, fontWeight: 900, color: '#F8FAFC', margin: 0 }}>
+                    <h2 style={{ fontSize: 14, fontWeight: 900, color: '#F8FAFC', margin: 0 }}>
                       {year}
                     </h2>
-                    <span style={{ fontSize: 9.5, color: '#64748B' }}>
+                    <span style={{ fontSize: 9, color: '#64748B' }}>
                       Drag or Ctrl+Click to select months
                     </span>
                   </div>
 
                   <span
                     style={{
-                      fontSize: 10,
+                      fontSize: 9.5,
                       fontWeight: 700,
                       color: '#94A3B8',
                       background: 'rgba(255, 255, 255, 0.05)',
-                      padding: '3px 8px',
-                      borderRadius: 10
+                      padding: '2px 7px',
+                      borderRadius: 8
                     }}
                   >
-                    {yearTxs.length} activities
+                    {yearTxs.length} items
                   </span>
                 </div>
 
-                {/* 3x4 Grid of Mini Month Cards with Generous Width */}
+                {/* 3x4 Grid of Mini Month Cards: fixed 4 rows, NO vertical scroll */}
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gap: 8
+                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+                    gridTemplateRows: 'repeat(4, 1fr)',
+                    gap: 5,
+                    flex: 1,
+                    minHeight: 0
                   }}
                 >
                   {MONTH_SHORT_NAMES.map((mName, mIdx) => {
@@ -1505,33 +1521,37 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           background: isMonthSelected
                             ? 'linear-gradient(135deg, rgba(30, 58, 138, 0.4) 0%, rgba(15, 23, 42, 0.95) 100%)'
                             : 'rgba(15, 23, 42, 0.65)',
-                          borderRadius: 10,
+                          borderRadius: 9,
                           border: isMonthSelected
                             ? '1.5px solid #3B82F6'
                             : '1px solid rgba(255, 255, 255, 0.06)',
-                          padding: '7px 7px',
+                          padding: '4px 6px',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
                           boxShadow: isMonthSelected ? '0 0 12px rgba(59, 130, 246, 0.25)' : 'none',
                           display: 'flex',
                           flexDirection: 'column',
                           justifyContent: 'space-between',
-                          minHeight: 110
+                          minHeight: 0,
+                          height: '100%',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          boxSizing: 'border-box'
                         }}
                       >
-                        {/* Mini Month Header: Month name + items count (e.g. "40 items") */}
+                        {/* Mini Month Header: Month name + items count */}
                         <div
                           style={{
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'space-between',
-                            marginBottom: 4
+                            marginBottom: 2
                           }}
                         >
-                          <span style={{ fontSize: 11.5, fontWeight: 800, color: isMonthSelected ? '#60A5FA' : '#F1F5F9' }}>
+                          <span style={{ fontSize: 11, fontWeight: 800, color: isMonthSelected ? '#60A5FA' : '#F1F5F9' }}>
                             {mName}
                           </span>
-                          <span style={{ fontSize: 8.5, color: '#64748B' }}>
+                          <span style={{ fontSize: 8, color: '#64748B' }}>
                             {mData.itemCount > 0 ? `${mData.itemCount} items` : '0 items'}
                           </span>
                         </div>
@@ -1541,11 +1561,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           style={{
                             display: 'grid',
                             gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                            gap: 1.5,
-                            fontSize: 7.5,
+                            gap: 1,
+                            fontSize: 7,
                             color: '#475569',
                             textAlign: 'center',
-                            marginBottom: 5
+                            margin: '1px 0 2px'
                           }}
                         >
                           {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
@@ -1781,10 +1801,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           key={`empty-${i}`}
                           style={{
                             height: '100%',
-                            minHeight: 50,
+                            minHeight: 0,
                             minWidth: 0,
                             background: 'rgba(15, 23, 42, 0.2)',
-                            borderRadius: 10
+                            borderRadius: 8
                           }}
                         />
                       ))}
@@ -1821,11 +1841,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                           else dActualExp += amt;
                         });
 
-                        const dayPaidDuesList = dayDuesList.filter(d => d.isPaid);
-                        const dayUnpaidDuesList = dayDuesList.filter(d => !d.isPaid);
-                        const dayPaidDuesTotal = dayPaidDuesList.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+                        const dayUnpaidDuesList = dayDuesList.filter(d => !d.isPaid && (Number(d.amount) || 0) > 0);
                         const dayUnpaidDuesTotal = dayUnpaidDuesList.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
-                        const allDuesPaid = dayDuesList.length > 0 && dayDuesList.every(d => d.isPaid);
                         const hasOverdueDues = dayUnpaidDuesList.some(d => d.isOverdue);
 
                         // Expected values on this day (strictly from planned transactions)
@@ -1848,7 +1865,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                             onMouseEnter={() => handleDateMouseEnter(dateObj)}
                             style={{
                               height: '100%',
-                              minHeight: 'clamp(62px, 8.2vh, 88px)',
+                              minHeight: 0,
                               minWidth: 0,
                               overflow: 'hidden',
                               borderRadius: 10,
@@ -1893,15 +1910,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                 {day}
                               </span>
 
-                              {filterDues && dayDuesList.length > 0 && (
+                              {filterDues && dayUnpaidDuesList.length > 0 && (
                                 <span
                                   style={{
                                     width: 5,
                                     height: 5,
                                     borderRadius: '50%',
-                                    background: allDuesPaid ? '#10B981' : hasOverdueDues ? '#EF4444' : '#F59E0B'
+                                    background: hasOverdueDues ? '#EF4444' : '#F59E0B'
                                   }}
-                                  title={allDuesPaid ? `${dayDuesList.length} Due(s) Paid` : `${dayDuesList.length} Due(s)`}
+                                  title={`${dayUnpaidDuesList.length} Due(s)`}
                                 />
                               )}
                             </div>
@@ -1916,9 +1933,6 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                               )}
                               {filterSavings && (dActualSav > 0 || (showExpectedAmounts && dayExpSavings > 0)) && (
                                 <div style={{ width: 14, height: 3, borderRadius: 2, background: '#8B5CF6', flexShrink: 0 }} title="Savings" />
-                              )}
-                              {filterDues && dayPaidDuesList.length > 0 && (
-                                <div style={{ width: 14, height: 3, borderRadius: 2, background: '#10B981', flexShrink: 0 }} title="Paid Loan / Due" />
                               )}
                               {filterDues && dayUnpaidDuesList.length > 0 && (
                                 <div
@@ -1992,25 +2006,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                                   </div>
                                 )}
 
-                                {/* Paid Dues */}
-                                {filterDues && dayPaidDuesTotal > 0 && (
-                                  <div
-                                    style={{
-                                      fontSize: 8.5,
-                                      fontWeight: 800,
-                                      color: '#10B981',
-                                      lineHeight: 1.1,
-                                      whiteSpace: 'nowrap',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis'
-                                    }}
-                                    title={`Paid Due: -${currencyService.format(dayPaidDuesTotal)}`}
-                                  >
-                                    -{formatCompactIndian(dayPaidDuesTotal)}
-                                  </div>
-                                )}
-
-                                {/* Unpaid / Upcoming Dues */}
+                                {/* Unpaid / Upcoming Dues (Strictly show only pending due > 0) */}
                                 {filterDues && dayUnpaidDuesTotal > 0 && (
                                   <div
                                     style={{
@@ -2089,24 +2085,25 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(3, 1fr)',
-                      gap: 8,
-                      marginTop: 10,
-                      paddingTop: 8,
-                      borderTop: '1px solid rgba(255, 255, 255, 0.08)'
+                      gap: 6,
+                      marginTop: 6,
+                      paddingTop: 6,
+                      borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                      flexShrink: 0
                     }}
                   >
                     <div
                       style={{
                         background: 'rgba(15, 23, 42, 0.6)',
                         border: '1px solid rgba(16, 185, 129, 0.2)',
-                        borderRadius: 10,
-                        padding: '6px 10px'
+                        borderRadius: 8,
+                        padding: '4px 8px'
                       }}
                     >
-                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                      <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 600, marginBottom: 1 }}>
                         Monthly income
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#10B981' }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 900, color: '#10B981' }}>
                         +{currencyService.format(showExpectedAmounts ? mData.expectedIncome : mData.income)}
                       </div>
                     </div>
@@ -2115,14 +2112,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       style={{
                         background: 'rgba(15, 23, 42, 0.6)',
                         border: '1px solid rgba(239, 68, 68, 0.2)',
-                        borderRadius: 10,
-                        padding: '6px 10px'
+                        borderRadius: 8,
+                        padding: '4px 8px'
                       }}
                     >
-                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                      <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 600, marginBottom: 1 }}>
                         Monthly outflow
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#EF4444' }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 900, color: '#EF4444' }}>
                         -{currencyService.format(showExpectedAmounts ? mData.expectedExpense : mData.expense)}
                       </div>
                     </div>
@@ -2131,14 +2128,14 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                       style={{
                         background: 'rgba(15, 23, 42, 0.6)',
                         border: '1px solid rgba(139, 92, 246, 0.2)',
-                        borderRadius: 10,
-                        padding: '6px 10px'
+                        borderRadius: 8,
+                        padding: '4px 8px'
                       }}
                     >
-                      <div style={{ fontSize: 9.5, color: '#94A3B8', fontWeight: 600, marginBottom: 2 }}>
+                      <div style={{ fontSize: 8.5, color: '#94A3B8', fontWeight: 600, marginBottom: 1 }}>
                         Monthly savings
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 900, color: '#8B5CF6' }}>
+                      <div style={{ fontSize: 11.5, fontWeight: 900, color: '#8B5CF6' }}>
                         +{currencyService.format(showExpectedAmounts ? (mData.expectedSavings || mData.savings) : mData.savings)}
                       </div>
                     </div>
@@ -2647,24 +2644,24 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </div>
 
           {/* Bottom Action Button */}
-          <div style={{ marginTop: 10 }}>
+          <div style={{ marginTop: 6, flexShrink: 0 }}>
             <button
               type="button"
               onClick={() => onOpenNewTransaction?.()}
               style={{
                 width: '100%',
-                padding: '9px 16px',
-                borderRadius: 10,
+                padding: '7px 12px',
+                borderRadius: 8,
                 border: 'none',
                 background: 'linear-gradient(135deg, #1E40AF 0%, #2563EB 100%)',
                 color: '#FFFFFF',
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: 800,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 6,
+                gap: 5,
                 boxShadow: '0 4px 12px rgba(37, 99, 235, 0.35)',
                 transition: 'all 0.15s ease'
               }}
