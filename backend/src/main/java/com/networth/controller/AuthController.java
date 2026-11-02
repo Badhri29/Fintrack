@@ -418,7 +418,15 @@ public class AuthController {
         // Dispatch Login Alert Email if enabled
         Optional<UserNotificationSetting> notifOpt = userNotificationSettingRepository.findByUserId(user.getId());
         if (notifOpt.isPresent() && Boolean.TRUE.equals(notifOpt.get().getLoginMail())) {
-            emailService.sendLoginAlertEmail(user.getEmail(), user.getName(), httpRequest.getRemoteAddr(), LocalDateTime.now().toString());
+            final String uEmail = user.getEmail();
+            final String uName = user.getName();
+            final String clientIp = httpRequest.getRemoteAddr();
+            final String timeNow = LocalDateTime.now().toString();
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    emailService.sendLoginAlertEmail(uEmail, uName, clientIp, timeNow);
+                } catch (Exception ignored) {}
+            });
         }
 
         String token = jwtUtil.generateToken(user.getId(), user.getEmail());

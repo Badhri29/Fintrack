@@ -566,7 +566,10 @@ export const CreditCardsView: React.FC = () => {
 
   // Month navigation / drag handlers
   const handleMonthMouseDown = (mIdx: number, e: React.MouseEvent) => {
-    if (e.ctrlKey || e.metaKey) return;
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      toggleMonth(mIdx);
+      return;
+    }
     setIsDraggingMonths(true);
     setDragStartMonth(mIdx);
     setSelectedMonths([mIdx]);
@@ -640,16 +643,62 @@ export const CreditCardsView: React.FC = () => {
     return false;
   };
 
-  // Filter ONLY credit-related transactions (Purchases + Bill Payments)
+  // Generate credit card EMI installment transactions from loans linked to credit cards
+  const emiTransactions = useMemo(() => {
+    const list: any[] = [];
+    allLoans.forEach(l => {
+      if (l.repaymentSource !== 'credit_card') return;
+      const cleanCardName = (l.linkedCardName || '').trim().toLowerCase();
+      const linkedCard = cards.find(c => c.id === l.linkedCardId) ||
+                         cards.find(c => cleanCardName && c.name.toLowerCase() === cleanCardName) ||
+                         cards.find(c => l.lender && c.name.toLowerCase().includes(l.lender.toLowerCase())) ||
+                         cards[0];
+      if (!linkedCard) return;
+
+      const metrics = calculateLoanEMIs(l);
+      const schedule = generateEmiSchedule(l, metrics);
+
+      schedule.forEach(s => {
+        list.push({
+          id: `emi-card-${l.id}-${s.index}`,
+          date: s.dateStr,
+          type: 'expense',
+          category: 'Debt Repayment',
+          subcategory: 'Credit Card EMI',
+          description: `${l.name} (EMI ${s.index}/${metrics.totalEmis})`,
+          amount: s.emiAmount || metrics.emi,
+          paymentMode: 'CREDIT',
+          card: linkedCard.name,
+          isEmiTx: true,
+          emiStatus: s.status,
+          loanId: l.id,
+          loanName: l.name,
+          loanIndex: s.index,
+          totalEmis: metrics.totalEmis
+        });
+      });
+    });
+    return list;
+  }, [allLoans, cards]);
+
+  // Filter credit-related transactions and merge active Credit Card EMIs
   const allCreditTransactions = useMemo(() => {
-    return actualTransactions.filter(t => {
+    const baseTx = actualTransactions.filter(t => {
       const pm = String(t.paymentMode || '').toLowerCase().trim();
       const isCreditMode = pm === 'credit' || pm === 'credit card' || pm === 'credit_card' || pm === 'card';
       const hasCard = Boolean(t.card && String(t.card).trim());
       const isBillPay = isBillPaymentTx(t);
       return isCreditMode || hasCard || isBillPay;
     });
-  }, [actualTransactions]);
+    const filteredEmis = emiTransactions.filter(emi => {
+      return !baseTx.some(t => {
+        const desc = (t.description || '').toLowerCase();
+        return desc.includes(emi.loanName.toLowerCase()) && desc.includes(`emi ${emi.loanIndex}`) && t.date === emi.date;
+      });
+    });
+
+    return [...baseTx, ...filteredEmis];
+  }, [actualTransactions, emiTransactions]);
 
   // Year-filtered credit transactions
   const yearCreditTransactions = useMemo(() => {
@@ -786,7 +835,7 @@ export const CreditCardsView: React.FC = () => {
         if (doesTxMatchCard(t, c)) {
           if (isPayment) {
             map[c.name].payments += amt;
-          } else if (t.type !== 'income') {
+          } else if (t.type !== 'income' && !t.isEmiTx) {
             map[c.name].purchases += amt;
           }
         }
@@ -797,8 +846,10 @@ export const CreditCardsView: React.FC = () => {
     cards.forEach(c => {
       const p = map[c.name].purchases;
       const pay = map[c.name].payments;
-      const netPurchases = Math.max(0, p - pay);
-      const loanBlocked = includeLoansInUtilization ? (map[c.name].blockedLoanPrincipal || 0) : 0;
+      const emi = map[c.name].activeLoanEmis || 0;
+      const netPurchases = Math.max(0, p + emi - pay);
+      const unbilledPrincipal = Math.max(0, (map[c.name].blockedLoanPrincipal || 0) - emi);
+      const loanBlocked = includeLoansInUtilization ? unbilledPrincipal : 0;
       const net = Math.max(0, netPurchases + loanBlocked);
       const avail = Math.max(0, c.limit - net);
       const util = c.limit > 0 ? (net / c.limit) * 100 : 0;
@@ -1523,9 +1574,7 @@ export const CreditCardsView: React.FC = () => {
               type="button"
               onMouseDown={(e) => handleMonthMouseDown(idx, e)}
               onMouseEnter={() => handleMonthMouseEnter(idx)}
-              onClick={(e) => {
-                if (e.ctrlKey || e.metaKey) toggleMonth(idx);
-              }}
+              onClick={(e) => e.preventDefault()}
               style={{
                 flex: 1,
                 minWidth: 76,
@@ -3013,6 +3062,11 @@ export const CreditCardsView: React.FC = () => {
                                 Bill Paid ✓
                               </span>
                             )}
+                            {tx.isEmiTx && (
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: tx.emiStatus === 'paid' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(139, 92, 246, 0.18)', color: tx.emiStatus === 'paid' ? '#10B981' : '#8B5CF6' }}>
+                                {tx.emiStatus === 'paid' ? 'EMI Paid ✓' : 'Card EMI'}
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td style={{ padding: '12px 14px' }}>
@@ -3037,6 +3091,11 @@ export const CreditCardsView: React.FC = () => {
                         </td>
                         <td style={{ padding: '12px 14px', textAlign: 'center' }}>
                           {!isViewOnly ? (
+                            tx.isEmiTx ? (
+                              <span style={{ fontSize: 11, color: '#8B5CF6', fontWeight: 600 }} title="Linked from Loan & EMI">
+                                Linked EMI
+                              </span>
+                            ) : (
                             <button
                               type="button"
                               onClick={() => handleDeleteTransaction(tx.id)}
@@ -3055,6 +3114,7 @@ export const CreditCardsView: React.FC = () => {
                             >
                               <Trash2 size={15} />
                             </button>
+                          )
                           ) : (
                             <span style={{ fontSize: 11, color: 'var(--text-muted)', fontStyle: 'italic' }}>View only</span>
                           )}

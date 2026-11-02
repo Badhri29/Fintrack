@@ -20,6 +20,10 @@ import { InactivityTracker } from './components/InactivityTracker';
 import { ToastNotification, showToast } from './components/ToastNotification';
 import { AlertTriangle, Lock } from 'lucide-react';
 import api from './services/api';
+import { bankAccountService } from './services/bankAccountService';
+import { cardService } from './services/cardService';
+import { loanService } from './services/loanService';
+import { budgetService } from './services/budgetService';
 
 function AppContent() {
   const { user, loading, maintenanceInfo, isAdmin } = useAuth();
@@ -33,6 +37,29 @@ function AppContent() {
   const [pendingRequests, setPendingRequests] = useState<string[]>([]);
   const [requestingUpgrade, setRequestingUpgrade] = useState<boolean>(false);
   const [selectedLoanIdForView, setSelectedLoanIdForView] = useState<string | null>(null);
+
+  // Keep-alive state: retains mounted tabs so tab navigation is instantaneous (<10ms)
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['Dashboard', activeTab]));
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      const canonical = (activeTab === 'Budget' || activeTab === 'Transactions') ? 'Budget & Transactions' : activeTab;
+      if (prev.has(canonical)) return prev;
+      const next = new Set(prev);
+      next.add(canonical);
+      return next;
+    });
+  }, [activeTab]);
+
+  // Initial background data fetch from server APIs
+  useEffect(() => {
+    if (!user) return;
+    bankAccountService.fetchAccountsFromServer(user.email).catch(() => {});
+    bankAccountService.fetchCashBalanceFromServer(user.email).catch(() => {});
+    cardService.fetchCardsFromServer(user.email).catch(() => {});
+    loanService.fetchLoansFromServer(user.email).catch(() => {});
+    budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email).catch(() => {});
+  }, [user]);
 
   // Fetch pending user access requests
   useEffect(() => {
@@ -216,213 +243,227 @@ function AppContent() {
         }}
       />
 
-      {/* If Dashboard view is restricted by Admin */}
-      {activeTab === 'Dashboard' && user.canAccessDashboard === false ? (
-        <div
-          style={{
-            maxWidth: 600,
-            margin: '80px auto',
-            padding: 40,
-            background: 'var(--bg-card)',
-            border: '1px solid var(--border-color)',
-            borderRadius: 20,
-            textAlign: 'center',
-            boxShadow: '0 12px 30px rgba(0,0,0,0.3)'
-          }}
-        >
-          <div
-            style={{
-              width: 56,
-              height: 56,
-              borderRadius: '50%',
-              background: 'rgba(239, 68, 68, 0.15)',
-              color: '#EF4444',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 16px'
-            }}
-          >
-            <Lock size={28} />
-          </div>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px' }}>
-            Dashboard Access Restricted
-          </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
-            Access to the financial dashboard is currently restricted for your account by the administrator. You can submit an access request to unlock this view.
-          </p>
-
-          {hasPendingDashboardRequest ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
-                ✓ Access Request Pending Administrator Approval
-              </div>
-              <button
-                type="button"
-                disabled
-                style={{
-                  padding: '12px 24px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(100, 116, 139, 0.3)',
-                  background: 'rgba(100, 116, 139, 0.15)',
-                  color: 'var(--text-secondary)',
-                  fontWeight: 700,
-                  fontSize: 14,
-                  cursor: 'not-allowed'
-                }}
-              >
-                Pending Administrator Approval
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={handleRequestDashboardAccess}
-              style={{
-                background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
-                color: '#FFF',
-                border: 'none',
-                borderRadius: 10,
-                padding: '12px 24px',
-                fontSize: 14,
-                fontWeight: 700,
-                cursor: 'pointer',
-                boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
-              }}
-            >
-              Request Dashboard Access
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          {activeTab === 'Dashboard' && (
-            <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
-          )}
-        </>
-      )}
-
-      {(activeTab === 'Budget & Transactions' || activeTab === 'Budget' || activeTab === 'Transactions') && (
-        <BudgetTransactionsView
-          key={refreshKey}
-          globalSearchQuery={globalSearchQuery}
-          onOpenNewTransaction={openTransactionModal}
-        />
-      )}
-
-      {activeTab === 'Calendar' && (
-        <CalendarView
-          key={refreshKey}
-          onOpenNewTransaction={openTransactionModal}
-          onNavigateToLoan={(loanId) => {
-            setSelectedLoanIdForView(loanId);
-            setActiveTab('Loans & EMI');
-          }}
-        />
-      )}
-
-      {activeTab === 'Credit Cards' && (
-        <CreditCardsView key={refreshKey} />
-      )}
-
-      {activeTab === 'Accounts' && (
-        <AccountsView key={refreshKey} />
-      )}
-
-      {activeTab === 'Loans & EMI' && (
-        user.subscriptionTier === 'FREE' ? (
-          <div
-            style={{
-              maxWidth: 600,
-              margin: '80px auto',
-              padding: 40,
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 20,
-              textAlign: 'center',
-              boxShadow: '0 12px 30px rgba(0,0,0,0.3)'
-            }}
-          >
+      {/* Keep-alive tab containers for instant zero-latency view switching */}
+      {visitedTabs.has('Dashboard') && (
+        <div style={{ display: activeTab === 'Dashboard' ? 'block' : 'none' }}>
+          {user.canAccessDashboard === false ? (
             <div
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: '50%',
-                background: 'rgba(124, 58, 237, 0.15)',
-                color: '#7C3AED',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                margin: '0 auto 16px'
+                maxWidth: 600,
+                margin: '80px auto',
+                padding: 40,
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 20,
+                textAlign: 'center',
+                boxShadow: '0 12px 30px rgba(0,0,0,0.3)'
               }}
             >
-              <Lock size={28} />
-            </div>
-            <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px' }}>
-              Loans & EMI Tracker Requires PRO Plan
-            </h2>
-            <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
-              Your account is currently on the <strong>FREE Basic Plan</strong>. Tracking loans, amortization schedules, and principal payoff progress is exclusively unlocked on <strong>PRO</strong> and <strong>ENTERPRISE</strong> packages.
-            </p>
-
-            {hasPendingUpgrade ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
-                  ✓ Upgrade request has been sent, approval is pending
-                </div>
-                <button
-                  type="button"
-                  disabled
-                  style={{
-                    padding: '12px 24px',
-                    borderRadius: 10,
-                    border: '1px solid rgba(100, 116, 139, 0.3)',
-                    background: 'rgba(100, 116, 139, 0.15)',
-                    color: 'var(--text-secondary)',
-                    fontWeight: 700,
-                    fontSize: 14,
-                    cursor: 'not-allowed'
-                  }}
-                >
-                  Pending Administrator Approval
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleRequestProUpgrade}
-                disabled={requestingUpgrade}
+              <div
                 style={{
-                  background: 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)',
-                  color: '#FFF',
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '12px 28px',
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)'
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  color: '#EF4444',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px'
                 }}
               >
-                {requestingUpgrade ? 'Submitting Upgrade Request...' : 'Request Upgrade to PRO Plan'}
-              </button>
-            )}
-          </div>
-        ) : (
-          <LoansEmiView
+                <Lock size={28} />
+              </div>
+              <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px' }}>
+                Dashboard Access Restricted
+              </h2>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
+                Access to the financial dashboard is currently restricted for your account by the administrator. You can submit an access request to unlock this view.
+              </p>
+
+              {hasPendingDashboardRequest ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                    ✓ Access Request Pending Administrator Approval
+                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      padding: '12px 24px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(100, 116, 139, 0.3)',
+                      background: 'rgba(100, 116, 139, 0.15)',
+                      color: 'var(--text-secondary)',
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: 'not-allowed'
+                    }}
+                  >
+                    Pending Administrator Approval
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRequestDashboardAccess}
+                  style={{
+                    background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                    color: '#FFF',
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '12px 24px',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(37, 99, 235, 0.4)'
+                  }}
+                >
+                  Request Dashboard Access
+                </button>
+              )}
+            </div>
+          ) : (
+            <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
+          )}
+        </div>
+      )}
+
+      {visitedTabs.has('Budget & Transactions') && (
+        <div style={{ display: (activeTab === 'Budget & Transactions' || activeTab === 'Budget' || activeTab === 'Transactions') ? 'block' : 'none' }}>
+          <BudgetTransactionsView
             key={refreshKey}
-            initialLoanId={selectedLoanIdForView}
-            onClearInitialLoanId={() => setSelectedLoanIdForView(null)}
+            globalSearchQuery={globalSearchQuery}
+            onOpenNewTransaction={openTransactionModal}
           />
-        )
+        </div>
       )}
 
-      {activeTab === 'Access' && !user?.isMember && !user?.parentUserId && (
-        <AccountAccessView key={refreshKey} />
+      {visitedTabs.has('Calendar') && (
+        <div style={{ display: activeTab === 'Calendar' ? 'block' : 'none' }}>
+          <CalendarView
+            key={refreshKey}
+            onOpenNewTransaction={openTransactionModal}
+            onNavigateToLoan={(loanId) => {
+              setSelectedLoanIdForView(loanId);
+              setActiveTab('Loans & EMI');
+            }}
+          />
+        </div>
       )}
 
-      {activeTab === 'Settings' && !user?.isMember && !user?.parentUserId && (
-        <SettingsView key={refreshKey} />
+      {visitedTabs.has('Credit Cards') && (
+        <div style={{ display: activeTab === 'Credit Cards' ? 'block' : 'none' }}>
+          <CreditCardsView key={refreshKey} />
+        </div>
+      )}
+
+      {visitedTabs.has('Accounts') && (
+        <div style={{ display: activeTab === 'Accounts' ? 'block' : 'none' }}>
+          <AccountsView key={refreshKey} />
+        </div>
+      )}
+
+      {visitedTabs.has('Loans & EMI') && (
+        <div style={{ display: activeTab === 'Loans & EMI' ? 'block' : 'none' }}>
+          {user.subscriptionTier === 'FREE' ? (
+            <div
+              style={{
+                maxWidth: 600,
+                margin: '80px auto',
+                padding: 40,
+                background: 'var(--bg-card)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 20,
+                textAlign: 'center',
+                boxShadow: '0 12px 30px rgba(0,0,0,0.3)'
+              }}
+            >
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: 'rgba(124, 58, 237, 0.15)',
+                  color: '#7C3AED',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px'
+                }}
+              >
+                <Lock size={28} />
+              </div>
+              <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px' }}>
+                Loans & EMI Tracker Requires PRO Plan
+              </h2>
+              <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
+                Your account is currently on the <strong>FREE Basic Plan</strong>. Tracking loans, amortization schedules, and principal payoff progress is exclusively unlocked on <strong>PRO</strong> and <strong>ENTERPRISE</strong> packages.
+              </p>
+
+              {hasPendingUpgrade ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700 }}>
+                    ✓ Upgrade request has been sent, approval is pending
+                  </div>
+                  <button
+                    type="button"
+                    disabled
+                    style={{
+                      padding: '12px 24px',
+                      borderRadius: 10,
+                      border: '1px solid rgba(100, 116, 139, 0.3)',
+                      background: 'rgba(100, 116, 139, 0.15)',
+                      color: 'var(--text-secondary)',
+                      fontWeight: 700,
+                      fontSize: 14,
+                      cursor: 'not-allowed'
+                    }}
+                  >
+                    Pending Administrator Approval
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleRequestProUpgrade}
+                  disabled={requestingUpgrade}
+                  style={{
+                    background: 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)',
+                    color: '#FFF',
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '12px 28px',
+                    fontSize: 14,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(124, 58, 237, 0.4)'
+                  }}
+                >
+                  {requestingUpgrade ? 'Submitting Upgrade Request...' : 'Request Upgrade to PRO Plan'}
+                </button>
+              )}
+            </div>
+          ) : (
+            <LoansEmiView
+              key={refreshKey}
+              initialLoanId={selectedLoanIdForView}
+              onClearInitialLoanId={() => setSelectedLoanIdForView(null)}
+            />
+          )}
+        </div>
+      )}
+
+      {visitedTabs.has('Access') && !user?.isMember && !user?.parentUserId && (
+        <div style={{ display: activeTab === 'Access' ? 'block' : 'none' }}>
+          <AccountAccessView key={refreshKey} />
+        </div>
+      )}
+
+      {visitedTabs.has('Settings') && !user?.isMember && !user?.parentUserId && (
+        <div style={{ display: activeTab === 'Settings' ? 'block' : 'none' }}>
+          <SettingsView key={refreshKey} />
+        </div>
       )}
 
       <TransactionModal

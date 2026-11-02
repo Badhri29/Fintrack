@@ -130,7 +130,7 @@ public class TransactionController {
                 if (cat.equalsIgnoreCase("Investments") || cat.equalsIgnoreCase("Savings")
                         || cat.equalsIgnoreCase("Mutual Funds") || cat.equalsIgnoreCase("Emergency Fund")) {
                     t.setType("savings");
-                    transactionRepository.save(t);
+                    // In-memory type mapping - removed slow synchronous remote DB write loop in GET
                 }
             }
         }
