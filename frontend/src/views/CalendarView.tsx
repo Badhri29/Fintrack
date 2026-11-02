@@ -671,7 +671,11 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       setDragStartDate(null);
     };
     window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('touchend', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+      window.removeEventListener('touchend', handleGlobalMouseUp);
+    };
   }, []);
 
   // Total activities across selected years
@@ -684,8 +688,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   }, [transactions, selectedYears]);
 
   // Year drag & click handler
-  const handleYearMouseDown = (yr: number, event: React.MouseEvent) => {
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+  const handleYearMouseDown = (yr: number, event?: React.MouseEvent) => {
+    if (event && (event.shiftKey || event.ctrlKey || event.metaKey)) {
       setSelectedYears(prev => {
         if (prev.includes(yr)) {
           if (prev.length === 1) return prev;
@@ -714,10 +718,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   // Month drag & click handler (multi-select supported)
-  const handleMonthMouseDown = (mIdx: number, event: React.MouseEvent) => {
+  const handleMonthMouseDown = (mIdx: number, event?: React.MouseEvent) => {
     const primaryYear = selectedYears[0] || todayYear;
 
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+    if (event && (event.shiftKey || event.ctrlKey || event.metaKey)) {
       setSelectedMonths(prev => {
         let next: number[];
         if (prev.includes(mIdx)) {
@@ -762,8 +766,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
   };
 
   // Date drag & click handler (supports dragging ranges across days)
-  const handleDateMouseDown = (dateObj: Date, event: React.MouseEvent) => {
-    if (event.shiftKey || event.ctrlKey || event.metaKey) {
+  const handleDateMouseDown = (dateObj: Date, event?: React.MouseEvent) => {
+    if (event && (event.shiftKey || event.ctrlKey || event.metaKey)) {
       const currentStart = selectedDateRange.start;
       const s = currentStart <= dateObj ? currentStart : dateObj;
       const e = currentStart <= dateObj ? dateObj : currentStart;
@@ -1161,20 +1165,213 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           .fintrack-calendar-outer {
             height: auto !important;
             max-height: none !important;
-            overflow: visible !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            padding: 8px 10px 90px 10px !important;
           }
+
+          .fintrack-calendar-top-header {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 10px !important;
+            margin-bottom: 12px !important;
+          }
+
+          .fintrack-calendar-top-filters {
+            width: 100% !important;
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            padding-bottom: 4px !important;
+            flex-wrap: nowrap !important;
+            scrollbar-width: none;
+          }
+          .fintrack-calendar-top-filters::-webkit-scrollbar {
+            display: none;
+          }
+
+          .fintrack-calendar-filter-pills {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-shrink: 0 !important;
+          }
+
           .fintrack-calendar-grid-container {
-            grid-template-columns: 1fr !important;
+            display: flex !important;
+            flex-direction: column !important;
+            width: 100% !important;
             height: auto !important;
             max-height: none !important;
             overflow: visible !important;
-            gap: 14px;
+            gap: 14px !important;
+          }
+
+          /* PANEL 1: Mobile Horizontal Year Selection Bar */
+          .fintrack-calendar-year-panel {
+            flex-direction: row !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            height: auto !important;
+            width: 100% !important;
+            padding: 8px 12px !important;
+            border-radius: 12px !important;
+            box-sizing: border-box !important;
+            gap: 10px !important;
+          }
+
+          .fintrack-calendar-year-inner {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            gap: 10px !important;
+            flex: 1 !important;
+            min-width: 0 !important;
+            width: auto !important;
+          }
+
+          .fintrack-calendar-year-title {
+            font-size: 11px !important;
+            margin-bottom: 0 !important;
+            text-align: left !important;
+            color: #94A3B8 !important;
+            flex-shrink: 0 !important;
+            font-weight: 800 !important;
+            letter-spacing: 0.5px !important;
+          }
+
+          .fintrack-calendar-year-list {
+            display: flex !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+            gap: 6px !important;
+            width: auto !important;
+            flex: 1 !important;
+            padding: 2px 0 !important;
+            scrollbar-width: none !important;
+          }
+          .fintrack-calendar-year-list::-webkit-scrollbar {
+            display: none !important;
+          }
+
+          .fintrack-calendar-year-btn {
+            width: auto !important;
+            min-width: 58px !important;
+            padding: 6px 12px !important;
+            font-size: 12px !important;
+            border-radius: 8px !important;
+            flex-shrink: 0 !important;
+          }
+
+          .fintrack-calendar-year-events {
+            border-top: none !important;
+            border-left: 1px solid rgba(255, 255, 255, 0.1) !important;
+            padding-top: 0 !important;
+            padding-left: 10px !important;
+            width: auto !important;
+            flex-shrink: 0 !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            justify-content: center !important;
+          }
+
+          /* PANEL 2: Mobile 3x4 Month Selection Grid */
+          .fintrack-calendar-month-panel {
+            height: auto !important;
+            overflow: visible !important;
+            padding: 12px 10px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          .fintrack-calendar-month-grid {
+            display: grid !important;
+            grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+            grid-template-rows: auto !important;
+            gap: 8px !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
+
+          .fintrack-calendar-month-card {
+            min-height: 80px !important;
+            height: auto !important;
+            padding: 6px !important;
+            border-radius: 10px !important;
+          }
+
+          /* PANEL 3: Mobile Date Selection Grid */
+          .fintrack-calendar-dates-panel {
+            height: auto !important;
+            overflow: visible !important;
+            padding: 12px 10px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          .fintrack-calendar-dates-grid {
+            display: grid !important;
+            grid-template-columns: repeat(7, minmax(0, 1fr)) !important;
+            gap: 4px !important;
+            height: auto !important;
+          }
+
+          .fintrack-calendar-date-cell {
+            min-height: 52px !important;
+            padding: 4px 3px !important;
+            border-radius: 6px !important;
+          }
+
+          .fintrack-calendar-month-summary {
+            display: grid !important;
+            grid-template-columns: repeat(3, 1fr) !important;
+            gap: 6px !important;
+            margin-top: 10px !important;
+            padding-top: 8px !important;
+          }
+
+          /* PANEL 4: Mobile Budget Details & Activities */
+          .fintrack-calendar-day-panel {
+            height: auto !important;
+            overflow: visible !important;
+            padding: 14px 12px !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+          }
+
+          .fintrack-calendar-activities-list {
+            max-height: 400px !important;
+            overflow-y: auto !important;
+            -webkit-overflow-scrolling: touch !important;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .fintrack-calendar-month-grid {
+            gap: 6px !important;
+          }
+          .fintrack-calendar-month-card {
+            min-height: 72px !important;
+            padding: 4px !important;
+          }
+          .fintrack-calendar-dates-grid {
+            gap: 2px !important;
+          }
+          .fintrack-calendar-date-cell {
+            min-height: 48px !important;
+            padding: 2px 1px !important;
           }
         }
       `}</style>
 
       {/* TOP HEADER: Financial Calendar Title & Legend & Expected Toggle */}
       <div
+        className="fintrack-calendar-top-header"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -1210,8 +1407,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         </div>
 
         {/* Interactive Filter Pills & Expected Amounts Toggle */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700 }}>
+        <div className="fintrack-calendar-top-filters" style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div className="fintrack-calendar-filter-pills" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700 }}>
             {/* 1. Income Filter */}
             <button
               type="button"
@@ -1345,9 +1542,10 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
       {/* 4-PANEL LAYOUT CONTAINER */}
       <div className="fintrack-calendar-grid-container">
         {/* ============================================================== */}
-        {/* PANEL 1: VERTICAL YEAR SELECTOR                                */}
+        {/* PANEL 1: YEAR SELECTOR (Horizontal on mobile, Vertical on desktop) */}
         {/* ============================================================== */}
         <div
+          className="fintrack-calendar-year-panel"
           style={{
             background: '#0D1322',
             borderRadius: 12,
@@ -1362,8 +1560,9 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
             boxSizing: 'border-box'
           }}
         >
-          <div style={{ width: '100%' }}>
+          <div className="fintrack-calendar-year-inner" style={{ width: '100%' }}>
             <div
+              className="fintrack-calendar-year-title"
               style={{
                 fontSize: 8,
                 fontWeight: 800,
@@ -1377,13 +1576,15 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
               YEAR
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
+            <div className="fintrack-calendar-year-list" style={{ display: 'flex', flexDirection: 'column', gap: 4, width: '100%' }}>
               {availableYears.map(yr => {
                 const isSelected = selectedYears.includes(yr);
                 return (
                   <button
                     key={yr}
                     type="button"
+                    className="fintrack-calendar-year-btn"
+                    onClick={(e) => handleYearMouseDown(yr, e)}
                     onMouseDown={(e) => handleYearMouseDown(yr, e)}
                     onMouseEnter={() => handleYearMouseEnter(yr)}
                     style={{
@@ -1424,6 +1625,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
           </div>
 
           <div
+            className="fintrack-calendar-year-events"
             style={{
               textAlign: 'center',
               paddingTop: 6,
@@ -1444,6 +1646,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         {/* PANEL 2: 12-MONTH CARDS GRID (Fixed Height, No Scrollbar)      */}
         {/* ============================================================== */}
         <div
+          className="fintrack-calendar-month-panel"
           style={{
             background: '#0D1322',
             borderRadius: 14,
@@ -1497,6 +1700,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                 {/* 3x4 Grid of Mini Month Cards: fixed 4 rows, NO vertical scroll */}
                 <div
+                  className="fintrack-calendar-month-grid"
                   style={{
                     display: 'grid',
                     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
@@ -1515,6 +1719,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                     return (
                       <div
                         key={mName}
+                        className="fintrack-calendar-month-card"
+                        onClick={(e) => handleMonthMouseDown(mIdx, e)}
                         onMouseDown={(e) => handleMonthMouseDown(mIdx, e)}
                         onMouseEnter={() => handleMonthMouseEnter(mIdx)}
                         style={{
@@ -1677,6 +1883,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
         {/* PANEL 3: CALENDAR DATES GRID (Calendar View Only)              */}
         {/* ============================================================== */}
         <div
+          className="fintrack-calendar-dates-panel"
           style={{
             background: '#0D1322',
             borderRadius: 14,
@@ -1787,6 +1994,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                     {/* Calendar Dates Grid with Strict Equal Column Widths */}
                     <div
+                      className="fintrack-calendar-dates-grid"
                       style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
@@ -1861,6 +2069,8 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
                         return (
                           <div
                             key={day}
+                            className="fintrack-calendar-date-cell"
+                            onClick={(e) => handleDateMouseDown(dateObj, e)}
                             onMouseDown={(e) => handleDateMouseDown(dateObj, e)}
                             onMouseEnter={() => handleDateMouseEnter(dateObj)}
                             style={{
@@ -2082,6 +2292,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
                   {/* Panel 3 Footer Summary Cards: Monthly Income, Monthly Outflow, Monthly Savings */}
                   <div
+                    className="fintrack-calendar-month-summary"
                     style={{
                       display: 'grid',
                       gridTemplateColumns: 'repeat(3, 1fr)',
@@ -2334,6 +2545,7 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
 
             {/* Scrollable Activities Ledger */}
             <div
+              className="fintrack-calendar-activities-list"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
