@@ -18,6 +18,7 @@ import { TempPasswordResetModal } from './components/TempPasswordResetModal';
 import { CurrencyOnboardingModal } from './components/CurrencyOnboardingModal';
 import { InactivityTracker } from './components/InactivityTracker';
 import { ToastNotification, showToast } from './components/ToastNotification';
+import { GlobalDueTicker } from './components/GlobalDueTicker';
 import { AlertTriangle, Lock } from 'lucide-react';
 import api from './services/api';
 import { bankAccountService } from './services/bankAccountService';
@@ -92,6 +93,26 @@ function AppContent() {
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 20000);
     return () => clearInterval(interval);
+  }, [user]);
+
+  // Synchronize cloud data (Cards, Loans, Accounts, Budgets) from MySQL backend across devices
+  useEffect(() => {
+    if (!user || user.role === 'SUPER_ADMIN') return;
+    const syncAllUserData = async () => {
+      try {
+        await Promise.allSettled([
+          cardService.fetchCardsFromServer(user.email),
+          loanService.fetchLoansFromServer(user.email),
+          bankAccountService.fetchAccountsFromServer(user.email),
+          bankAccountService.fetchCashBalanceFromServer(user.email),
+          budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email)
+        ]);
+        setRefreshKey(k => k + 1);
+      } catch (e) {
+        console.debug('Cloud sync notice:', e);
+      }
+    };
+    syncAllUserData();
   }, [user]);
 
   // Redirect member away from Access tab if selected
@@ -240,6 +261,15 @@ function AppContent() {
         onGlobalSearch={(query) => {
           setGlobalSearchQuery(query);
           setActiveTab('Budget & Transactions');
+        }}
+      />
+
+      {/* Persistent Global Upcoming Dues Ticker Bar right below Navbar across all pages */}
+      <GlobalDueTicker
+        userEmail={user?.email}
+        onNavigateToTab={(tab, detailId) => {
+          setActiveTab(tab);
+          if (tab === 'Loans & EMI' && detailId) setSelectedLoanIdForView(detailId);
         }}
       />
 
