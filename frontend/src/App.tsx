@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
@@ -96,8 +96,11 @@ function AppContent() {
   }, [user]);
 
   // Synchronize cloud data (Cards, Loans, Accounts, Budgets) from MySQL backend across devices
+  const syncInitiatedRef = useRef(false);
   useEffect(() => {
     if (!user || user.role === 'SUPER_ADMIN') return;
+    if (syncInitiatedRef.current) return;
+    syncInitiatedRef.current = true;
     const syncAllUserData = async () => {
       try {
         await Promise.allSettled([
@@ -107,13 +110,13 @@ function AppContent() {
           bankAccountService.fetchCashBalanceFromServer(user.email),
           budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email)
         ]);
-        setRefreshKey(k => k + 1);
+        // Cloud sync completed
       } catch (e) {
         console.debug('Cloud sync notice:', e);
       }
     };
     syncAllUserData();
-  }, [user]);
+  }, [user?.email]);
 
   // Redirect member away from Access tab if selected
   useEffect(() => {
@@ -362,7 +365,6 @@ function AppContent() {
       {visitedTabs.has('Budget & Transactions') && (
         <div style={{ display: (activeTab === 'Budget & Transactions' || activeTab === 'Budget' || activeTab === 'Transactions') ? 'block' : 'none' }}>
           <BudgetTransactionsView
-            key={refreshKey}
             globalSearchQuery={globalSearchQuery}
             onOpenNewTransaction={openTransactionModal}
           />

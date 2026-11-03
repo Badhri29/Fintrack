@@ -774,12 +774,19 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   }, [globalSearchQuery]);
 
   // Load stored budgets when year changes or user changes
+  const hasSyncedBudgetsRef = useRef<Record<string, boolean>>({});
   useEffect(() => {
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
     }
     const retrievedBudget = budgetService.getBudgetMap(selectedYear, user?.email);
-    setBudgetValues(retrievedBudget);
+    if (retrievedBudget && Object.keys(retrievedBudget).length > 0) {
+      setBudgetValues((prev) => ({ ...prev, ...retrievedBudget }));
+    }
+
+    const syncKey = `${user?.email || 'guest'}_${selectedYear}`;
+    if (hasSyncedBudgetsRef.current[syncKey]) return;
+    hasSyncedBudgetsRef.current[syncKey] = true;
 
     // Fetch and sync budgets with backend database
     budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
@@ -822,7 +829,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       seedDemoBudgetData();
     }
     const retrievedTx = getMigratedBudgetTransactions(selectedYear, user?.email);
-    setBudgetTransactions(retrievedTx);
+    if (retrievedTx && Object.keys(retrievedTx).length > 0) {
+      setBudgetTransactions((prev) => ({ ...prev, ...retrievedTx }));
+    }
   }, [selectedYear, user?.email]);
 
   // Load data from backend
@@ -835,7 +844,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
   }, [selectedYear, user?.email]);
 
+  const isFetchingDataRef = useRef<boolean>(false);
   const loadAllData = async () => {
+    if (isFetchingDataRef.current) return;
+    isFetchingDataRef.current = true;
     setLoadingTransactions(true);
     try {
       const [transactionsResult, categoriesResult, subcategoriesResult] = await Promise.all([
@@ -870,8 +882,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       setSections(makeSections(txs, cats, subcats));
     } catch (err) {
       console.error('Data load notice:', err);
-      setSections(makeSections([], [], []));
     } finally {
+      isFetchingDataRef.current = false;
       setLoadingTransactions(false);
     }
   };
@@ -4106,7 +4118,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
                   <button
                     type="button"
-                    className="segmented-btn"
+                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
                     onClick={() => scrollToSection('budget')}
                     style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
                     title="Move to Budget Planner"
@@ -4116,7 +4128,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    className="segmented-btn active"
+                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
                     onClick={() => scrollToSection('transactions')}
                     style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
                     title="Transactions Ledger"
