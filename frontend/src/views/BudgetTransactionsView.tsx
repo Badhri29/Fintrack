@@ -29,7 +29,6 @@ import {
   ExternalLink,
   Calendar,
   Building2,
-  Smartphone,
   Monitor
 } from 'lucide-react';
 import api from '../services/api';
@@ -675,6 +674,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   // Scroll to section helper
   const scrollToSection = (sec: 'budget' | 'transactions') => {
+    setActiveSection(sec);
     setBudgetTransactionDrafts({});
     if (viewMode !== 'combined') {
       setViewMode('combined');
@@ -711,8 +711,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     const handleScroll = () => {
       if (!transactionsSectionRef.current) return;
       const txRect = transactionsSectionRef.current.getBoundingClientRect();
-      // If transactions section top is near the top sticky area (<= 140px)
-      if (txRect.top <= 140) {
+      // If transactions section has reached upper screen area (<= 320px)
+      if (txRect.top <= 320) {
         setActiveSection('transactions');
       } else {
         setActiveSection('budget');
@@ -784,7 +784,33 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     // Fetch and sync budgets with backend database
     budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
       if (serverBudgets && Object.keys(serverBudgets).length > 0) {
-        setBudgetValues((prev) => ({ ...prev, ...serverBudgets }));
+        const serverTxs: Record<string, TransactionDetail[]> = {};
+        const serverValues: Record<string, number[]> = {};
+
+        Object.entries(serverBudgets).forEach(([key, val]: [string, any]) => {
+          if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
+            const cleanKey = key.startsWith('sub:') ? key.replace('sub:', '') : key;
+            serverTxs[cleanKey] = val;
+            serverTxs[key] = val;
+          } else if (Array.isArray(val)) {
+            serverValues[key] = val;
+          }
+        });
+
+        if (Object.keys(serverValues).length > 0) {
+          setBudgetValues((prev) => ({ ...prev, ...serverValues }));
+        }
+
+        if (Object.keys(serverTxs).length > 0) {
+          setBudgetTransactions((prev) => {
+            const merged = { ...prev, ...serverTxs };
+            const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+            try {
+              localStorage.setItem(txKey, JSON.stringify(merged));
+            } catch {}
+            return merged;
+          });
+        }
       } else if (retrievedBudget && Object.keys(retrievedBudget).length > 0) {
         budgetService.saveBudgetMap(selectedYear, retrievedBudget, user?.email);
       }
@@ -1334,12 +1360,17 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
   const getLineBudgetTxs = (line: Line): TransactionDetail[] => {
     if (budgetTransactions[line.id]?.length) return budgetTransactions[line.id];
+    if (budgetTransactions[`sub:${line.id}`]?.length) return budgetTransactions[`sub:${line.id}`];
+    if (budgetTransactions[`sub-${line.id}`]?.length) return budgetTransactions[`sub-${line.id}`];
     if (line.name && budgetTransactions[line.name]?.length) return budgetTransactions[line.name];
     const matchKey = Object.keys(budgetTransactions).find(
       (k) =>
         k.toLowerCase() === line.name.toLowerCase() ||
         k.toLowerCase().endsWith(':' + line.name.toLowerCase()) ||
-        k.toLowerCase().startsWith(line.name.toLowerCase() + ':')
+        k.toLowerCase().startsWith(line.name.toLowerCase() + ':') ||
+        k === `sub:${line.id}` ||
+        k === `sub-${line.id}` ||
+        k === String(line.id)
     );
     if (matchKey && budgetTransactions[matchKey]?.length) return budgetTransactions[matchKey];
     return [];
@@ -1635,6 +1666,13 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       JSON.stringify(next),
     );
     window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed'));
+
+    // Sync to backend database
+    api.post('/budgets', {
+      year: selectedYear,
+      categoryKey: `sub:${subcategory.id}`,
+      monthlyAmounts: nextList
+    }).catch(err => console.debug('Sync budget line item notice:', err?.message));
 
     cancelBudgetTransactionDraft(subcategory);
   };
@@ -3590,29 +3628,6 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           {/* Sticky Header for Planner controls */}
           <div className="sticky-section-header budget-section-sticky-bar">
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              {/* Desktop Mobile View preview toggle */}
-              <button
-                type="button"
-                onClick={() => setForceMobileView(true)}
-                style={{
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  color: '#94A3B8',
-                  borderRadius: 8,
-                  padding: '4px 10px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 5,
-                  cursor: 'pointer'
-                }}
-                title="Preview Mobile View"
-              >
-                <Smartphone size={13} />
-                <span>Mobile View</span>
-              </button>
-
               {viewMode === 'combined' && (
                 <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
                   <button
@@ -3904,7 +3919,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 <div className="segmented-control section-nav-pills" style={{ padding: 2 }}>
                   <button
                     type="button"
-                    className={`segmented-btn ${activeSection === 'budget' ? 'active' : ''}`}
+                    className="segmented-btn"
                     onClick={() => scrollToSection('budget')}
                     style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
                     title="Move to Budget Planner"
@@ -3914,10 +3929,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   </button>
                   <button
                     type="button"
-                    className={`segmented-btn ${activeSection === 'transactions' ? 'active' : ''}`}
+                    className="segmented-btn active"
                     onClick={() => scrollToSection('transactions')}
                     style={{ padding: '4px 10px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}
-                    title="Move to Transactions"
+                    title="Transactions Ledger"
                   >
                     <ReceiptText size={13} />
                     <span>Transactions</span>
