@@ -123,6 +123,21 @@ public class BudgetController {
         return ResponseEntity.ok(Map.of("success", true, "year", year, "count", toSave.size()));
     }
 
+    @DeleteMapping("/category")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> deleteBudgetCategory(@AuthenticationPrincipal UserPrincipal principal,
+                                                                    @RequestParam Integer year,
+                                                                    @RequestParam String categoryKey) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+        if (principal.isViewOnly()) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "message", "View-only members cannot delete budget"));
+        }
+        budgetRepository.deleteByUserIdAndYearAndCategoryKey(principal.getId(), year, categoryKey);
+        return ResponseEntity.ok(Map.of("success", true, "message", "Budget category deleted"));
+    }
+
     @DeleteMapping
     @Transactional
     public ResponseEntity<Map<String, Object>> resetBudget(@AuthenticationPrincipal UserPrincipal principal,

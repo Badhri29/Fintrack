@@ -124,20 +124,22 @@ export const getMigratedBudgetTransactions = (year: number, userEmail?: string):
     const direct = localStorage.getItem(primaryKey);
     if (direct) {
       const parsed = JSON.parse(direct);
-      if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+      if (parsed && typeof parsed === 'object') {
         return parsed;
       }
     }
   } catch {}
 
   const cleanEmail = (userEmail && userEmail.trim()) ? userEmail.trim().toLowerCase() : '';
+  // Authenticated real users must NEVER load guest or legacy demo keys
+  if (cleanEmail && cleanEmail !== 'guest' && cleanEmail !== 'demo@fintrack.io') {
+    return {};
+  }
+
   const candidateKeys = [
     `fintrack-budget-transactions-${year}`,
     `fintrack-budget-transactions-${year}_guest`,
-    `fintrack-budget-transactions-${year}_${cleanEmail}`,
-    `fintrack_budget_transactions_${year}`,
-    `fintrack_budget_transactions_${year}_${cleanEmail}`,
-    `fintrack-budget-transactions-${year}_global`
+    `fintrack-budget-transactions-${year}_${cleanEmail}`
   ];
 
   for (const k of candidateKeys) {
@@ -147,28 +149,11 @@ export const getMigratedBudgetTransactions = (year: number, userEmail?: string):
       if (val) {
         const parsed = JSON.parse(val);
         if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-          localStorage.setItem(primaryKey, JSON.stringify(parsed));
           return parsed;
         }
       }
     } catch {}
   }
-
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k !== primaryKey && k.includes(String(year)) && (k.startsWith('fintrack-budget-transactions') || k.startsWith('fintrack_budget_transactions'))) {
-        const val = localStorage.getItem(k);
-        if (val) {
-          const parsed = JSON.parse(val);
-          if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
-            localStorage.setItem(primaryKey, JSON.stringify(parsed));
-            return parsed;
-          }
-        }
-      }
-    }
-  } catch {}
 
   return {};
 };
@@ -773,65 +758,72 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     }
   }, [globalSearchQuery]);
 
-  // Load stored budgets when year changes or user changes
-  const hasSyncedBudgetsRef = useRef<Record<string, boolean>>({});
+  // Dedicated helper to apply server budgets (MySQL Database is Source of Truth)
+  const applyServerBudgets = (serverBudgets: Record<string, any>) => {
+    const serverTxs: Record<string, TransactionDetail[]> = {};
+    const serverValues: Record<string, number[]> = {};
+
+    if (serverBudgets && typeof serverBudgets === 'object') {
+      Object.entries(serverBudgets).forEach(([key, val]: [string, any]) => {
+        if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
+          const cleanKey = key.startsWith('sub:') ? key.replace('sub:', '') : key;
+          serverTxs[cleanKey] = val;
+          serverTxs[key] = val;
+        } else if (Array.isArray(val)) {
+          serverValues[key] = val;
+        }
+      });
+    }
+
+    // Overwrite state completely with MySQL database data
+    setBudgetValues(serverValues);
+    setBudgetTransactions(serverTxs);
+
+    const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+    try {
+      localStorage.setItem(txKey, JSON.stringify(serverTxs));
+    } catch {}
+  };
+
   useEffect(() => {
     if (user?.email === 'demo@fintrack.io') {
       seedDemoBudgetData();
+    } else if (user?.email) {
+      // Clear legacy unscoped demo keys that might linger in mobile browser cache
+      ['2022', '2023', '2024', '2025', '2026', '2027', '2028'].forEach((y) => {
+        localStorage.removeItem(`fintrack-budget-${y}`);
+        localStorage.removeItem(`fintrack-budget-transactions-${y}`);
+        localStorage.removeItem(`fintrack-budget-${y}_guest`);
+        localStorage.removeItem(`fintrack-budget-transactions-${y}_guest`);
+      });
     }
+
+    // Load initial cached values for current user
     const retrievedBudget = budgetService.getBudgetMap(selectedYear, user?.email);
-    if (retrievedBudget && Object.keys(retrievedBudget).length > 0) {
-      setBudgetValues((prev) => ({ ...prev, ...retrievedBudget }));
-    }
+    const retrievedTx = getMigratedBudgetTransactions(selectedYear, user?.email);
+    setBudgetValues(retrievedBudget || {});
+    setBudgetTransactions(retrievedTx || {});
 
-    const syncKey = `${user?.email || 'guest'}_${selectedYear}`;
-    if (hasSyncedBudgetsRef.current[syncKey]) return;
-    hasSyncedBudgetsRef.current[syncKey] = true;
-
-    // Fetch and sync budgets with backend database
+    // Always fetch fresh from backend MySQL database across all devices
     budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
-      if (serverBudgets && Object.keys(serverBudgets).length > 0) {
-        const serverTxs: Record<string, TransactionDetail[]> = {};
-        const serverValues: Record<string, number[]> = {};
-
-        Object.entries(serverBudgets).forEach(([key, val]: [string, any]) => {
-          if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
-            const cleanKey = key.startsWith('sub:') ? key.replace('sub:', '') : key;
-            serverTxs[cleanKey] = val;
-            serverTxs[key] = val;
-          } else if (Array.isArray(val)) {
-            serverValues[key] = val;
-          }
-        });
-
-        if (Object.keys(serverValues).length > 0) {
-          setBudgetValues((prev) => ({ ...prev, ...serverValues }));
-        }
-
-        if (Object.keys(serverTxs).length > 0) {
-          setBudgetTransactions((prev) => {
-            const merged = { ...prev, ...serverTxs };
-            const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
-            try {
-              localStorage.setItem(txKey, JSON.stringify(merged));
-            } catch {}
-            return merged;
-          });
-        }
-      } else if (retrievedBudget && Object.keys(retrievedBudget).length > 0) {
-        budgetService.saveBudgetMap(selectedYear, retrievedBudget, user?.email);
-      }
+      applyServerBudgets(serverBudgets);
     }).catch(() => {});
   }, [selectedYear, user?.email]);
 
+  // Synchronize on cross-device cloud sync events
   useEffect(() => {
-    if (user?.email === 'demo@fintrack.io') {
-      seedDemoBudgetData();
-    }
-    const retrievedTx = getMigratedBudgetTransactions(selectedYear, user?.email);
-    if (retrievedTx && Object.keys(retrievedTx).length > 0) {
-      setBudgetTransactions((prev) => ({ ...prev, ...retrievedTx }));
-    }
+    const onCloudSync = () => {
+      loadAllData();
+      budgetService.fetchBudgetFromServer(selectedYear, user?.email).then((serverBudgets) => {
+        applyServerBudgets(serverBudgets);
+      }).catch(() => {});
+    };
+    window.addEventListener('fintrack-cloud-sync-completed', onCloudSync);
+    window.addEventListener('fintrack-budget-changed', onCloudSync);
+    return () => {
+      window.removeEventListener('fintrack-cloud-sync-completed', onCloudSync);
+      window.removeEventListener('fintrack-budget-changed', onCloudSync);
+    };
   }, [selectedYear, user?.email]);
 
   // Load data from backend
@@ -1682,7 +1674,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     // Sync to backend database
     api.post('/budgets', {
       year: selectedYear,
-      categoryKey: `sub:${subcategory.id}`,
+      categoryKey: subcategory.id.startsWith('sub:') ? subcategory.id : `sub:${subcategory.id}`,
       monthlyAmounts: nextList
     }).catch(err => console.debug('Sync budget line item notice:', err?.message));
 
@@ -1730,6 +1722,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               JSON.stringify(next),
             );
             window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed'));
+
+            // Sync deletion to MySQL database immediately
+            const cleanKey = subcategory.id.startsWith('sub:') ? subcategory.id : `sub:${subcategory.id}`;
+            api.post('/budgets', {
+              year: selectedYear,
+              categoryKey: cleanKey,
+              monthlyAmounts: nextList
+            }).catch(err => console.debug('Sync budget line item delete notice:', err?.message));
+
             return next;
           });
         },
@@ -1985,7 +1986,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             await api.delete('/categories', { params: { type: section, name: catObj.name } }).catch(() => {});
           } catch {}
 
-          // 3. Clean up stored budget values & planned transactions for this category
+          // 3. Clean up stored budget values & planned transactions for this category\n          budgetService.deleteBudgetCategory(selectedYear, categoryId, user?.email).catch(() => {});\n          budgetService.deleteBudgetCategory(selectedYear, catObj.name, user?.email).catch(() => {});\n          catObj.subcategories.forEach(s => budgetService.deleteBudgetCategory(selectedYear, s.id, user?.email).catch(() => {}));
           try {
             const budgetKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
             const storedB = localStorage.getItem(budgetKey);
@@ -2045,7 +2046,29 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         targetKey,
         name: `Subcategory "${subObj.name}"`,
         secondsLeft: 5,
-        executeDelete: () => {
+        executeDelete: async () => {
+          // 1. Delete from backend MySQL if it has a database ID
+          const rawSubId = subcategoryId.replace(/^sub:?/, '');
+          if (!isNaN(Number(rawSubId)) && Number(rawSubId) > 0) {
+            try {
+              await api.delete(`/subcategories/${rawSubId}`).catch(() => {});
+            } catch {}
+          }
+
+          // 2. Clear out any associated budget for this subcategory from MySQL database
+          const cleanKey = subcategoryId.startsWith('sub:') ? subcategoryId : `sub:${subcategoryId}`;
+          budgetService.deleteBudgetCategory(selectedYear, cleanKey, user?.email).catch(() => {});
+
+          // 3. Clear from local state
+          setBudgetTransactions((curr) => {
+            const next = { ...curr };
+            delete next[subcategoryId];
+            delete next[cleanKey];
+            delete next[subObj.name];
+            return next;
+          });
+
+          // 4. Update memory sections
           setSections((current) => ({
             ...current,
             [section]: current[section].map((cat) =>

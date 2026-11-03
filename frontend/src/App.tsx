@@ -111,6 +111,7 @@ function AppContent() {
           budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email)
         ]);
         // Cloud sync completed
+        window.dispatchEvent(new CustomEvent('fintrack-cloud-sync-completed'));
       } catch (e) {
         console.debug('Cloud sync notice:', e);
       }
