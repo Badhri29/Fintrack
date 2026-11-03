@@ -965,7 +965,7 @@ export const SettingsView: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="settings-form-row">
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   EMAIL ADDRESS
@@ -993,7 +993,7 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="settings-form-row">
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   AGE
@@ -1095,7 +1095,7 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+          <div className="settings-theme-grid">
             {themeOptions.map(opt => {
               const active = theme === opt.id;
               return (
@@ -2748,14 +2748,7 @@ export const SettingsView: React.FC = () => {
           )}
 
           {/* Dynamic Plans Grid */}
-          <div
-            className="subscription-plans-grid"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-              gap: 20
-            }}
-          >
+          <div className="subscription-plans-grid">
             {plansLoading && plans.length === 0 && (
               <div style={{ gridColumn: '1 / -1', padding: '12px 0', color: 'var(--text-secondary)', fontSize: 13 }}>
                 Syncing latest subscription packages from server...

@@ -443,8 +443,10 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
           </div>
         ) : (
           <div className={`global-ticker-track ${isPaused ? 'paused' : ''}`}>
-            {/* Render 2 sets for an unbroken continuous loop */}
-            {[...activeDues, ...activeDues].map((item, idx) => {
+            {/* Render 2 sets with a clear gap separator between loops */}
+            {[0, 1].map((setIndex) => (
+              <React.Fragment key={`ticker-set-${setIndex}`}>
+                {activeDues.map((item, idx) => {
               const overdue = item.isOverdue;
               const dueToday = item.isDueToday;
               const badgeBg = overdue ? '#EF4444' : dueToday ? '#3B82F6' : '#F59E0B';
@@ -516,6 +518,27 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
                 </div>
               );
             })}
+                {/* Visible gap after all dues before repeating from 1st */}
+                <div
+                  className="global-ticker-loop-gap"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    padding: '0 36px',
+                    marginRight: 18,
+                    opacity: 0.45
+                  }}
+                  title="Cycle separator"
+                >
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#F59E0B' }} />
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#64748B' }} />
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#64748B' }} />
+                  <span style={{ width: 4, height: 4, borderRadius: '50%', background: '#F59E0B' }} />
+                </div>
+              </React.Fragment>
+            ))}
           </div>
         )}
       </div>

@@ -3134,6 +3134,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                       const catKey = `${sec}:${cat.id || cat.name}`;
                       const isCatExpanded = mobileExpandedCategories.has(catKey);
                       const catTotal = total(categoryValues(cat));
+                      const isCatPending = pendingDeleteKeys.has(`cat-${cat.id}`);
+                      const pendingCatItem = isCatPending ? pendingDeletions.find((p) => p.targetKey === `cat-${cat.id}`) : null;
 
                       return (
                         <div
@@ -3157,8 +3159,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               userSelect: 'none'
                             }}
                           >
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: '#F1F5F9' }}>
+                            <div style={{ minWidth: 0, flex: 1, paddingRight: 6 }}>
+                              <div style={{ fontSize: 13, fontWeight: 700, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {cat.name}
                               </div>
                               <div style={{ fontSize: 10, color: '#64748B' }}>
@@ -3166,10 +3168,74 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               </div>
                             </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 800, color: '#E2E8F0' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: '#E2E8F0', marginRight: 2 }}>
                                 {currencyService.format(catTotal)}
                               </div>
+
+                              {!isViewOnly && (
+                                <>
+                                  {/* Add Subcategory (+) button */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openAddCategoryModal(sec, 'subcategory', cat.name);
+                                    }}
+                                    title={`Add subcategory to ${cat.name}`}
+                                    style={{
+                                      width: 24,
+                                      height: 24,
+                                      borderRadius: 6,
+                                      background: 'rgba(59, 130, 246, 0.15)',
+                                      border: '1px solid rgba(59, 130, 246, 0.25)',
+                                      color: '#93C5FD',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer',
+                                      padding: 0
+                                    }}
+                                  >
+                                    <Plus size={13} />
+                                  </button>
+
+                                  {/* Delete Category button */}
+                                  <button
+                                    type="button"
+                                    disabled={isCatPending}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isCatPending) {
+                                        removeCategory(sec, cat.id);
+                                      }
+                                    }}
+                                    title={`Delete category ${cat.name}`}
+                                    style={{
+                                      minWidth: 24,
+                                      height: 24,
+                                      padding: isCatPending ? '0 5px' : 0,
+                                      borderRadius: 6,
+                                      background: isCatPending ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.1)',
+                                      border: isCatPending ? '1px solid rgba(239, 68, 68, 0.45)' : '1px solid rgba(239, 68, 68, 0.2)',
+                                      color: isCatPending ? '#EF4444' : '#F87171',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    {isCatPending ? (
+                                      <span style={{ fontSize: 9.5, fontWeight: 700, color: '#EF4444' }}>
+                                        {pendingCatItem?.secondsLeft}s
+                                      </span>
+                                    ) : (
+                                      <Trash2 size={12} />
+                                    )}
+                                  </button>
+                                </>
+                              )}
+
                               <ChevronDown
                                 size={14}
                                 style={{
@@ -3196,6 +3262,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               {cat.subcategories.map(subcat => {
                                 const subcatVals = leafValues(subcat);
                                 const subcatTotal = total(subcatVals);
+                                const isSubPending = pendingDeleteKeys.has(`sub-${subcat.id}`);
+                                const pendingSubItem = isSubPending ? pendingDeletions.find((p) => p.targetKey === `sub-${subcat.id}`) : null;
 
                                 return (
                                   <div
@@ -3222,11 +3290,49 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                         marginBottom: 6
                                       }}
                                     >
-                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#93C5FD' }}>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#93C5FD', minWidth: 0, flex: 1, paddingRight: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         {subcat.name}
                                       </div>
-                                      <div style={{ fontSize: 12, fontWeight: 800, color: '#F1F5F9' }}>
-                                        {currencyService.format(subcatTotal)}
+
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                        <div style={{ fontSize: 12, fontWeight: 800, color: '#F1F5F9' }}>
+                                          {currencyService.format(subcatTotal)}
+                                        </div>
+
+                                        {!isViewOnly && (
+                                          <button
+                                            type="button"
+                                            disabled={isSubPending}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (!isSubPending) {
+                                                removeSubcategory(sec, cat.id, subcat.id);
+                                              }
+                                            }}
+                                            title={`Delete subcategory ${subcat.name}`}
+                                            style={{
+                                              minWidth: 22,
+                                              height: 22,
+                                              padding: isSubPending ? '0 4px' : 0,
+                                              borderRadius: 5,
+                                              background: isSubPending ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.08)',
+                                              border: isSubPending ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(239, 68, 68, 0.15)',
+                                              color: isSubPending ? '#EF4444' : '#F87171',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'center',
+                                              cursor: 'pointer'
+                                            }}
+                                          >
+                                            {isSubPending ? (
+                                              <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444' }}>
+                                                {pendingSubItem?.secondsLeft}s
+                                              </span>
+                                            ) : (
+                                              <Trash2 size={11} />
+                                            )}
+                                          </button>
+                                        )}
                                       </div>
                                     </div>
 
@@ -3281,11 +3387,66 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                   </div>
                                 );
                               })}
+
+                              {!isViewOnly && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    openAddCategoryModal(sec, 'subcategory', cat.name);
+                                  }}
+                                  style={{
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    background: 'rgba(255, 255, 255, 0.02)',
+                                    border: '1px dashed rgba(255, 255, 255, 0.12)',
+                                    borderRadius: 7,
+                                    color: '#93C5FD',
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: 5,
+                                    cursor: 'pointer',
+                                    marginTop: 4
+                                  }}
+                                >
+                                  <Plus size={12} />
+                                  <span>Add Subcategory to ${cat.name}</span>
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
                       );
                     })
+                  )}
+
+                  {!isViewOnly && (
+                    <button
+                      type="button"
+                      onClick={() => openAddCategoryModal(sec, 'category')}
+                      style={{
+                        marginTop: 6,
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: secBg,
+                        border: `1px dashed ${secColor}50`,
+                        borderRadius: 10,
+                        color: secColor,
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Plus size={13} />
+                      <span>Add ${secTitle} Category</span>
+                    </button>
                   )}
                 </div>
                   </>
@@ -3583,6 +3744,32 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       <main className="budget-planning-page" style={{ paddingBottom: 60, minHeight: '100vh', background: '#0B0F19' }}>
         {renderMobileView()}
         {renderMobileDrilldownSheet()}
+
+        {/* Undo Delete 5-Second Countdown Toasts in Mobile View */}
+        {pendingDeletions.length > 0 && (
+          <div className="undo-toast-container">
+            {pendingDeletions.map((item) => (
+              <div key={item.id} className="undo-delete-toast" role="status" aria-live="polite">
+                <div className="undo-countdown-badge">{item.secondsLeft}s</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flex: 1, minWidth: 0 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#f8fafc', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.name}
+                  </span>
+                  <span style={{ fontSize: 10.5, color: '#94a3b8' }}>Tap undo to restore</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleUndoDeletionItem(item.id)}
+                  className="undo-button-action"
+                  title="Cancel deletion (Undo)"
+                >
+                  <RotateCcw size={12} />
+                  <span>Undo</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Edit Transaction Modal */}
         <TransactionModal

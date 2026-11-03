@@ -2536,10 +2536,60 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   margin-top: 12px;
 }
 
+.settings-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.settings-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.subscription-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
 @media (max-width: 860px) {
   .settings-grid {
     grid-template-columns: 1fr !important;
-    gap: 16px !important;
+    gap: 14px !important;
+  }
+
+  .settings-grid .summary-card,
+  .fintrack-page-container .summary-card {
+    padding: 16px 14px !important;
+    border-radius: 14px !important;
+  }
+
+  .settings-form-row {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .settings-theme-grid {
+    grid-template-columns: 1fr !important;
+    gap: 10px !important;
+  }
+
+  .subscription-plans-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  .settings-action-row {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  .settings-action-row button {
+    width: 100% !important;
+    justify-content: center !important;
   }
 }
 
