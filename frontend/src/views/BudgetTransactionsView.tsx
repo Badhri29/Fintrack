@@ -245,7 +245,25 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const [forceMobileView, setForceMobileView] = useState<boolean>(false);
   const isMobileEffective = isMobile || forceMobileView;
 
-  const [mobileSelectedMonth, setMobileSelectedMonth] = useState<number>(() => new Date().getMonth());
+  const [mobileTab, setMobileTab] = useState<'budget' | 'transactions'>(() => {
+    if (initialViewMode === 'transactions' || globalSearchQuery) return 'transactions';
+    return 'budget';
+  });
+
+  useEffect(() => {
+    if (globalSearchQuery) {
+      setMobileTab('transactions');
+    }
+  }, [globalSearchQuery]);
+
+  const [mobileSelectedMonth, setMobileSelectedMonth] = useState<number | 'all'>(() => new Date().getMonth());
+  const activeMonthChipRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (typeof mobileSelectedMonth === 'number' && activeMonthChipRef.current) {
+      activeMonthChipRef.current.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    }
+  }, []);
   const [mobileExpandedCategories, setMobileExpandedCategories] = useState<Set<string>>(new Set());
   const [mobileSectionOpen, setMobileSectionOpen] = useState<Record<Section, boolean>>({
     income: true,
@@ -2879,7 +2897,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           </div>
         </div>
 
-        {/* Segmented Mode Switcher: [ Expected ] vs [ Actual ] */}
+        {/* Mobile Section Nav Switcher: [ ▦ Budget Planner ] vs [ 📄 Transactions ] */}
         <div
           style={{
             background: 'rgba(15, 23, 42, 0.8)',
@@ -2894,41 +2912,104 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         >
           <button
             type="button"
-            onClick={() => setMode('budget')}
+            onClick={() => setMobileTab('budget')}
             style={{
-              background: mode === 'budget' ? '#3B82F6' : 'transparent',
-              color: mode === 'budget' ? '#FFFFFF' : '#94A3B8',
+              background: mobileTab === 'budget' ? '#3B82F6' : 'transparent',
+              color: mobileTab === 'budget' ? '#FFFFFF' : '#94A3B8',
               border: 'none',
               borderRadius: 8,
-              padding: '7px 0',
+              padding: '8px 0',
               fontSize: 12,
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: mode === 'budget' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              boxShadow: mobileTab === 'budget' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
               transition: 'all 0.15s ease'
             }}
           >
-            Expected
+            <TableIcon size={14} />
+            <span>Budget Planner</span>
           </button>
           <button
             type="button"
-            onClick={() => setMode('actual')}
+            onClick={() => setMobileTab('transactions')}
             style={{
-              background: mode === 'actual' ? '#3B82F6' : 'transparent',
-              color: mode === 'actual' ? '#FFFFFF' : '#94A3B8',
+              background: mobileTab === 'transactions' ? '#3B82F6' : 'transparent',
+              color: mobileTab === 'transactions' ? '#FFFFFF' : '#94A3B8',
               border: 'none',
               borderRadius: 8,
-              padding: '7px 0',
+              padding: '8px 0',
               fontSize: 12,
               fontWeight: 700,
               cursor: 'pointer',
-              boxShadow: mode === 'actual' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              boxShadow: mobileTab === 'transactions' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
               transition: 'all 0.15s ease'
             }}
           >
-            Actual
+            <ReceiptText size={14} />
+            <span>Transactions ({filteredTransactions.length})</span>
           </button>
         </div>
+
+        {mobileTab === 'budget' ? (
+          <>
+            {/* Segmented Mode Switcher: [ Expected ] vs [ Actual ] */}
+            <div
+              style={{
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 12,
+                padding: 4,
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 4,
+                marginBottom: 14
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setMode('budget')}
+                style={{
+                  background: mode === 'budget' ? '#3B82F6' : 'transparent',
+                  color: mode === 'budget' ? '#FFFFFF' : '#94A3B8',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '7px 0',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: mode === 'budget' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Expected
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('actual')}
+                style={{
+                  background: mode === 'actual' ? '#3B82F6' : 'transparent',
+                  color: mode === 'actual' ? '#FFFFFF' : '#94A3B8',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '7px 0',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  boxShadow: mode === 'actual' ? '0 2px 8px rgba(59, 130, 246, 0.4)' : 'none',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                Actual
+              </button>
+            </div>
 
         {/* Year Chips Selector: [ 2026 ] [ 2027 ] [ 2028 ] */}
         <div
@@ -2936,7 +3017,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             display: 'flex',
             alignItems: 'center',
             gap: 8,
-            marginBottom: 16,
+            marginBottom: 10,
             overflowX: 'auto',
             paddingBottom: 2
           }}
@@ -2964,6 +3045,68 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 }}
               >
                 {y}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Month Chips Selector: [ All Year ] [ Jan ] [ Feb ] ... [ Dec ] */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            marginBottom: 16,
+            overflowX: 'auto',
+            paddingBottom: 4,
+            scrollbarWidth: 'none'
+          }}
+        >
+          {/* All Year Button */}
+          <button
+            type="button"
+            onClick={() => setMobileSelectedMonth('all')}
+            style={{
+              background: mobileSelectedMonth === 'all' ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+              border: mobileSelectedMonth === 'all' ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
+              color: mobileSelectedMonth === 'all' ? '#FFFFFF' : '#94A3B8',
+              borderRadius: 8,
+              padding: '5px 12px',
+              fontSize: 11.5,
+              fontWeight: 700,
+              cursor: 'pointer',
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            All Year
+          </button>
+
+          {/* Individual Month Buttons (Jan - Dec) */}
+          {MONTHS.map((mName, mIdx) => {
+            const isActive = mobileSelectedMonth === mIdx;
+            return (
+              <button
+                key={mName}
+                type="button"
+                ref={isActive ? activeMonthChipRef : null}
+                onClick={() => setMobileSelectedMonth(mIdx)}
+                style={{
+                  background: isActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
+                  border: isActive ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
+                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  borderRadius: 8,
+                  padding: '5px 11px',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {mName}
               </button>
             );
           })}
@@ -3027,9 +3170,11 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             const secBg = isInc ? 'rgba(16, 185, 129, 0.15)' : isSav ? 'rgba(139, 92, 246, 0.15)' : 'rgba(239, 68, 68, 0.15)';
             const secIcon = isInc ? <ArrowUpRight size={18} /> : isSav ? <TrendingUp size={18} /> : <ArrowDownRight size={18} />;
             const secTitle = isInc ? 'Income' : isSav ? 'Savings' : 'Expense';
-            const secSubtitle = `${mode === 'budget' ? 'Expected' : 'Actual'} ${secTitle}`;
+            const isMonthFiltered = mobileSelectedMonth !== 'all';
+            const secSubtitle = `${mode === 'budget' ? 'Expected' : 'Actual'} ${secTitle} ${isMonthFiltered ? `(${MONTHS[mobileSelectedMonth]})` : '(Full Year)'}`;
             const secTotals = sectionTotals(sec);
             const secTotalAnnual = total(secTotals);
+            const secDisplayTotal = isMonthFiltered ? (secTotals[mobileSelectedMonth] || 0) : secTotalAnnual;
             const catList = sections[sec] || [];
             const isSecOpen = mobileSectionOpen[sec] ?? true;
 
@@ -3083,7 +3228,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 15, fontWeight: 900, color: secColor }}>
-                        {currencyService.format(secTotalAnnual)}
+                        {currencyService.format(secDisplayTotal)}
                       </div>
                       <div style={{ fontSize: 10, color: '#64748B' }}>
                         {catList.length} categories
@@ -3127,6 +3272,27 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     paddingBottom: 4
                   }}
                 >
+                  <div
+                    onClick={() => setMobileSelectedMonth('all')}
+                    style={{
+                      background: mobileSelectedMonth === 'all' ? 'rgba(59, 130, 246, 0.2)' : 'rgba(15, 23, 42, 0.6)',
+                      border: mobileSelectedMonth === 'all' ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.06)',
+                      borderRadius: 8,
+                      padding: '4px 8px',
+                      textAlign: 'center',
+                      minWidth: 54,
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: mobileSelectedMonth === 'all' ? '#93C5FD' : '#94A3B8' }}>
+                      All Year
+                    </div>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: secTotalAnnual > 0 ? secColor : '#64748B', marginTop: 1 }}>
+                      {secTotalAnnual > 0 ? currencyService.format(secTotalAnnual) : '---'}
+                    </div>
+                  </div>
                   {MONTHS.map((mName, mIdx) => {
                     const mAmt = secTotals[mIdx] || 0;
                     const isMActive = mIdx === mobileSelectedMonth;
@@ -3168,7 +3334,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     catList.map(cat => {
                       const catKey = `${sec}:${cat.id || cat.name}`;
                       const isCatExpanded = mobileExpandedCategories.has(catKey);
-                      const catTotal = total(categoryValues(cat));
+                      const catVals = categoryValues(cat);
+                      const catDisplayTotal = isMonthFiltered ? (catVals[mobileSelectedMonth] || 0) : total(catVals);
                       const isCatPending = pendingDeleteKeys.has(`cat-${cat.id}`);
                       const pendingCatItem = isCatPending ? pendingDeletions.find((p) => p.targetKey === `cat-${cat.id}`) : null;
 
@@ -3205,7 +3372,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                               <div style={{ fontSize: 13, fontWeight: 800, color: '#E2E8F0', marginRight: 2 }}>
-                                {currencyService.format(catTotal)}
+                                {currencyService.format(catDisplayTotal)}
                               </div>
 
                               {!isViewOnly && (
@@ -3296,7 +3463,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             >
                               {cat.subcategories.map(subcat => {
                                 const subcatVals = leafValues(subcat);
-                                const subcatTotal = total(subcatVals);
+                                const subcatDisplayTotal = isMonthFiltered ? (subcatVals[mobileSelectedMonth] || 0) : total(subcatVals);
                                 const isSubPending = pendingDeleteKeys.has(`sub-${subcat.id}`);
                                 const pendingSubItem = isSubPending ? pendingDeletions.find((p) => p.targetKey === `sub-${subcat.id}`) : null;
 
@@ -3315,7 +3482,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                         section: sec,
                                         category: cat,
                                         subcategory: subcat,
-                                        monthIdx: mobileSelectedMonth
+                                        monthIdx: typeof mobileSelectedMonth === 'number' ? mobileSelectedMonth : new Date().getMonth()
                                       })}
                                       style={{
                                         display: 'flex',
@@ -3331,7 +3498,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                                         <div style={{ fontSize: 12, fontWeight: 800, color: '#F1F5F9' }}>
-                                          {currencyService.format(subcatTotal)}
+                                          {currencyService.format(subcatDisplayTotal)}
                                         </div>
 
                                         {!isViewOnly && (
@@ -3448,7 +3615,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                   }}
                                 >
                                   <Plus size={12} />
-                                  <span>Add Subcategory to ${cat.name}</span>
+                                  <span>Add Subcategory to {cat.name}</span>
                                 </button>
                               )}
                             </div>
@@ -3480,7 +3647,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                       }}
                     >
                       <Plus size={13} />
-                      <span>Add ${secTitle} Category</span>
+                      <span>Add {secTitle} Category</span>
                     </button>
                   )}
                 </div>
@@ -3490,6 +3657,835 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             );
           })}
         </div>
+
+        {/* Quick Jump Button to Transactions Ledger */}
+        <button
+          type="button"
+          onClick={() => setMobileTab('transactions')}
+          style={{
+            marginTop: 14,
+            width: '100%',
+            padding: '11px 14px',
+            background: 'rgba(59, 130, 246, 0.12)',
+            border: '1px solid rgba(59, 130, 246, 0.3)',
+            borderRadius: 12,
+            color: '#93C5FD',
+            fontSize: 12.5,
+            fontWeight: 700,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            cursor: 'pointer',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)'
+          }}
+        >
+          <ReceiptText size={15} />
+          <span>View Transactions Ledger ({filteredTransactions.length})</span>
+          <ChevronRight size={15} />
+        </button>
+      </>
+    ) : (
+      /* Mobile Transactions Ledger View & Full Transaction Table */
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* Sticky/Top Header for Transactions */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 10,
+            background: '#0D1322',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 14,
+            padding: '12px 14px',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+            <div
+              style={{
+                width: 32,
+                height: 32,
+                borderRadius: 8,
+                background: 'rgba(16, 185, 129, 0.15)',
+                color: '#10B981',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+            >
+              <ReceiptText size={16} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#F8FAFC' }}>
+                Transactions Ledger
+              </div>
+              <div style={{ fontSize: 10.5, color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Search, filter, and track items
+              </div>
+            </div>
+          </div>
+
+          {!isViewOnly && (
+            <button
+              type="button"
+              onClick={() => onOpenNewTransaction()}
+              style={{
+                background: '#3B82F6',
+                color: '#FFFFFF',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 12px',
+                fontSize: 11.5,
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                cursor: 'pointer',
+                flexShrink: 0,
+                boxShadow: '0 2px 8px rgba(59, 130, 246, 0.4)'
+              }}
+            >
+              <Plus size={14} />
+              <span>Add</span>
+            </button>
+          )}
+        </div>
+
+        {/* Type Segmented Control: [ All ] [ Income ] [ Expenses ] [ Savings ] */}
+        <div
+          style={{
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 10,
+            padding: 3,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: 4
+          }}
+        >
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'income', label: 'Income' },
+            { id: 'expense', label: 'Expense' },
+            { id: 'savings', label: 'Savings' }
+          ].map(tab => {
+            const isActive = filterType === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setFilterType(tab.id)}
+                style={{
+                  background: isActive ? '#3B82F6' : 'transparent',
+                  color: isActive ? '#FFFFFF' : '#94A3B8',
+                  border: 'none',
+                  borderRadius: 7,
+                  padding: '6px 0',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Search Bar */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            background: 'rgba(15, 23, 42, 0.8)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 10,
+            padding: '8px 12px',
+            gap: 8
+          }}
+        >
+          <Search size={14} style={{ color: '#94A3B8', flexShrink: 0 }} />
+          <input
+            type="text"
+            placeholder="Search transactions..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              outline: 'none',
+              color: '#F8FAFC',
+              fontSize: 12.5,
+              width: '100%'
+            }}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#94A3B8',
+                cursor: 'pointer',
+                padding: 0,
+                display: 'flex',
+                alignItems: 'center'
+              }}
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* Filters Row: Category Dropdown + Date Popover + Amount Popover */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          {/* Category Dropdown */}
+          <div style={{ flex: 1, minWidth: 120 }}>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              style={{
+                width: '100%',
+                background: 'rgba(15, 23, 42, 0.8)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                color: '#F8FAFC',
+                padding: '7px 10px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            >
+              {categoryFilterOptions.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Date Filter */}
+          <div style={{ position: 'relative' }} ref={dateFilterRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowDateFilterPopover(open => !open);
+                setShowAmountFilterPopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                background: fromDate || toDate ? 'rgba(99, 102, 241, 0.2)' : 'rgba(15, 23, 42, 0.8)',
+                border: fromDate || toDate ? '1px solid #6366F1' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: fromDate || toDate ? '#A5B4FC' : '#94A3B8',
+                padding: '7px 10px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <Calendar size={13} />
+              <span>{getDateFilterLabel()}</span>
+              {(fromDate || toDate) && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFromDate('');
+                    setToDate('');
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', marginLeft: 2 }}
+                >
+                  <X size={11} />
+                </span>
+              )}
+            </button>
+
+            {showDateFilterPopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  width: 280,
+                  maxWidth: 'calc(100vw - 32px)',
+                  background: '#0D1322',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 120,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8' }}>
+                  FILTER BY DATE
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div>
+                    <span style={{ fontSize: 10.5, color: '#64748B' }}>From:</span>
+                    <input
+                      type="date"
+                      value={fromDate}
+                      onChange={(e) => setFromDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: '#F8FAFC',
+                        borderRadius: 6,
+                        padding: '6px 8px',
+                        fontSize: 11.5
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 10.5, color: '#64748B' }}>To:</span>
+                    <input
+                      type="date"
+                      value={toDate}
+                      onChange={(e) => setToDate(e.target.value)}
+                      style={{
+                        width: '100%',
+                        background: 'rgba(15, 23, 42, 0.9)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        color: '#F8FAFC',
+                        borderRadius: 6,
+                        padding: '6px 8px',
+                        fontSize: 11.5
+                      }}
+                    />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setFromDate(''); setToDate(''); setShowDateFilterPopover(false); }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#94A3B8',
+                      fontSize: 11,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDateFilterPopover(false)}
+                    style={{
+                      background: '#3B82F6',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      padding: '4px 10px',
+                      fontSize: 11,
+                      fontWeight: 600,
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Amount Filter */}
+          <div style={{ position: 'relative' }} ref={amountFilterRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setShowAmountFilterPopover(open => !open);
+                setShowDateFilterPopover(false);
+              }}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                background: minAmount || maxAmount ? 'rgba(99, 102, 241, 0.2)' : 'rgba(15, 23, 42, 0.8)',
+                border: minAmount || maxAmount ? '1px solid #6366F1' : '1px solid rgba(255, 255, 255, 0.08)',
+                color: minAmount || maxAmount ? '#A5B4FC' : '#94A3B8',
+                padding: '7px 10px',
+                borderRadius: 8,
+                fontSize: 11.5,
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap'
+              }}
+            >
+              <SlidersHorizontal size={13} />
+              <span>{getAmountFilterLabel()}</span>
+              {(minAmount || maxAmount) && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMinAmount('');
+                    setMaxAmount('');
+                  }}
+                  style={{ display: 'flex', alignItems: 'center', marginLeft: 2 }}
+                >
+                  <X size={11} />
+                </span>
+              )}
+            </button>
+
+            {showAmountFilterPopover && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  width: 280,
+                  maxWidth: 'calc(100vw - 32px)',
+                  background: '#0D1322',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  borderRadius: 12,
+                  padding: 14,
+                  boxShadow: '0 16px 36px rgba(0, 0, 0, 0.65)',
+                  zIndex: 120,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 10
+                }}
+              >
+                <div style={{ fontSize: 11.5, fontWeight: 700, color: '#94A3B8' }}>
+                  QUICK PRESETS
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {[
+                    { key: 'all', label: 'All' },
+                    { key: 'under_1k', label: `< ${activeCurSym}1k` },
+                    { key: '1k_5k', label: `${activeCurSym}1k-5k` },
+                    { key: '5k_20k', label: `${activeCurSym}5k-20k` },
+                    { key: 'above_20k', label: `> ${activeCurSym}20k` },
+                  ].map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => applyAmountPreset(p.key as any)}
+                      style={{
+                        padding: '4px 8px',
+                        borderRadius: 6,
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        background: 'rgba(255, 255, 255, 0.04)',
+                        color: '#F8FAFC',
+                        fontSize: 11,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    placeholder="Min"
+                    value={minAmount}
+                    onChange={(e) => setMinAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(15, 23, 42, 0.9)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: '#F8FAFC',
+                      borderRadius: 6,
+                      padding: '5px 8px',
+                      fontSize: 11.5
+                    }}
+                  />
+                  <span style={{ color: '#64748B' }}>-</span>
+                  <input
+                    type="number"
+                    placeholder="Max"
+                    value={maxAmount}
+                    onChange={(e) => setMaxAmount(e.target.value)}
+                    style={{
+                      flex: 1,
+                      background: 'rgba(15, 23, 42, 0.9)',
+                      border: '1px solid rgba(255, 255, 255, 0.1)',
+                      color: '#F8FAFC',
+                      borderRadius: 6,
+                      padding: '5px 8px',
+                      fontSize: 11.5
+                    }}
+                  />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6 }}>
+                  <button
+                    type="button"
+                    onClick={() => { setMinAmount(''); setMaxAmount(''); setShowAmountFilterPopover(false); }}
+                    style={{ background: 'transparent', border: 'none', color: '#94A3B8', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAmountFilterPopover(false)}
+                    style={{ background: '#3B82F6', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Status bar: clear filters & count */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span style={{ fontSize: 11, color: '#64748B', fontWeight: 600 }}>
+            Showing {filteredTransactions.length} of {rawTransactions.length} transactions
+          </span>
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleClearFilters}
+              style={{
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.3)',
+                color: '#EF4444',
+                padding: '4px 8px',
+                borderRadius: 6,
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <RotateCcw size={11} />
+              <span>Clear</span>
+            </button>
+          )}
+        </div>
+
+        {/* Transactions Table */}
+        <div
+          style={{
+            background: '#0D1322',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 14,
+            overflow: 'hidden',
+            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)'
+          }}
+        >
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table className="transactions-table" style={{ width: '100%', minWidth: 640, textAlign: 'left', tableLayout: 'fixed' }}>
+              <colgroup>
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '12%' }} />
+                <col style={{ width: '22%' }} />
+                <col style={{ width: '23%' }} />
+                <col style={{ width: '16%' }} />
+                <col style={{ width: '10%' }} />
+                <col style={{ width: '8%' }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Date</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Type</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Category</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Description</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Payment Mode</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Amount</th>
+                  <th style={{ textAlign: 'center', verticalAlign: 'middle' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingTransactions ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#64748B' }}>
+                      Loading transactions...
+                    </td>
+                  </tr>
+                ) : filteredTransactions.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#64748B' }}>
+                      No transactions found matching your criteria.
+                    </td>
+                  </tr>
+                ) : (
+                  <>
+                    {paginatedTransactions.map((t, idx) => {
+                      const isTxPending = pendingDeleteKeys.has(`tx-${t.id}`);
+                      const pendingTxItem = isTxPending
+                        ? pendingDeletions.find((p) => p.targetKey === `tx-${t.id}`)
+                        : null;
+                      const section = getSection(t);
+
+                      return (
+                        <tr
+                          key={t.id || idx}
+                          style={isTxPending ? { opacity: 0.45, filter: 'grayscale(0.6)', textDecoration: 'line-through' } : undefined}
+                        >
+                          <td style={{ textAlign: 'center', color: '#94A3B8', whiteSpace: 'nowrap' }}>
+                            {formatDate(t.date)}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                padding: '3px 6px',
+                                borderRadius: 5,
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                background:
+                                  section === 'income'
+                                    ? 'rgba(16, 185, 129, 0.15)'
+                                    : section === 'savings'
+                                    ? 'rgba(59, 130, 246, 0.15)'
+                                    : 'rgba(239, 68, 68, 0.15)',
+                                color:
+                                  section === 'income'
+                                    ? '#10B981'
+                                    : section === 'savings'
+                                    ? '#60A5FA'
+                                    : '#EF4444',
+                              }}
+                            >
+                              {section === 'income' ? (
+                                <ArrowUpRight size={12} />
+                              ) : section === 'savings' ? (
+                                <PiggyBank size={12} />
+                              ) : (
+                                <ArrowDownRight size={12} />
+                              )}
+                              {section.toUpperCase()}
+                            </span>
+                          </td>
+                          <td style={{ fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.category}</div>
+                            {t.subcategory ? (
+                              <div style={{ fontSize: 10, color: '#64748B', fontWeight: 400, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {t.subcategory}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td style={{ textAlign: 'center', color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.description || ''}>
+                            {t.description || '—'}
+                          </td>
+                          <td>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#94A3B8', fontSize: 11.5 }}>
+                              <CreditCard size={12} />
+                              {formatPaymentModeName(t.paymentMode)}
+                              {t.card ? ` (${t.card})` : ''}
+                            </span>
+                          </td>
+                          <td
+                            style={{
+                              textAlign: 'right',
+                              fontWeight: 700,
+                              color:
+                                t.type === 'income'
+                                  ? '#10B981'
+                                  : t.type === 'savings'
+                                  ? '#60A5FA'
+                                  : '#EF4444',
+                            }}
+                          >
+                            {t.type === 'income' ? '+' : '-'}
+                            {currency(t.amount)}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {!isViewOnly ? (
+                              <div style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                                <button
+                                  type="button"
+                                  disabled={isTxPending}
+                                  onClick={() => handleEditTransaction(t)}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: isTxPending ? 'rgba(255, 255, 255, 0.2)' : '#94A3B8',
+                                    cursor: isTxPending ? 'not-allowed' : 'pointer',
+                                    padding: 3,
+                                    borderRadius: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                  title="Update transaction"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isTxPending}
+                                  onClick={() => handleDeleteTransaction(t.id)}
+                                  style={{
+                                    background: 'transparent',
+                                    border: 'none',
+                                    color: isTxPending ? '#EF4444' : '#94A3B8',
+                                    cursor: isTxPending ? 'not-allowed' : 'pointer',
+                                    padding: 3,
+                                    borderRadius: 4,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                  title={isTxPending ? 'Deletion pending' : 'Delete transaction'}
+                                >
+                                  {isTxPending ? (
+                                    <span style={{ fontSize: 9.5, fontWeight: 700, color: '#EF4444' }}>
+                                      {pendingTxItem?.secondsLeft}s
+                                    </span>
+                                  ) : (
+                                    <Trash2 size={13} />
+                                  )}
+                                </button>
+                              </div>
+                            ) : (
+                              <span style={{ fontSize: 10, color: '#64748B' }}>View</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {paginatedTransactions.length < 5 &&
+                      Array.from({ length: 5 - paginatedTransactions.length }).map((_, emptyIdx) => (
+                        <tr key={`empty-row-${emptyIdx}`} className="empty-placeholder-row">
+                          <td style={{ height: 44 }}>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                          <td>&nbsp;</td>
+                        </tr>
+                      ))}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {filteredTransactions.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 8,
+                padding: '10px 14px',
+                borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+                background: 'rgba(11, 15, 25, 0.5)',
+                fontSize: 11.5,
+                color: '#94A3B8'
+              }}
+            >
+              <span>
+                <strong>{(safeCurrentPage - 1) * pageSize + 1}</strong>-<strong>{Math.min(safeCurrentPage * pageSize, filteredTransactions.length)}</strong> of <strong>{filteredTransactions.length}</strong>
+              </span>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  style={{
+                    background: 'rgba(15, 23, 42, 0.8)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: '#F8FAFC',
+                    borderRadius: 6,
+                    padding: '3px 6px',
+                    fontSize: 11,
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value={10}>10 / page</option>
+                  <option value={20}>20 / page</option>
+                  <option value={50}>50 / page</option>
+                </select>
+
+                {totalPages > 1 && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={safeCurrentPage === 1}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 5,
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        background: safeCurrentPage === 1 ? 'transparent' : 'rgba(255, 255, 255, 0.05)',
+                        color: safeCurrentPage === 1 ? '#475569' : '#94A3B8',
+                        cursor: safeCurrentPage === 1 ? 'not-allowed' : 'pointer',
+                        fontSize: 11
+                      }}
+                    >
+                      Prev
+                    </button>
+                    <span style={{ fontSize: 11, color: '#F1F5F9' }}>
+                      {safeCurrentPage}/{totalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={safeCurrentPage === totalPages}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 5,
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        background: safeCurrentPage === totalPages ? 'transparent' : 'rgba(255, 255, 255, 0.05)',
+                        color: safeCurrentPage === totalPages ? '#475569' : '#94A3B8',
+                        cursor: safeCurrentPage === totalPages ? 'not-allowed' : 'pointer',
+                        fontSize: 11
+                      }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Back to Budget Planner button */}
+        <button
+          type="button"
+          onClick={() => setMobileTab('budget')}
+          style={{
+            marginTop: 6,
+            width: '100%',
+            padding: '10px 14px',
+            background: 'rgba(255, 255, 255, 0.04)',
+            border: '1px solid rgba(255, 255, 255, 0.08)',
+            borderRadius: 10,
+            color: '#94A3B8',
+            fontSize: 12,
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 6,
+            cursor: 'pointer'
+          }}
+        >
+          <ChevronLeft size={14} />
+          <span>Back to Budget Planner</span>
+        </button>
+      </div>
+    )}
       </div>
     );
   };
