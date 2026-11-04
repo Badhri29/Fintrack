@@ -103,7 +103,7 @@ export const SettingsView: React.FC = () => {
   const [reqMsg, setReqMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Mobile Accordion state
-  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 860);
   const ALL_SETTINGS_SECTIONS = [
     'profile',
     'appearance',
@@ -119,12 +119,13 @@ export const SettingsView: React.FC = () => {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set<string>());
 
   useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    const handleResize = () => setIsMobile(window.innerWidth <= 860);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   const toggleSection = (sec: string) => {
+    if (!isMobile) return;
     setExpandedSections(prev => {
       const next = new Set(prev);
       if (next.has(sec)) next.delete(sec);
@@ -154,7 +155,8 @@ export const SettingsView: React.FC = () => {
       <div
         onClick={(e) => {
           if ((e.target as HTMLElement).closest('button')) return;
-          if (isMobile) toggleSection(sectionId);
+          if (!isMobile) return;
+          toggleSection(sectionId);
         }}
         style={{
           display: 'flex',
@@ -1013,10 +1015,68 @@ export const SettingsView: React.FC = () => {
         
         {/* 1. Profile Information Card with Photo Upload */}
         <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
-          {renderSectionHeader('profile', <User size={22} />, 'Profile Information', 'Personal identity, photo & contact details', 'rgba(99, 102, 241, 0.15)', 'var(--accent-indigo)')}
+          {isMobile ? (
+            renderSectionHeader('profile', <User size={22} />, 'Profile Information', 'Personal identity, photo & contact details', 'rgba(99, 102, 241, 0.15)', 'var(--accent-indigo)')
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div
+                  style={{
+                    width: 44,
+                    height: 44,
+                    borderRadius: 12,
+                    background: 'rgba(99, 102, 241, 0.15)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'var(--accent-indigo)'
+                  }}
+                >
+                  <User size={22} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
+                    Profile Information
+                  </h2>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                    Personal identity, photo & contact details
+                  </span>
+                </div>
+              </div>
+
+              {/* Profile Avatar Badge on PC view top-right */}
+              <div
+                style={{
+                  width: 52,
+                  height: 52,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--accent-indigo) 0%, var(--accent-purple) 100%)',
+                  color: '#FFFFFF',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: 18,
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                  overflow: 'hidden',
+                  position: 'relative'
+                }}
+              >
+                {photo ? (
+                  <img
+                    src={photo}
+                    alt="Profile"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                ) : (
+                  getInitials(name || user?.name)
+                )}
+              </div>
+            </div>
+          )}
           <div style={{ display: (!isMobile || expandedSections.has('profile')) ? 'block' : 'none' }}>
 
-            {/* Profile Avatar Badge */}
+            {isMobile && (
             <div
               style={{
                 width: 52,
@@ -1044,7 +1104,7 @@ export const SettingsView: React.FC = () => {
                 getInitials(name || user?.name)
               )}
             </div>
-          </div>
+            )}
 
           {/* Photo Management Section */}
           <div
@@ -2521,6 +2581,7 @@ export const SettingsView: React.FC = () => {
               )}
             </div>
           </form>
+          </div>
         </div>
 
         {/* 8. Granular Section Resets Card */}
@@ -2826,11 +2887,10 @@ export const SettingsView: React.FC = () => {
           </div>
           </div>
         </div>
-
-        </div>
+      </div>
 
       {/* 9. Subscription & Upgrade Packages */}
-      <div className="summary-card" style={{ marginTop: 24, padding: isMobile ? '16px 14px' : 28, width: '100%', boxSizing: 'border-box' }}>
+      <div className="summary-card" style={{ marginTop: isMobile ? 22 : 26, padding: isMobile ? '16px 14px' : 28, width: '100%', boxSizing: 'border-box' }}>
         {renderSectionHeader('subscription', <Shield size={22} />, 'Subscription & Upgrade Packages', 'View available plans & feature entitlements', 'rgba(99, 102, 241, 0.15)', '#6366F1')}
         <div style={{ display: (!isMobile || expandedSections.has('subscription')) ? 'block' : 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
