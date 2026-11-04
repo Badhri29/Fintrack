@@ -278,7 +278,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     section: Section;
     category: Category;
     subcategory: Line;
-    monthIdx: number;
+    monthIdx: number | null;
   } | null>(null);
   const [mobileSearchQuery, setMobileSearchQuery] = useState<string>('');
 
@@ -828,7 +828,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     }).catch(() => {});
   }, [selectedYear, user?.email]);
 
-  // Synchronize on cross-device cloud sync events
+  // Synchronize on cross-device cloud sync events (listen ONLY to cloud-sync-completed to avoid recursive loops)
   useEffect(() => {
     const onCloudSync = () => {
       loadAllData();
@@ -837,10 +837,24 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       }).catch(() => {});
     };
     window.addEventListener('fintrack-cloud-sync-completed', onCloudSync);
-    window.addEventListener('fintrack-budget-changed', onCloudSync);
     return () => {
       window.removeEventListener('fintrack-cloud-sync-completed', onCloudSync);
-      window.removeEventListener('fintrack-budget-changed', onCloudSync);
+    };
+  }, [selectedYear, user?.email]);
+
+  // Synchronize budget values when budget updates locally or from server without calling fetchBudgetFromServer
+  useEffect(() => {
+    const onBudgetChanged = (e: any) => {
+      if (e?.detail?.budgetMap) {
+        setBudgetValues(e.detail.budgetMap);
+      } else {
+        const retrieved = budgetService.getBudgetMap(selectedYear, user?.email);
+        setBudgetValues(retrieved || {});
+      }
+    };
+    window.addEventListener('fintrack-budget-changed', onBudgetChanged);
+    return () => {
+      window.removeEventListener('fintrack-budget-changed', onBudgetChanged);
     };
   }, [selectedYear, user?.email]);
 
@@ -858,7 +872,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const loadAllData = async () => {
     if (isFetchingDataRef.current) return;
     isFetchingDataRef.current = true;
-    setLoadingTransactions(true);
+    if (rawTransactions.length === 0) {
+      setLoadingTransactions(true);
+    }
     try {
       const [transactionsResult, categoriesResult, subcategoriesResult] = await Promise.all([
         api.get('/transactions').catch((err) => {
@@ -2757,8 +2773,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   // Mobile Drilldown Items & Calculations
   const drilldownActualTransactions = useMemo(() => {
     if (!mobileDrilldown) return [];
-    const catName = mobileDrilldown.category.name.toLowerCase();
-    const subName = mobileDrilldown.subcategory.name.toLowerCase();
+    const catName = mobileDrilldown.category.name.trim().toLowerCase();
+    const subName = mobileDrilldown.subcategory.name.trim().toLowerCase();
     const mIdx = mobileDrilldown.monthIdx;
 
     return rawTransactions
@@ -2766,11 +2782,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         if (!t.date) return false;
         const d = String(t.date).slice(0, 10);
         const [y, m] = d.split('-').map(Number);
-        if (y !== selectedYear || m !== (mIdx + 1)) return false;
-        const tCat = String(t.category || '').toLowerCase();
-        const tSub = String(t.subcategory || '').toLowerCase();
+        if (y !== selectedYear) return false;
+        if (mIdx !== null && m !== (mIdx + 1)) return false;
+        const tCat = String(t.category || '').trim().toLowerCase();
+        const tSub = String(t.subcategory || '').trim().toLowerCase();
         const matchCat = tCat === catName;
-        const matchSub = !subName || tSub === subName || tSub === '';
+        const matchSub = !subName || tSub === subName || tSub === '' || (subName === 'general' && (tSub === '' || tSub === 'general' || tSub === 'uncategorized'));
         if (!matchCat || !matchSub) return false;
         if (mobileSearchQuery.trim()) {
           const q = mobileSearchQuery.toLowerCase();
@@ -2788,7 +2805,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           day: dayPart,
           description: t.description || t.subcategory || t.category || 'Transaction',
           paymentMode: t.paymentMode || 'Bank Transfer',
-          amount: Number(t.amount) || 0
+          amount: Number(t.amount) || 0,
+          raw: t
         };
       });
   }, [mobileDrilldown, rawTransactions, selectedYear, mobileSearchQuery]);
@@ -2797,25 +2815,72 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     if (!mobileDrilldown) return [];
     const mIdx = mobileDrilldown.monthIdx;
     const txs = getLineBudgetTxs(mobileDrilldown.subcategory);
-    return txs
-      .filter(tx => (tx.values[mIdx] || 0) > 0)
-      .map((tx, idx) => {
-        const dayStr = tx.monthPaymentModes?.[mIdx] || tx.paymentMode || String(idx + 1).padStart(2, '0');
-        const dayNum = parseInt(dayStr, 10) || (idx + 1);
-        return {
-          id: tx.id || `plan-${idx}`,
-          date: `${selectedYear}-${String(mIdx + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`,
-          day: String(dayNum).padStart(2, '0'),
-          description: tx.name || mobileDrilldown.subcategory.name,
-          paymentMode: tx.paymentMode && tx.paymentMode.length > 2 ? tx.paymentMode : 'Bank Transfer',
-          amount: tx.values[mIdx] || 0
-        };
-      })
-      .filter(item => {
-        if (!mobileSearchQuery.trim()) return true;
-        return item.description.toLowerCase().includes(mobileSearchQuery.toLowerCase());
-      });
-  }, [mobileDrilldown, getLineBudgetTxs, selectedYear, mobileSearchQuery]);
+    const subcatVals = leafValues(mobileDrilldown.subcategory);
+
+    let items: any[] = [];
+
+    if (txs.length > 0) {
+      items = txs
+        .filter(tx => {
+          if (mIdx !== null) {
+            return (tx.values[mIdx] || 0) > 0;
+          }
+          return total(tx.values) > 0;
+        })
+        .map((tx, idx) => {
+          const effectiveMonth = mIdx !== null ? mIdx : (tx.values.findIndex(v => v > 0) >= 0 ? tx.values.findIndex(v => v > 0) : 0);
+          const dayStr = tx.monthPaymentModes?.[effectiveMonth] || tx.paymentMode || String(idx + 1).padStart(2, '0');
+          const dayNum = parseInt(dayStr, 10) || (idx + 1);
+          const amt = mIdx !== null ? (tx.values[mIdx] || 0) : total(tx.values);
+          return {
+            id: tx.id || `plan-${idx}`,
+            date: `${selectedYear}-${String(effectiveMonth + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`,
+            day: String(dayNum).padStart(2, '0'),
+            description: tx.name || mobileDrilldown.subcategory.name,
+            paymentMode: tx.paymentMode && tx.paymentMode.length > 2 ? tx.paymentMode : 'Planned Allocation',
+            amount: amt,
+            raw: tx
+          };
+        });
+    }
+
+    // Fallback: If no nested transaction items exist, but direct budget is set for this month / year:
+    if (items.length === 0) {
+      if (mIdx !== null) {
+        const monthBudget = subcatVals[mIdx] || 0;
+        if (monthBudget > 0) {
+          items.push({
+            id: `plan-direct-${mobileDrilldown.subcategory.id}-${mIdx}`,
+            date: `${selectedYear}-${String(mIdx + 1).padStart(2, '0')}-01`,
+            day: '01',
+            description: `${mobileDrilldown.subcategory.name} (${MONTHS[mIdx]} Planned Budget)`,
+            paymentMode: 'Planned Allocation',
+            amount: monthBudget,
+            raw: { isDirect: true, subcategory: mobileDrilldown.subcategory, month: mIdx, amount: monthBudget }
+          });
+        }
+      } else {
+        subcatVals.forEach((val, monthIndex) => {
+          if (val > 0) {
+            items.push({
+              id: `plan-direct-${mobileDrilldown.subcategory.id}-${monthIndex}`,
+              date: `${selectedYear}-${String(monthIndex + 1).padStart(2, '0')}-01`,
+              day: '01',
+              description: `${mobileDrilldown.subcategory.name} (${MONTHS[monthIndex]} Planned Budget)`,
+              paymentMode: 'Planned Allocation',
+              amount: val,
+              raw: { isDirect: true, subcategory: mobileDrilldown.subcategory, month: monthIndex, amount: val }
+            });
+          }
+        });
+      }
+    }
+
+    return items.filter(item => {
+      if (!mobileSearchQuery.trim()) return true;
+      return item.description.toLowerCase().includes(mobileSearchQuery.toLowerCase());
+    });
+  }, [mobileDrilldown, getLineBudgetTxs, leafValues, selectedYear, mobileSearchQuery]);
 
   const drilldownItems = mode === 'actual' ? drilldownActualTransactions : drilldownPlannedItems;
   const drilldownTotal = drilldownItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
@@ -3482,7 +3547,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                         section: sec,
                                         category: cat,
                                         subcategory: subcat,
-                                        monthIdx: typeof mobileSelectedMonth === 'number' ? mobileSelectedMonth : new Date().getMonth()
+                                        monthIdx: typeof mobileSelectedMonth === 'number' ? mobileSelectedMonth : null
                                       })}
                                       style={{
                                         display: 'flex',
@@ -4205,7 +4270,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {loadingTransactions ? (
+                {loadingTransactions && rawTransactions.length === 0 ? (
                   <tr>
                     <td colSpan={7} style={{ textAlign: 'center', padding: '30px', color: '#64748B' }}>
                       Loading transactions...
@@ -4279,11 +4344,22 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                           <td style={{ textAlign: 'center', color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.description || ''}>
                             {t.description || '—'}
                           </td>
-                          <td>
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#94A3B8', fontSize: 11.5 }}>
-                              <CreditCard size={12} />
-                              {formatPaymentModeName(t.paymentMode)}
-                              {t.card ? ` (${t.card})` : ''}
+                          <td
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: 0,
+                              padding: '10px 8px'
+                            }}
+                            title={`${formatPaymentModeName(t.paymentMode)}${t.card ? ` (${t.card})` : ''}`}
+                          >
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: '#94A3B8', fontSize: 11.5, maxWidth: '100%', overflow: 'hidden' }}>
+                              <CreditCard size={12} style={{ flexShrink: 0 }} />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {formatPaymentModeName(t.paymentMode)}
+                                {t.card ? ` (${t.card})` : ''}
+                              </span>
                             </span>
                           </td>
                           <td
@@ -4567,7 +4643,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
           {/* Header Title: Dec Transactions */}
           <h2 style={{ fontSize: 18, fontWeight: 900, color: '#F8FAFC', margin: '2px 0 6px' }}>
-            {MONTHS[mobileDrilldown.monthIdx]} Transactions
+            {mobileDrilldown.monthIdx !== null ? `${MONTHS[mobileDrilldown.monthIdx]} Transactions` : `${selectedYear} Transactions`}
           </h2>
 
           {/* Subtitle row: 2 transactions • ₹60,000 */}
@@ -4664,69 +4740,134 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                   No transactions found
                 </div>
                 <div style={{ fontSize: 11, marginTop: 4 }}>
-                  Tap below to add a transaction in {MONTHS[mobileDrilldown.monthIdx]}
+                  Tap below to add a transaction {mobileDrilldown.monthIdx !== null ? `in ${MONTHS[mobileDrilldown.monthIdx]}` : `in ${selectedYear}`}
                 </div>
               </div>
             ) : (
-              drilldownItems.map(item => (
-                <div
-                  key={item.id}
-                  style={{
-                    background: 'rgba(15, 23, 42, 0.7)',
-                    border: '1px solid rgba(255, 255, 255, 0.06)',
-                    borderRadius: 10,
-                    padding: '10px 12px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                    {/* Day Badge */}
-                    <div
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 6,
-                        background: 'rgba(30, 41, 59, 0.8)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        color: '#38BDF8',
-                        fontSize: 12,
-                        fontWeight: 800,
-                        flexShrink: 0
-                      }}
-                    >
-                      {item.day}
-                    </div>
+              drilldownItems.map(item => {
+                const isItemPending = item.raw?.id ? pendingDeleteKeys.has(`tx-${item.raw.id}`) : false;
+                const pendingItem = isItemPending ? pendingDeletions.find((p) => p.targetKey === `tx-${item.raw.id}`) : null;
 
-                    <div style={{ minWidth: 0 }}>
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      background: 'rgba(15, 23, 42, 0.7)',
+                      border: '1px solid rgba(255, 255, 255, 0.06)',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 10,
+                      opacity: isItemPending ? 0.45 : 1
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      {/* Day Badge */}
                       <div
                         style={{
-                          fontSize: 13,
-                          fontWeight: 700,
-                          color: '#F8FAFC',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
+                          width: 30,
+                          height: 30,
+                          borderRadius: 6,
+                          background: 'rgba(30, 41, 59, 0.8)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          color: '#38BDF8',
+                          fontSize: 12,
+                          fontWeight: 800,
+                          flexShrink: 0
                         }}
                       >
-                        {item.description}
+                        {item.day}
                       </div>
-                      <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 1 }}>
-                        {item.paymentMode}
+
+                      <div style={{ minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 13,
+                            fontWeight: 700,
+                            color: '#F8FAFC',
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                        >
+                          {item.description}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: '#94A3B8', marginTop: 1 }}>
+                          {item.paymentMode}
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div style={{ fontSize: 14, fontWeight: 800, color: secColor, flexShrink: 0 }}>
-                    {currencyService.format(item.amount)}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, color: secColor }}>
+                        {currencyService.format(item.amount)}
+                      </div>
+
+                      {!isViewOnly && item.raw && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <button
+                            type="button"
+                            disabled={isItemPending}
+                            onClick={() => {
+                              handleEditTransaction(item.raw);
+                            }}
+                            style={{
+                              width: 28,
+                              height: 28,
+                              borderRadius: 6,
+                              background: 'rgba(59, 130, 246, 0.15)',
+                              border: '1px solid rgba(59, 130, 246, 0.25)',
+                              color: '#93C5FD',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: isItemPending ? 'not-allowed' : 'pointer'
+                            }}
+                            title="Edit transaction"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          {item.raw.id && (
+                            <button
+                              type="button"
+                              disabled={isItemPending}
+                              onClick={() => {
+                                handleDeleteTransaction(item.raw.id);
+                              }}
+                              style={{
+                                width: 28,
+                                height: 28,
+                                borderRadius: 6,
+                                background: isItemPending ? 'rgba(239, 68, 68, 0.25)' : 'rgba(239, 68, 68, 0.12)',
+                                border: isItemPending ? '1px solid rgba(239, 68, 68, 0.45)' : '1px solid rgba(239, 68, 68, 0.25)',
+                                color: '#EF4444',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: isItemPending ? 'not-allowed' : 'pointer'
+                              }}
+                              title="Delete transaction"
+                            >
+                              {isItemPending ? (
+                                <span style={{ fontSize: 9.5, fontWeight: 700, color: '#EF4444' }}>
+                                  {pendingItem?.secondsLeft}s
+                                </span>
+                              ) : (
+                                <Trash2 size={13} />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
 
@@ -5822,7 +5963,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {loadingTransactions ? (
+                    {loadingTransactions && rawTransactions.length === 0 ? (
                       <tr>
                         <td
                           colSpan={7}
@@ -5935,19 +6076,32 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                           >
                             {t.description || '—'}
                           </td>
-                          <td>
+                          <td
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              maxWidth: 0,
+                              padding: '10px 8px'
+                            }}
+                            title={`${formatPaymentModeName(t.paymentMode)}${t.card ? ` (${t.card})` : ''}`}
+                          >
                             <span
                               style={{
                                 display: 'inline-flex',
                                 alignItems: 'center',
-                                gap: 6,
+                                gap: 5,
                                 color: 'var(--text-secondary)',
-                                fontSize: 13,
+                                fontSize: 12,
+                                maxWidth: '100%',
+                                overflow: 'hidden'
                               }}
                             >
-                              <CreditCard size={14} />
-                              {formatPaymentModeName(t.paymentMode)}
-                              {t.card ? ` (${t.card})` : ''}
+                              <CreditCard size={13} style={{ flexShrink: 0 }} />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {formatPaymentModeName(t.paymentMode)}
+                                {t.card ? ` (${t.card})` : ''}
+                              </span>
                             </span>
                           </td>
                           <td

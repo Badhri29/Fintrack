@@ -515,7 +515,9 @@ export const CreditCardsView: React.FC = () => {
   // Fetch actual transactions from database
   const fetchActualTransactions = async () => {
     try {
-      setLoading(true);
+      if (actualTransactions.length === 0) {
+        setLoading(true);
+      }
       const res = await api.get('/transactions');
       if (res.data && res.data.success && Array.isArray(res.data.data)) {
         setActualTransactions(res.data.data);
@@ -2983,7 +2985,7 @@ export const CreditCardsView: React.FC = () => {
         </div>
 
         {/* Transactions Table with Min-Height (doesn't collapse) & Max-Height (bounded scroll) */}
-        {loading ? (
+        {loading && creditTransactions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
             Loading credit card transactions from database...
           </div>

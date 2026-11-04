@@ -40,7 +40,7 @@ function AppContent() {
   const [selectedLoanIdForView, setSelectedLoanIdForView] = useState<string | null>(null);
 
   // Keep-alive state: retains mounted tabs so tab navigation is instantaneous (<10ms)
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['Dashboard', activeTab]));
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['Dashboard', 'Budget & Transactions', 'Calendar', 'Credit Cards', 'Accounts', 'Loans & EMI', activeTab]));
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -60,6 +60,9 @@ function AppContent() {
     cardService.fetchCardsFromServer(user.email).catch(() => {});
     loanService.fetchLoansFromServer(user.email).catch(() => {});
     budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email).catch(() => {});
+    api.get('/transactions').catch(() => {});
+    api.get('/categories').catch(() => {});
+    api.get('/subcategories').catch(() => {});
   }, [user]);
 
   // Fetch pending user access requests
@@ -108,7 +111,10 @@ function AppContent() {
           loanService.fetchLoansFromServer(user.email),
           bankAccountService.fetchAccountsFromServer(user.email),
           bankAccountService.fetchCashBalanceFromServer(user.email),
-          budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email)
+          budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email),
+          api.get('/transactions').catch(() => null),
+          api.get('/categories').catch(() => null),
+          api.get('/subcategories').catch(() => null)
         ]);
         // Cloud sync completed
         window.dispatchEvent(new CustomEvent('fintrack-cloud-sync-completed'));

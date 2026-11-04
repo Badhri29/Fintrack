@@ -303,7 +303,9 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
 
   const fetchTransactions = async () => {
     try {
-      setLoading(true);
+      if (actualTransactions.length === 0) {
+        setLoading(true);
+      }
       const res = await api.get('/transactions');
       if (res.data && res.data.success && Array.isArray(res.data.data)) {
         setActualTransactions(res.data.data);
@@ -2558,7 +2560,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
         </div>
 
         {/* Repayments Table with Min/Max Height (Bounded limit, no overflow) */}
-        {loading ? (
+        {loading && filteredEmiTransactions.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '60px 0', minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
             Loading EMI repayment history from database...
           </div>

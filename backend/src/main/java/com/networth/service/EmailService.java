@@ -277,6 +277,19 @@ public class EmailService {
         return sendEodSummaryEmail(toEmail, name, dateStr, income, expense, savings, categories, null);
     }
 
+        public String formatCurrencyINR(double amount) {
+        try {
+            java.text.NumberFormat nf = java.text.NumberFormat.getCurrencyInstance(new java.util.Locale("en", "IN"));
+            String res = nf.format(amount);
+            if (res.startsWith("\u20B9") && !res.startsWith("\u20B9 ")) {
+                res = "\u20B9 " + res.substring(1);
+            }
+            return res;
+        } catch (Exception e) {
+            return String.format("\u20B9 %.2f", amount);
+        }
+    }
+
     private String buildEodSummaryHtml(String name,
                                        String dateStr,
                                        double income,
@@ -285,58 +298,104 @@ public class EmailService {
                                        List<Map<String, Object>> categories) {
         StringBuilder catHtml = new StringBuilder();
         if (categories != null && !categories.isEmpty()) {
-            catHtml.append("<div style='margin-bottom:24px;'>");
-            catHtml.append("<div style='font-size:13px;font-weight:700;color:#334155;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;'>Daily Category Distribution</div>");
+            catHtml.append("<div style='margin-bottom:20px;'>");
+            catHtml.append("<div style='font-size:12px;font-weight:700;color:#475569;margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px;'>Daily Category Distribution</div>");
             catHtml.append("<table style='width:100%;border-collapse:collapse;font-size:13px;'>");
-            catHtml.append("<tr style='border-bottom:1px solid #E2E8F0;color:#64748B;'><th style='text-align:left;padding:8px 0;'>Category</th><th style='text-align:right;padding:8px 0;'>Amount</th></tr>");
+            catHtml.append("<tr style='border-bottom:1px solid #E2E8F0;color:#64748B;'><th style='text-align:left;padding:8px 4px;'>Category</th><th style='text-align:right;padding:8px 4px;'>Amount</th></tr>");
             for (Map<String, Object> cat : categories) {
+                Object amtObj = cat.get("amount");
+                String amtFormatted;
+                if (amtObj instanceof Number) {
+                    amtFormatted = formatCurrencyINR(((Number) amtObj).doubleValue());
+                } else if (amtObj != null) {
+                    try {
+                        amtFormatted = formatCurrencyINR(Double.parseDouble(amtObj.toString()));
+                    } catch (Exception ex) {
+                        amtFormatted = "₹ " + amtObj;
+                    }
+                } else {
+                    amtFormatted = "₹ 0.00";
+                }
+
                 catHtml.append("<tr style='border-bottom:1px solid #F1F5F9;'>")
-                        .append("<td style='padding:8px 0;color:#334155;'>").append(cat.get("name")).append("</td>")
-                        .append("<td style='padding:8px 0;text-align:right;font-weight:600;color:#0F172A;'>₹ ").append(cat.get("amount")).append("</td>")
+                        .append("<td style='padding:8px 4px;color:#334155;word-break:break-word;'>").append(cat.get("name") != null ? cat.get("name") : "-").append("</td>")
+                        .append("<td style='padding:8px 4px;text-align:right;font-weight:600;color:#0F172A;white-space:nowrap;'>").append(amtFormatted).append("</td>")
                         .append("</tr>");
             }
             catHtml.append("</table></div>");
         }
 
+        String incomeFormatted = formatCurrencyINR(income);
+        String expenseFormatted = formatCurrencyINR(expense);
+        String savingsFormatted = formatCurrencyINR(savings);
+
         return "<!DOCTYPE html><html>"
-                + "<head><meta charset='UTF-8'><meta name='viewport' content='width=device-width, initial-scale=1.0'></head>"
-                + "<body style='margin:0;padding:24px;background-color:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",Roboto,sans-serif;color:#1E293B;'>"
-                + "  <div style='max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:16px;border:1px solid #E2E8F0;box-shadow:0 10px 25px rgba(0,0,0,0.05);overflow:hidden;'>"
-                + "    <div style='background:linear-gradient(135deg, #1E1B4B 0%, #4338CA 100%);padding:32px 36px;color:#FFFFFF;'>"
-                + "      <div style='display:inline-block;padding:4px 10px;border-radius:6px;background:rgba(255,255,255,0.18);font-size:11px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#FFFFFF;'>Official Daily Statement</div>"
-                + "      <h1 style='margin:12px 0 4px;font-size:24px;font-weight:800;color:#FFFFFF;'>FinTrack Intelligence</h1>"
-                + "      <p style='margin:0;font-size:13px;color:#C7D2FE;'>End of Day Financial Summary • " + dateStr + "</p>"
+                + "<head>"
+                + "<meta charset='UTF-8'>"
+                + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
+                + "<style>"
+                + "  body { margin: 0; padding: 0; background-color: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%; }"
+                + "  .eod-outer { padding: 24px 12px; }"
+                + "  .eod-card { max-width: 600px; margin: 0 auto; background: #FFFFFF; border-radius: 16px; border: 1px solid #E2E8F0; box-shadow: 0 8px 24px rgba(0,0,0,0.05); overflow: hidden; }"
+                + "  .eod-header { background: linear-gradient(135deg, #1E1B4B 0%, #4338CA 100%); padding: 24px 28px; color: #FFFFFF; }"
+                + "  .eod-body { padding: 24px 24px; }"
+                + "  .metric-table { width: 100%; border-collapse: separate; border-spacing: 8px; margin: 0 -8px 20px; }"
+                + "  .metric-cell { width: 33.33%; border-radius: 12px; padding: 12px 10px; text-align: center; vertical-align: top; box-sizing: border-box; }"
+                + "  .metric-amount { font-size: 15px; font-weight: 800; margin-top: 4px; word-break: break-word; line-height: 1.3; }"
+                + "  @media only screen and (max-width: 540px) {"
+                + "    .eod-outer { padding: 10px 6px !important; }"
+                + "    .eod-header { padding: 18px 16px !important; }"
+                + "    .eod-body { padding: 18px 14px !important; }"
+                + "    .metric-table, .metric-table tbody, .metric-table tr { display: block !important; width: 100% !important; margin: 0 0 16px !important; border-spacing: 0 !important; }"
+                + "    .metric-cell { display: block !important; width: 100% !important; margin-bottom: 8px !important; padding: 10px 14px !important; text-align: left !important; }"
+                + "    .metric-cell-inner { display: flex !important; justify-content: space-between !important; align-items: center !important; }"
+                + "    .metric-amount { font-size: 15px !important; margin-top: 0 !important; text-align: right !important; }"
+                + "  }"
+                + "</style>"
+                + "</head>"
+                + "<body class='eod-outer'>"
+                + "  <div class='eod-card'>"
+                + "    <div class='eod-header'>"
+                + "      <div style='display:inline-block;padding:3px 8px;border-radius:6px;background:rgba(255,255,255,0.18);font-size:10.5px;font-weight:bold;letter-spacing:1px;text-transform:uppercase;color:#FFFFFF;'>Official Daily Statement</div>"
+                + "      <h1 style='margin:10px 0 2px;font-size:22px;font-weight:800;color:#FFFFFF;'>FinTrack Intelligence</h1>"
+                + "      <p style='margin:0;font-size:12.5px;color:#C7D2FE;'>End of Day Financial Summary • " + dateStr + "</p>"
                 + "    </div>"
-                + "    <div style='padding:32px 36px;'>"
-                + "      <p style='font-size:15px;line-height:1.6;margin:0 0 14px;color:#334155;'>Hello <strong>" + (name != null ? name : "User") + "</strong>,</p>"
-                + "      <p style='font-size:14px;line-height:1.6;color:#64748B;margin:0 0 24px;'>Here is your verified daily financial summary for <strong>" + dateStr + "</strong>. Your complete itemized transaction ledger and statement audit have been compiled into the attached official PDF document.</p>"
-                + "      <table style='width:100%;border-collapse:separate;border-spacing:10px;margin:0 -10px 24px;'>"
+                + "    <div class='eod-body'>"
+                + "      <p style='font-size:14.5px;line-height:1.5;margin:0 0 12px;color:#334155;'>Hello <strong>" + (name != null ? name : "User") + "</strong>,</p>"
+                + "      <p style='font-size:13.5px;line-height:1.6;color:#64748B;margin:0 0 20px;'>Here is your verified daily financial summary for <strong>" + dateStr + "</strong>. Your complete itemized transaction ledger and statement audit have been compiled into the attached official PDF document.</p>"
+                + "      <table class='metric-table'>"
                 + "        <tr>"
-                + "          <td style='width:33.33%;background:#ECFDF5;border:1px solid #A7F3D0;border-radius:12px;padding:14px;text-align:center;'>"
-                + "            <div style='font-size:10.5px;font-weight:bold;color:#047857;letter-spacing:0.5px;'>TOTAL INFLOW</div>"
-                + "            <div style='font-size:18px;font-weight:800;color:#065F46;margin-top:4px;'>₹ " + String.format("%.2f", income) + "</div>"
+                + "          <td class='metric-cell' style='background:#ECFDF5;border:1px solid #A7F3D0;'>"
+                + "            <div class='metric-cell-inner'>"
+                + "              <div style='font-size:10px;font-weight:bold;color:#047857;letter-spacing:0.5px;text-transform:uppercase;'>TOTAL INFLOW</div>"
+                + "              <div class='metric-amount' style='color:#065F46;'>" + incomeFormatted + "</div>"
+                + "            </div>"
                 + "          </td>"
-                + "          <td style='width:33.33%;background:#FEF2F2;border:1px solid #FECACA;border-radius:12px;padding:14px;text-align:center;'>"
-                + "            <div style='font-size:10.5px;font-weight:bold;color:#B91C1C;letter-spacing:0.5px;'>TOTAL OUTFLOW</div>"
-                + "            <div style='font-size:18px;font-weight:800;color:#991B1B;margin-top:4px;'>₹ " + String.format("%.2f", expense) + "</div>"
+                + "          <td class='metric-cell' style='background:#FEF2F2;border:1px solid #FECACA;'>"
+                + "            <div class='metric-cell-inner'>"
+                + "              <div style='font-size:10px;font-weight:bold;color:#B91C1C;letter-spacing:0.5px;text-transform:uppercase;'>TOTAL OUTFLOW</div>"
+                + "              <div class='metric-amount' style='color:#991B1B;'>" + expenseFormatted + "</div>"
+                + "            </div>"
                 + "          </td>"
-                + "          <td style='width:33.33%;background:#EEF2FF;border:1px solid #C7D2FE;border-radius:12px;padding:14px;text-align:center;'>"
-                + "            <div style='font-size:10.5px;font-weight:bold;color:#4338CA;letter-spacing:0.5px;'>NET BALANCE</div>"
-                + "            <div style='font-size:18px;font-weight:800;color:#3730A3;margin-top:4px;'>₹ " + String.format("%.2f", savings) + "</div>"
+                + "          <td class='metric-cell' style='background:#EEF2FF;border:1px solid #C7D2FE;'>"
+                + "            <div class='metric-cell-inner'>"
+                + "              <div style='font-size:10px;font-weight:bold;color:#4338CA;letter-spacing:0.5px;text-transform:uppercase;'>NET BALANCE</div>"
+                + "              <div class='metric-amount' style='color:#3730A3;'>" + savingsFormatted + "</div>"
+                + "            </div>"
                 + "          </td>"
                 + "        </tr>"
                 + "      </table>"
                 + catHtml.toString()
-                + "      <div style='background:#F0FDF4;border:1px dashed #22C55E;border-radius:12px;padding:16px 20px;margin:24px 0;'>"
-                + "        <div style='font-size:14px;font-weight:bold;color:#15803D;'>📎 Official Statement PDF Attached</div>"
-                + "        <div style='font-size:12px;color:#166534;margin-top:3px;'>FinTrack_Daily_Statement_" + dateStr + ".pdf • Contains complete itemized records, timestamps, payment modes, category breakdowns, and administrative audit details.</div>"
+                + "      <div style='background:#F0FDF4;border:1px dashed #22C55E;border-radius:12px;padding:14px 16px;margin:20px 0;'>"
+                + "        <div style='font-size:13.5px;font-weight:bold;color:#15803D;'>📎 Official Statement PDF Attached</div>"
+                + "        <div style='font-size:12px;color:#166534;margin-top:3px;word-break:break-word;'>FinTrack_Daily_Statement_" + dateStr + ".pdf • Itemized records, timestamps, payment modes, and audit details.</div>"
                 + "      </div>"
-                + "      <div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:14px 18px;margin-bottom:24px;font-size:12px;color:#64748B;line-height:1.6;'>"
-                + "        <div style='font-weight:bold;color:#334155;margin-bottom:4px;'>ISSUED BY & ADMINISTRATIVE SUPPORT</div>"
+                + "      <div style='background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;margin-bottom:20px;font-size:12px;color:#64748B;line-height:1.5;'>"
+                + "        <div style='font-weight:bold;color:#334155;margin-bottom:3px;'>ISSUED BY & ADMINISTRATIVE SUPPORT</div>"
                 + "        <div>FinTrack Technologies Inc. • Automated Dispatch from <strong>fintracktool@gmail.com</strong></div>"
                 + "        <div>Administrative Desk: <a href='mailto:admin@fintrack.app' style='color:#4F46E5;text-decoration:none;'>admin@fintrack.app</a></div>"
                 + "      </div>"
-                + "      <div style='border-top:1px solid #E2E8F0;padding-top:20px;text-align:center;font-size:11.5px;color:#94A3B8;line-height:1.6;'>"
+                + "      <div style='border-top:1px solid #E2E8F0;padding-top:16px;text-align:center;font-size:11px;color:#94A3B8;line-height:1.5;'>"
                 + "        FinTrack Net Worth Tracker • Intelligent Wealth Management<br/>"
                 + "        You received this notification because daily EOD digest is enabled in your account settings."
                 + "      </div>"

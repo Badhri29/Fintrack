@@ -16,6 +16,13 @@ export const showToast = (toast: ToastPayload) => {
 
 export const ToastNotification: React.FC = () => {
   const [toasts, setToasts] = useState<ToastPayload[]>([]);
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 640);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     const handleToastEvent = (e: any) => {
@@ -51,14 +58,15 @@ export const ToastNotification: React.FC = () => {
     <div
       style={{
         position: 'fixed',
-        top: 24,
-        right: 24,
+        top: isMobile ? 12 : 24,
+        right: isMobile ? 12 : 24,
+        left: isMobile ? 12 : 'auto',
         zIndex: 99999,
         display: 'flex',
         flexDirection: 'column',
-        gap: 10,
-        maxWidth: 380,
-        width: 'calc(100vw - 48px)',
+        gap: isMobile ? 8 : 10,
+        maxWidth: isMobile ? 'none' : 380,
+        width: isMobile ? 'auto' : 'calc(100vw - 48px)',
         pointerEvents: 'none'
       }}
     >
@@ -84,16 +92,17 @@ export const ToastNotification: React.FC = () => {
               pointerEvents: 'auto',
               background: '#0F172A',
               backgroundImage: bgGradient,
-              border: `1px solid ${borderColor}`,
-              borderRadius: 14,
-              padding: '14px 16px',
+              border: `1.5px solid ${borderColor}`,
+              borderRadius: isMobile ? 12 : 14,
+              padding: isMobile ? '10px 14px' : '14px 16px',
               color: '#FFFFFF',
               boxShadow: `0 12px 32px rgba(0, 0, 0, 0.7), 0 0 16px ${borderColor}33`,
               backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
               display: 'flex',
               alignItems: 'flex-start',
-              gap: 12,
-              animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              gap: isMobile ? 10 : 12,
+              animation: isMobile ? 'toastSlideDown 0.25s ease' : 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
               transition: 'all 0.25s ease'
             }}
           >
