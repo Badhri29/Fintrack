@@ -40,7 +40,7 @@ function AppContent() {
   const [selectedLoanIdForView, setSelectedLoanIdForView] = useState<string | null>(null);
 
   // Keep-alive state: retains mounted tabs so tab navigation is instantaneous (<10ms)
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set(['Dashboard', 'Budget & Transactions', 'Calendar', 'Credit Cards', 'Accounts', 'Loans & EMI', activeTab]));
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));
 
   useEffect(() => {
     setVisitedTabs((prev) => {
@@ -52,18 +52,7 @@ function AppContent() {
     });
   }, [activeTab]);
 
-  // Initial background data fetch from server APIs
-  useEffect(() => {
-    if (!user) return;
-    bankAccountService.fetchAccountsFromServer(user.email).catch(() => {});
-    bankAccountService.fetchCashBalanceFromServer(user.email).catch(() => {});
-    cardService.fetchCardsFromServer(user.email).catch(() => {});
-    loanService.fetchLoansFromServer(user.email).catch(() => {});
-    budgetService.fetchBudgetFromServer(new Date().getFullYear(), user.email).catch(() => {});
-    api.get('/transactions').catch(() => {});
-    api.get('/categories').catch(() => {});
-    api.get('/subcategories').catch(() => {});
-  }, [user]);
+
 
   // Fetch pending user access requests
   useEffect(() => {

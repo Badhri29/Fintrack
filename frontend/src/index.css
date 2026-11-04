@@ -3315,3 +3315,21 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     opacity: 1;
   }
 }
+
+
+/* Sticky table headers with solid opaque background to prevent row overlapping / bleed-through */
+.sticky-table-header th {
+  position: sticky !important;
+  top: 0 !important;
+  background: #0D1322 !important;
+  color: var(--text-muted) !important;
+  z-index: 5 !important;
+  border-bottom: 2px solid var(--border-color) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important;
+}
+
+[data-theme="light"] .sticky-table-header th {
+  background: #F1F5F9 !important;
+  color: #1E293B !important;
+  border-bottom: 2px solid #CBD5E1 !important;
+}

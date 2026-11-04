@@ -3025,8 +3025,8 @@ export const CreditCardsView: React.FC = () => {
             {/* Scrollable table container with strict minHeight (no collapse on 1-2 lines) and maxHeight */}
             <div style={{ overflowX: 'auto', minHeight: 280, maxHeight: 460, overflowY: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 12, textTransform: 'uppercase', position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
+                <thead className="sticky-table-header">
+                  <tr>
                     <th style={{ padding: '12px 14px' }}>Date</th>
                     <th style={{ padding: '12px 14px' }}>Description / Merchant</th>
                     <th style={{ padding: '12px 14px' }}>Card Used</th>
