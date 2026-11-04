@@ -533,10 +533,12 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
           {showNotifications && (
             <div
               style={{
-                position: 'absolute',
-                top: 'calc(100% + 10px)',
-                right: 0,
-                width: 380,
+                position: typeof window !== 'undefined' && window.innerWidth <= 768 ? 'fixed' : 'absolute',
+                top: typeof window !== 'undefined' && window.innerWidth <= 768 ? 60 : 'calc(100% + 10px)',
+                right: typeof window !== 'undefined' && window.innerWidth <= 768 ? 10 : 0,
+                left: typeof window !== 'undefined' && window.innerWidth <= 768 ? 10 : 'auto',
+                width: typeof window !== 'undefined' && window.innerWidth <= 768 ? 'auto' : 380,
+                maxWidth: typeof window !== 'undefined' && window.innerWidth <= 768 ? 'calc(100vw - 20px)' : 380,
                 background: '#131824',
                 border: '1px solid #2A364F',
                 borderRadius: 14,

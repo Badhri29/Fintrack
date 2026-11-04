@@ -59,13 +59,11 @@ export const GlobalDueTicker: React.FC<GlobalDueTickerProps> = ({ userEmail, onN
     window.addEventListener('fintrack-loans-changed', handleLoans);
     window.addEventListener('fintrack-cards-updated', handleCards);
     window.addEventListener('fintrack-transactions-changed', handleTx);
-    window.addEventListener('fintrack-budget-changed', handleTx);
 
     return () => {
       window.removeEventListener('fintrack-loans-changed', handleLoans);
       window.removeEventListener('fintrack-cards-updated', handleCards);
       window.removeEventListener('fintrack-transactions-changed', handleTx);
-      window.removeEventListener('fintrack-budget-changed', handleTx);
     };
   }, [userEmail]);
 

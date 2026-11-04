@@ -752,6 +752,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                       onChange={e => setName(e.target.value)}
                       style={{
                         width: '100%',
+                        boxSizing: 'border-box',
                         padding: '12px 14px 12px 42px',
                         borderRadius: 10,
                         border: '1px solid #1E2638',
@@ -777,7 +778,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     type="text"
                     name={`ft_email_${activeTab}`}
                     id={activeTab === 'admin' ? 'admin-email-field' : 'user-email-field'}
-                    placeholder={activeTab === 'admin' ? 'Enter admin email' : 'Enter email or Member ID (e.g. MEM-123456)'}
+                    placeholder={activeTab === 'admin' ? 'Enter admin email' : 'Email or Member ID'}
                     value={activeTab === 'user' ? email : adminEmail}
                     onChange={e => {
                       if (activeTab === 'user') setEmail(e.target.value);
@@ -791,6 +792,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     required
                     style={{
                       width: '100%',
+                      boxSizing: 'border-box',
                       padding: '12px 14px 12px 42px',
                       borderRadius: 10,
                       border: '1px solid #1E2638',
@@ -826,6 +828,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                     required
                     style={{
                       width: '100%',
+                      boxSizing: 'border-box',
                       padding: '12px 42px 12px 42px',
                       borderRadius: 10,
                       border: '1px solid #1E2638',

@@ -552,6 +552,12 @@ input.auth-input::placeholder {
   gap: 4px;
   flex-shrink: 1;
   min-width: 0;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+.nav-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .nav-tab {
@@ -758,7 +764,17 @@ input.auth-input::placeholder {
   padding: 0 28px 28px;
 }
 
-@media (max-width: 1024px) {
+
+@media (max-width: 1280px) {
+  .search-input-wrapper {
+    display: none !important;
+  }
+  .user-name-text {
+    display: none !important;
+  }
+}
+
+@media (max-width: 1140px) {
   .charts-grid {
     grid-template-columns: 1fr;
   }
@@ -3286,5 +3302,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 @media (max-width: 900px) {
   .subscription-plans-grid {
     grid-template-columns: 1fr !important;
+  }
+}
+
+@keyframes toastSlideDown {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }

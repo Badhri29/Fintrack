@@ -103,9 +103,13 @@ export const budgetService = {
       const res = await api.get('/budgets', { params: { year } });
       if (res.data?.success && res.data.data !== undefined) {
         const serverBudgets = res.data.data || {};
-        // The MySQL database is the Source of Truth: overwrite local cache with server data
-        localStorage.setItem(primaryKey, JSON.stringify(serverBudgets));
-        window.dispatchEvent(new CustomEvent('fintrack-budget-changed', { detail: { year, budgetMap: serverBudgets } }));
+        const oldStr = localStorage.getItem(primaryKey);
+        const newStr = JSON.stringify(serverBudgets);
+        // Only overwrite and dispatch event if server data is actually different from current cache
+        if (oldStr !== newStr) {
+          localStorage.setItem(primaryKey, newStr);
+          window.dispatchEvent(new CustomEvent('fintrack-budget-changed', { detail: { year, budgetMap: serverBudgets, source: 'server' } }));
+        }
         return serverBudgets;
       }
     } catch (err) {
