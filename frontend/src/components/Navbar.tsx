@@ -23,6 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
 import { cardService } from '../services/cardService';
+import { calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
 import { getUserStorageKey } from '../services/storageHelper';
 import { showToast } from './ToastNotification';
 import { playNotificationChime } from '../services/soundService';
@@ -132,8 +133,10 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
       const allTx: any[] = (res.data && res.data.success && Array.isArray(res.data.data)) ? res.data.data : [];
 
       const dueAlerts: NotificationItem[] = [];
-      const today = new Date().getDate();
-      const currentMonth = new Date().getMonth();
+      const now = new Date();
+      const today = now.getDate();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
 
       let ccDaysBefore = 3;
       let emiDaysBefore = 3;
@@ -182,8 +185,22 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
 
               const netDue = Math.max(0, spend - paid);
 
-              // REQUIREMENT: If due amount is 0, DO NOT notify!
-              if (netDue <= 0) return;
+              // Check if bill payment was already recorded in current month
+              const billPaidThisMonth = allTx.some((t: any) => {
+                if (!t.date) return false;
+                const [y, m] = String(t.date).slice(0, 10).split('-').map(Number);
+                if (y !== currentYear || m !== (currentMonth + 1)) return false;
+                const cat = String(t.category || '').toLowerCase();
+                const desc = String(t.description || '').toLowerCase();
+                const mode = String(t.paymentMode || '').toLowerCase();
+                const tCard = String(t.card || '').toLowerCase();
+                const cName = card.name.toLowerCase();
+                const isPayment = cat.includes('bill') || cat.includes('card payment') || desc.includes('bill payment') || desc.includes('credit card payment');
+                return isPayment && (mode.includes(cName) || tCard.includes(cName) || desc.includes(cName));
+              });
+
+              // REQUIREMENT: If due amount is 0 or bill already paid this month, DO NOT notify!
+              if (netDue <= 0 || billPaidThisMonth) return;
 
               const label = diff === 0 ? 'DUE TODAY' : `Due in ${diff} day${diff > 1 ? 's' : ''}`;
               dueAlerts.push({
@@ -231,9 +248,38 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
             const loans = JSON.parse(savedLoans);
             if (Array.isArray(loans)) {
               loans.forEach((loan: any, idx: number) => {
+                if (loan.status === 'closed') return;
                 const dueDay = Number(loan.dueDay) || 5;
                 const diff = dueDay - today;
                 if (diff >= 0 && diff <= emiDaysBefore) {
+                  // Check if this month's EMI is already paid via schedule or ledger
+                  let isEmiPaidThisMonth = false;
+                  try {
+                    const metrics = calculateLoanEMIs(loan);
+                    const schedule = generateEmiSchedule(loan, metrics);
+                    const curSchedule = schedule.find(s => s.year === currentYear && s.month === currentMonth);
+                    if (curSchedule?.status === 'paid' || curSchedule?.emiAmount === 0) {
+                      isEmiPaidThisMonth = true;
+                    }
+                  } catch {}
+
+                  if (!isEmiPaidThisMonth) {
+                    isEmiPaidThisMonth = allTx.some((t: any) => {
+                      if (!t.date) return false;
+                      const [y, m] = String(t.date).slice(0, 10).split('-').map(Number);
+                      if (y !== currentYear || m !== (currentMonth + 1)) return false;
+                      const desc = String(t.description || '').toLowerCase();
+                      const sub = String(t.subcategory || '').toLowerCase();
+                      const cat = String(t.category || '').toLowerCase();
+                      const lName = String(loan.name || '').toLowerCase();
+                      const isRepayment = desc.includes('emi') || sub.includes('emi') || cat.includes('debt') || desc.includes('repayment') || sub.includes('loan');
+                      return isRepayment && (desc.includes(lName) || sub.includes(lName));
+                    });
+                  }
+
+                  // If EMI already paid for this month, DO NOT notify!
+                  if (isEmiPaidThisMonth) return;
+
                   const label = diff === 0 ? 'DUE TODAY' : `Due in ${diff} day${diff > 1 ? 's' : ''}`;
                   dueAlerts.push({
                     id: 8000 + idx,
