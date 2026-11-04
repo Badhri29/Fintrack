@@ -2624,7 +2624,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                       transition: 'opacity 0.28s ease, transform 0.28s ease'
                     }}
                   >
-                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
+                    <table className="dashboard-category-desktop-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
                       <thead>
                         <tr style={{ borderBottom: '1px solid var(--border-color)', color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                           <th style={{ padding: '8px 4px', fontWeight: 600 }}>Category</th>
@@ -2708,6 +2708,240 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                         })}
                       </tbody>
                     </table>
+
+                    {/* Dedicated Mobile Category Breakdown Cards (3-Line UI Layout) */}
+                    <div className="dashboard-category-mobile-cards">
+                      {secInfo.rows.length === 0 ? (
+                        <div style={{ textAlign: 'center', padding: '14px 0', color: 'var(--text-muted)', fontSize: 12 }}>
+                          No categories found in this period
+                        </div>
+                      ) : (
+                        secInfo.rows.map(row => {
+                          const effectivePct = row.budget > 0
+                            ? Math.round((row.actual / row.budget) * 100)
+                            : (row.actual > 0 ? 100 : 0);
+
+                          let badgeText = 'Under Budget';
+                          let badgeColor = '#10B981';
+                          let badgeBg = 'rgba(16, 185, 129, 0.12)';
+                          let badgeBorder = 'rgba(16, 185, 129, 0.28)';
+
+                          let varianceText = `${currencyService.format(0)} (0%)`;
+                          let varianceColor = 'var(--text-muted)';
+                          let barColor = '#10B981';
+
+                          if (sec === 'expense') {
+                            const isOver = row.actual > row.budget;
+                            if (isOver) {
+                              badgeText = 'Over Budget';
+                              badgeColor = '#EF4444';
+                              badgeBg = 'rgba(239, 68, 68, 0.12)';
+                              badgeBorder = 'rgba(239, 68, 68, 0.28)';
+                              const diff = row.actual - row.budget;
+                              varianceText = `-${currencyService.format(diff)} (${effectivePct}%)`;
+                              varianceColor = '#EF4444';
+                              barColor = '#EF4444';
+                            } else {
+                              badgeText = 'Under Budget';
+                              badgeColor = '#10B981';
+                              badgeBg = 'rgba(16, 185, 129, 0.12)';
+                              badgeBorder = 'rgba(16, 185, 129, 0.28)';
+                              const diff = row.budget - row.actual;
+                              varianceText = diff > 0
+                                ? `+${currencyService.format(diff)} (${effectivePct}%)`
+                                : `${currencyService.format(0)} (${effectivePct}%)`;
+                              varianceColor = '#10B981';
+                              barColor = effectivePct > 85 ? '#F59E0B' : '#10B981';
+                            }
+                          } else if (sec === 'income') {
+                            const isMet = row.actual >= row.budget;
+                            if (row.budget === 0 && row.actual === 0) {
+                              badgeText = 'On Track';
+                              badgeColor = '#10B981';
+                              badgeBg = 'rgba(16, 185, 129, 0.12)';
+                              badgeBorder = 'rgba(16, 185, 129, 0.28)';
+                              varianceText = `${currencyService.format(0)} (0%)`;
+                              varianceColor = 'var(--text-muted)';
+                              barColor = '#10B981';
+                            } else if (isMet) {
+                              badgeText = 'Target Met';
+                              badgeColor = '#10B981';
+                              badgeBg = 'rgba(16, 185, 129, 0.12)';
+                              badgeBorder = 'rgba(16, 185, 129, 0.28)';
+                              const diff = row.actual - row.budget;
+                              varianceText = `+${currencyService.format(diff)} (${effectivePct}%)`;
+                              varianceColor = '#10B981';
+                              barColor = '#10B981';
+                            } else {
+                              badgeText = 'Under Target';
+                              badgeColor = '#F59E0B';
+                              badgeBg = 'rgba(245, 158, 11, 0.12)';
+                              badgeBorder = 'rgba(245, 158, 11, 0.28)';
+                              const diff = row.budget - row.actual;
+                              varianceText = `-${currencyService.format(diff)} (${effectivePct}%)`;
+                              varianceColor = '#F59E0B';
+                              barColor = '#10B981';
+                            }
+                          } else {
+                            // savings
+                            const isMet = row.actual >= row.budget;
+                            if (row.budget === 0 && row.actual === 0) {
+                              badgeText = 'On Track';
+                              badgeColor = '#38BDF8';
+                              badgeBg = 'rgba(56, 189, 248, 0.12)';
+                              badgeBorder = 'rgba(56, 189, 248, 0.28)';
+                              varianceText = `${currencyService.format(0)} (0%)`;
+                              varianceColor = 'var(--text-muted)';
+                              barColor = '#38BDF8';
+                            } else if (isMet) {
+                              badgeText = 'Target Met';
+                              badgeColor = '#10B981';
+                              badgeBg = 'rgba(16, 185, 129, 0.12)';
+                              badgeBorder = 'rgba(16, 185, 129, 0.28)';
+                              const diff = row.actual - row.budget;
+                              varianceText = `+${currencyService.format(diff)} (${effectivePct}%)`;
+                              varianceColor = '#10B981';
+                              barColor = '#10B981';
+                            } else {
+                              badgeText = 'Under Target';
+                              badgeColor = '#38BDF8';
+                              badgeBg = 'rgba(56, 189, 248, 0.12)';
+                              badgeBorder = 'rgba(56, 189, 248, 0.28)';
+                              const diff = row.budget - row.actual;
+                              varianceText = `-${currencyService.format(diff)} (${effectivePct}%)`;
+                              varianceColor = '#38BDF8';
+                              barColor = '#38BDF8';
+                            }
+                          }
+
+                          return (
+                            <div
+                              key={row.name}
+                              style={{
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                border: '1px solid rgba(255, 255, 255, 0.07)',
+                                borderRadius: 12,
+                                padding: '12px 13px',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 9,
+                                boxShadow: '0 2px 6px rgba(0, 0, 0, 0.12)'
+                              }}
+                            >
+                              {/* Line 1: Category Name (Left) + Status Badge (Right) */}
+                              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                                  <span
+                                    style={{
+                                      width: 8,
+                                      height: 8,
+                                      borderRadius: '50%',
+                                      background: accentColor,
+                                      flexShrink: 0,
+                                      marginTop: 1
+                                    }}
+                                  />
+                                  <span
+                                    style={{
+                                      fontSize: 13,
+                                      fontWeight: 600,
+                                      color: 'var(--text-primary)',
+                                      wordBreak: 'break-word',
+                                      lineHeight: 1.3
+                                    }}
+                                  >
+                                    {row.name}
+                                  </span>
+                                </div>
+
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    padding: '3px 8px',
+                                    borderRadius: 6,
+                                    background: badgeBg,
+                                    color: badgeColor,
+                                    border: `1px solid ${badgeBorder}`,
+                                    whiteSpace: 'nowrap',
+                                    flexShrink: 0,
+                                    letterSpacing: '0.02em'
+                                  }}
+                                >
+                                  {badgeText}
+                                </span>
+                              </div>
+
+                              {/* Line 2: 3 Columns (Estimate | Actual | Variance (%)) */}
+                              <div
+                                style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: 'repeat(3, 1fr)',
+                                  gap: 6,
+                                  alignItems: 'baseline'
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+                                    ESTIMATE
+                                  </div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                    {row.budget > 0 ? currencyService.format(row.budget) : '₹0'}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+                                    ACTUAL
+                                  </div>
+                                  <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {row.actual > 0 ? currencyService.format(row.actual) : '₹0'}
+                                  </div>
+                                </div>
+
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>
+                                    VARIANCE (%)
+                                  </div>
+                                  <div
+                                    style={{
+                                      fontSize: 11.5,
+                                      fontWeight: 700,
+                                      color: varianceColor,
+                                      whiteSpace: 'nowrap'
+                                    }}
+                                  >
+                                    {varianceText}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Line 3: Progress Line / Utilization Fill Line */}
+                              <div
+                                style={{
+                                  width: '100%',
+                                  height: 6,
+                                  background: 'rgba(255, 255, 255, 0.08)',
+                                  borderRadius: 999,
+                                  overflow: 'hidden',
+                                  marginTop: 2
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    width: `${Math.min(100, Math.max(0, effectivePct))}%`,
+                                    height: '100%',
+                                    background: barColor,
+                                    borderRadius: 999,
+                                    transition: 'width 0.45s cubic-bezier(0.4, 0, 0.2, 1)'
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

@@ -798,44 +798,77 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               </button>
             </div>
 
-            {/* User Profile Card inside Drawer */}
+            {/* User Profile Card inside Drawer with Quick Logout */}
             <div
               className="mobile-drawer-user-card"
-              onClick={() => {
-                setIsMobileMenuOpen(false);
-                onOpenProfile?.();
-              }}
-              title="Click to view & edit profile"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
             >
-              <div className="user-avatar" style={{ width: 42, height: 42, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                {profilePhoto ? (
-                  <img src={profilePhoto} alt={user?.name || 'Profile'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
-                ) : (
-                  getInitials(user?.name)
-                )}
+              <div
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenProfile?.();
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1, cursor: 'pointer' }}
+                title="Click to view & edit profile"
+              >
+                <div className="user-avatar" style={{ width: 42, height: 42, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  {profilePhoto ? (
+                    <img src={profilePhoto} alt={user?.name || 'Profile'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
+                  ) : (
+                    getInitials(user?.name)
+                  )}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user?.name || 'User'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {user?.email || 'user@fintrack.app'}
+                  </div>
+                  <div style={{ marginTop: 4 }}>
+                    <span style={{
+                      fontSize: 9.5,
+                      fontWeight: 800,
+                      padding: '2px 6px',
+                      borderRadius: 4,
+                      letterSpacing: '0.04em',
+                      background: user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.15)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(100, 116, 139, 0.15)',
+                      color: user?.subscriptionTier === 'ENTERPRISE' ? '#C084FC' : user?.subscriptionTier === 'PRO' ? '#60A5FA' : '#94A3B8',
+                      border: `1px solid ${user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.3)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`
+                    }}>
+                      {user?.subscriptionTier || 'FREE'} PLAN
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {user?.name || 'User'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {user?.email || 'user@fintrack.app'}
-                </div>
-                <div style={{ marginTop: 4 }}>
-                  <span style={{
-                    fontSize: 9.5,
-                    fontWeight: 800,
-                    padding: '2px 6px',
-                    borderRadius: 4,
-                    letterSpacing: '0.04em',
-                    background: user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.15)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(100, 116, 139, 0.15)',
-                    color: user?.subscriptionTier === 'ENTERPRISE' ? '#C084FC' : user?.subscriptionTier === 'PRO' ? '#60A5FA' : '#94A3B8',
-                    border: `1px solid ${user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.3)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`
-                  }}>
-                    {user?.subscriptionTier || 'FREE'} PLAN
-                  </span>
-                </div>
-              </div>
+
+              {/* Instant Logout Option directly accessible at top of drawer */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMobileMenuOpen(false);
+                  logout();
+                }}
+                style={{
+                  background: 'rgba(239, 68, 68, 0.15)',
+                  border: '1px solid rgba(239, 68, 68, 0.35)',
+                  color: '#EF4444',
+                  borderRadius: 8,
+                  padding: '6px 10px',
+                  fontSize: 11.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  flexShrink: 0
+                }}
+                title="Log Out Account"
+              >
+                <LogOut size={13} />
+                <span>Exit</span>
+              </button>
             </div>
 
             {/* Mobile Nav Links */}

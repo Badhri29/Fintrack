@@ -110,6 +110,7 @@ export const SettingsView: React.FC = () => {
     'currency',
     'preferences',
     'notifications',
+    'audio_chimes',
     'export',
     'security',
     'reset',
@@ -151,7 +152,10 @@ export const SettingsView: React.FC = () => {
     const isExpanded = !isMobile || expandedSections.has(sectionId);
     return (
       <div
-        onClick={() => isMobile && toggleSection(sectionId)}
+        onClick={(e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          if (isMobile) toggleSection(sectionId);
+        }}
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -159,7 +163,8 @@ export const SettingsView: React.FC = () => {
           marginBottom: isExpanded ? 20 : 0,
           cursor: isMobile ? 'pointer' : 'default',
           userSelect: 'none',
-          gap: 12
+          gap: 12,
+          padding: isMobile ? '4px 0' : 0
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
@@ -179,10 +184,10 @@ export const SettingsView: React.FC = () => {
             {icon}
           </div>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {title}
             </h2>
-            <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap' }}>
               {subtitle}
             </span>
           </div>
@@ -191,11 +196,12 @@ export const SettingsView: React.FC = () => {
         {isMobile && (
           <div
             style={{
-              width: 32,
-              height: 32,
-              borderRadius: 8,
-              background: isExpanded ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              width: 34,
+              height: 34,
+              borderRadius: 9,
+              background: isExpanded ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.06)',
               color: isExpanded ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+              border: isExpanded ? '1px solid rgba(99, 102, 241, 0.35)' : '1px solid var(--border-color)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -206,7 +212,7 @@ export const SettingsView: React.FC = () => {
               size={18}
               style={{
                 transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.2s ease'
+                transition: 'transform 0.22s ease'
               }}
             />
           </div>
@@ -1006,32 +1012,9 @@ export const SettingsView: React.FC = () => {
       <div className="settings-grid">
         
         {/* 1. Profile Information Card with Photo Upload */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--accent-indigo)'
-                }}
-              >
-                <User size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  Profile Information
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Personal identity, photo & contact details
-                </span>
-              </div>
-            </div>
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('profile', <User size={22} />, 'Profile Information', 'Personal identity, photo & contact details', 'rgba(99, 102, 241, 0.15)', 'var(--accent-indigo)')}
+          <div style={{ display: (!isMobile || expandedSections.has('profile')) ? 'block' : 'none' }}>
 
             {/* Profile Avatar Badge */}
             <div
@@ -1277,6 +1260,7 @@ export const SettingsView: React.FC = () => {
               )}
             </div>
           </form>
+          </div>
         </div>
 
         {/* 2. Appearance & Theme Mode Card */}
@@ -1358,17 +1342,18 @@ export const SettingsView: React.FC = () => {
 
         {/* 3. Real-Time Currency Conversion & System Configuration Card */}
         <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
-          {renderSectionHeader('currency', <RefreshCw size={22} />, 'Real-Time Currency & System', 'Live exchange rates & currency conversion across all pages', 'rgba(139, 92, 246, 0.15)', '#8B5CF6')}
+          {renderSectionHeader('currency', <RefreshCw size={22} />, 'Real-Time Currency & System', 'Live exchange rates & currency conversion across all pages', 'rgba(16, 185, 129, 0.15)', '#10B981')}
           <div style={{ display: (!isMobile || expandedSections.has('currency')) ? 'block' : 'none' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
               <button
+                type="button"
                 onClick={handleRefreshRates}
                 disabled={ratesRefreshing}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   gap: 6,
-                  padding: '8px 12px',
+                  padding: '8px 14px',
                   borderRadius: 8,
                   background: 'rgba(16, 185, 129, 0.15)',
                   color: '#10B981',
@@ -1383,30 +1368,6 @@ export const SettingsView: React.FC = () => {
                 {ratesRefreshing ? 'Syncing...' : 'Sync Rates'}
               </button>
             </div>
-
-            <button
-              type="button"
-              onClick={handleRefreshRates}
-              disabled={ratesRefreshing}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '6px 12px',
-                borderRadius: 8,
-                background: 'rgba(99, 102, 241, 0.12)',
-                color: 'var(--accent-indigo)',
-                border: '1px solid rgba(99, 102, 241, 0.25)',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-              title="Fetch fresh live exchange rates"
-            >
-              <RefreshCw size={13} className={ratesRefreshing ? 'spin-anim' : ''} />
-              {ratesRefreshing ? 'Updating...' : 'Sync Rates'}
-            </button>
-          </div>
 
           {/* Real-Time Conversion Display matching Google Converter style */}
           {currencyCode === 'INR' ? (
@@ -1669,42 +1630,18 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+          </div>
         </div>
 
         {/* 4. Default Transaction Preferences Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(16, 185, 129, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#10B981'
-                }}
-              >
-                <Sliders size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  Default Transaction Preferences
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Pre-configured defaults for the Add Transaction modal
-                </span>
-              </div>
-            </div>
-
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('preferences', <Sliders size={22} />, 'Default Transaction Preferences', 'Pre-configured defaults for the Add Transaction modal', 'rgba(245, 158, 11, 0.15)', '#F59E0B')}
+          <div style={{ display: (!isMobile || expandedSections.has('preferences')) ? 'block' : 'none' }}>
             {txMessage && (
-              <span style={{ fontSize: 13, color: '#10B981', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ marginBottom: 14, fontSize: 13, color: '#10B981', display: 'flex', alignItems: 'center', gap: 5 }}>
                 <CheckCircle size={15} /> {txMessage.text}
-              </span>
+              </div>
             )}
-          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {/* 1. Default Type */}
@@ -1891,57 +1828,34 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
 
-        {/* 5. Notification Controls & Preferences Matrix */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
+        {/* 5. Notification Controls & Daily Reports Card */}
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('notifications', <Bell size={22} />, 'Notification Controls & Daily Reports', 'Granular Software (in-app) & SMTP Mail dual-channel preferences', 'rgba(59, 130, 246, 0.15)', '#3B82F6')}
+          <div style={{ display: (!isMobile || expandedSections.has('notifications')) ? 'block' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 14 }}>
+              <button
+                type="button"
+                onClick={handleTriggerTestEod}
+                disabled={eodTesting}
                 style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(99, 102, 241, 0.15)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#6366F1'
+                  gap: 8,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: '#1E293B',
+                  color: '#38BDF8',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer'
                 }}
+                title="Dispatches a test EOD Financial Summary with PDF directly to your email"
               >
-                <Bell size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  Notification Controls
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Granular Software (in-app) & SMTP Mail dual-channel preferences
-                </span>
-              </div>
+                <Mail size={14} />
+                {eodTesting ? 'Dispatching Test Email...' : 'Send Test EOD Digest'}
+              </button>
             </div>
-
-            <button
-              type="button"
-              onClick={handleTriggerTestEod}
-              disabled={eodTesting}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '8px 14px',
-                borderRadius: 8,
-                background: '#1E293B',
-                color: '#38BDF8',
-                border: '1px solid rgba(56, 189, 248, 0.3)',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-              title="Dispatches a test EOD Financial Summary with PDF directly to your email"
-            >
-              <Mail size={14} />
-              {eodTesting ? 'Dispatching Test Email...' : 'Send Test EOD Digest'}
-            </button>
-          </div>
 
           {notifMsg && (
             <div
@@ -2258,19 +2172,20 @@ export const SettingsView: React.FC = () => {
             </div>
           </div>
 
-          {/* Software Notification Sound ("Ding" Bell Tone) */}
-          <div
-            style={{
-              padding: 18,
-              borderRadius: 12,
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              marginTop: 14,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16
-            }}
-          >
+          </div>
+        </div>
+
+        {/* 6. Software Notification Audio Chimes Card */}
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('audio_chimes', <Volume2 size={22} />, 'Software Notification Audio Chimes', 'Synthesized audio feedback, tone selection & test chimes', 'rgba(99, 102, 241, 0.15)', '#818CF8')}
+          <div style={{ display: (!isMobile || expandedSections.has('audio_chimes')) ? 'block' : 'none' }}>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 16
+              }}
+            >
             <div
               style={{
                 display: 'flex',
@@ -2396,34 +2311,13 @@ export const SettingsView: React.FC = () => {
               </div>
             </div>
           </div>
+          </div>
         </div>
 
-        {/* 6. Data Management & Export Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(16, 185, 129, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#10B981'
-              }}
-            >
-              <Download size={22} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Data Management & Export
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Download ledgers in active currency, backup data or reset local preferences
-              </span>
-            </div>
-          </div>
+        {/* 7. Data Management & Export Card */}
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('export', <Download size={22} />, 'Data Management & Export', 'Download ledgers in active currency, backup data or reset local preferences', 'rgba(139, 92, 246, 0.15)', '#8B5CF6')}
+          <div style={{ display: (!isMobile || expandedSections.has('export')) ? 'block' : 'none' }}>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{
@@ -2547,9 +2441,10 @@ export const SettingsView: React.FC = () => {
               </div>
             )}
           </div>
+          </div>
         </div>
 
-        {/* 7. Security & Password Update Card */}
+        {/* 8. Security & Password Update Card */}
         <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
           {renderSectionHeader('security', <Lock size={22} />, 'Security & Password', 'Protect your personal account & active credentials', 'rgba(245, 158, 11, 0.15)', '#F59E0B')}
           <div style={{ display: (!isMobile || expandedSections.has('security')) ? 'block' : 'none' }}>

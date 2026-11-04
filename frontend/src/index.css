@@ -2577,8 +2577,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 @media (max-width: 860px) {
   .settings-grid {
-    grid-template-columns: 1fr !important;
-    gap: 14px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 22px !important;
   }
 
   .settings-grid .summary-card,
@@ -2788,11 +2789,12 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   width: 85% !important;
   max-width: 320px !important;
   height: 100% !important;
+  height: 100dvh !important;
   background: #0B0F19 !important;
   border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
   display: flex !important;
   flex-direction: column !important;
-  padding: 18px 16px 12px !important;
+  padding: 18px 16px 0 !important;
   box-sizing: border-box !important;
   animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
   overflow: hidden !important;
@@ -2932,7 +2934,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 .mobile-drawer-footer {
   padding-top: 14px !important;
-  padding-bottom: max(12px, env(safe-area-inset-bottom, 12px)) !important;
+  padding-bottom: max(75px, calc(65px + env(safe-area-inset-bottom, 20px))) !important;
   border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
   margin-top: auto !important;
   flex-shrink: 0 !important;
@@ -2963,6 +2965,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-color: rgba(239, 68, 68, 0.7) !important;
   color: #FFFFFF !important;
   transform: translateY(-1px) !important;
+}
+
+/* Dashboard Expanded Category Breakdown: Desktop Table vs Mobile Cards */
+.dashboard-category-mobile-cards {
+  display: none;
+}
+.dashboard-category-desktop-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-category-desktop-table {
+    display: none !important;
+  }
+  .dashboard-category-mobile-cards {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+  }
 }
 
 /* Mobile Bottom Navigation Bar (Appears on screens <= 768px) */
@@ -3184,6 +3208,28 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .settings-grid {
     grid-template-columns: 1fr !important;
     gap: 16px !important;
+  }
+}
+
+/* Dashboard Expanded Category Breakdown: Desktop Table vs Mobile Cards */
+.dashboard-category-mobile-cards {
+  display: none;
+}
+.dashboard-category-desktop-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .dashboard-category-desktop-table {
+    display: none !important;
+  }
+  .dashboard-category-mobile-cards {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
   }
 }
 
