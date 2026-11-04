@@ -11,4 +11,5 @@ public interface CreditCardTransactionRepository extends JpaRepository<CreditCar
     List<CreditCardTransaction> findByCardIdAndUserIdOrderByCreatedAtDesc(String cardId, Long userId);
     List<CreditCardTransaction> findByUserIdOrderByCreatedAtDesc(Long userId);
     void deleteByCardIdAndUserId(String cardId, Long userId);
+    void deleteByUserId(Long userId);
 }

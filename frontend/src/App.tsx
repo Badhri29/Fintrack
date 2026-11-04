@@ -19,7 +19,7 @@ import { CurrencyOnboardingModal } from './components/CurrencyOnboardingModal';
 import { InactivityTracker } from './components/InactivityTracker';
 import { ToastNotification, showToast } from './components/ToastNotification';
 import { GlobalDueTicker } from './components/GlobalDueTicker';
-import { AlertTriangle, Lock } from 'lucide-react';
+import { AlertTriangle, Lock, Wallet } from 'lucide-react';
 import api from './services/api';
 import { bankAccountService } from './services/bankAccountService';
 import { cardService } from './services/cardService';
@@ -176,13 +176,39 @@ function AppContent() {
           minHeight: '100vh',
           width: '100vw',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          background: 'var(--bg-primary)',
-          color: 'var(--text-primary)'
+          background: '#0B0E14',
+          color: '#FFF',
+          gap: 16
         }}
       >
-        <div style={{ fontSize: 16, fontWeight: 700 }}>Loading FinTrack...</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #6366F1 0%, #4338CA 100%)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#FFF',
+              boxShadow: '0 8px 24px rgba(99, 102, 241, 0.4)'
+            }}
+          >
+            <Wallet size={24} />
+          </div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.5px', color: '#F8FAFC' }}>FinTrack</div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#818CF8', letterSpacing: '1px', textTransform: 'uppercase' }}>PERSONAL FINANCE</div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#94A3B8', marginTop: 6 }}>
+          <div style={{ width: 16, height: 16, border: '2px solid rgba(99, 102, 241, 0.3)', borderTopColor: '#6366F1', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          <span>Securing session & loading FinTrack...</span>
+        </div>
       </div>
     );
   }

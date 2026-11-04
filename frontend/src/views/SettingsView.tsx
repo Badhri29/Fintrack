@@ -23,7 +23,11 @@ import {
   Send,
   Volume2,
   Clock,
-  Upload
+  Upload,
+  ChevronDown,
+  SlidersHorizontal,
+  Calendar,
+  CreditCard
 } from 'lucide-react';
 import { playNotificationChime, NOTIFICATION_SOUNDS, getActiveSoundTone, setActiveSoundTone } from '../services/soundService';
 import { useAuth } from '../context/AuthContext';
@@ -97,6 +101,119 @@ export const SettingsView: React.FC = () => {
   const [myPendingRequests, setMyPendingRequests] = useState<string[]>([]);
   const [requestingPlanCode, setRequestingPlanCode] = useState<string | null>(null);
   const [reqMsg, setReqMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Mobile Accordion state
+  const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 768);
+  const ALL_SETTINGS_SECTIONS = [
+    'profile',
+    'appearance',
+    'currency',
+    'preferences',
+    'notifications',
+    'export',
+    'security',
+    'reset',
+    'subscription'
+  ] as const;
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set<string>());
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const toggleSection = (sec: string) => {
+    setExpandedSections(prev => {
+      const next = new Set(prev);
+      if (next.has(sec)) next.delete(sec);
+      else next.add(sec);
+      return next;
+    });
+  };
+
+  const expandAllSections = () => {
+    setExpandedSections(new Set(ALL_SETTINGS_SECTIONS));
+  };
+
+  const collapseAllSections = () => {
+    setExpandedSections(new Set());
+  };
+
+  const renderSectionHeader = (
+    sectionId: string,
+    icon: React.ReactNode,
+    title: string,
+    subtitle: string,
+    iconBg: string,
+    iconColor: string
+  ) => {
+    const isExpanded = !isMobile || expandedSections.has(sectionId);
+    return (
+      <div
+        onClick={() => isMobile && toggleSection(sectionId)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: isExpanded ? 20 : 0,
+          cursor: isMobile ? 'pointer' : 'default',
+          userSelect: 'none',
+          gap: 12
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
+          <div
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 12,
+              background: iconBg,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: iconColor,
+              flexShrink: 0
+            }}
+          >
+            {icon}
+          </div>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {title}
+            </h2>
+            <span style={{ fontSize: 13, color: 'var(--text-secondary)', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: isMobile ? 'normal' : 'nowrap' }}>
+              {subtitle}
+            </span>
+          </div>
+        </div>
+
+        {isMobile && (
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: isExpanded ? 'rgba(99, 102, 241, 0.15)' : 'rgba(255, 255, 255, 0.05)',
+              color: isExpanded ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0
+            }}
+          >
+            <ChevronDown
+              size={18}
+              style={{
+                transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                transition: 'transform 0.2s ease'
+              }}
+            />
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Granular Reset state
   const [resetSectionLoading, setResetSectionLoading] = useState<string | null>(null);
@@ -217,10 +334,12 @@ export const SettingsView: React.FC = () => {
 
   const handleResetSectionData = async (section: string) => {
     const labels: Record<string, string> = {
-      categories: 'Categories and Subcategories (reset to defaults)',
-      loans: 'Loans & EMI section',
-      cards: 'Credit Cards section',
-      entire_app: 'ENTIRE FinTrack application (all transactions, cards, loans, categories for your account ONLY)'
+      expected: 'Expected Budget targets (resets planned monthly budget allocations for all years)',
+      actual: 'Actual Transactions ledger (deletes all recorded income & expense transactions)',
+      loans: 'Loans & EMI section (deletes all loan accounts and EMI histories)',
+      cards: 'Credit Cards section (deletes all credit cards and card spends)',
+      categories: 'Categories and Subcategories (resets custom categories back to defaults)',
+      entire_app: 'ENTIRE FinTrack application (all transactions, budgets, cards, loans, categories for your account ONLY)'
     };
 
     if (!window.confirm(`Are you sure you want to reset ${labels[section] || section}? This action cannot be undone.`)) {
@@ -232,19 +351,53 @@ export const SettingsView: React.FC = () => {
 
     try {
       const userEmail = (user?.email || 'guest').toLowerCase();
+
+      if (section === 'expected' || section === 'entire_app') {
+        localStorage.removeItem(`fintrack_budget_store_${userEmail}`);
+        localStorage.removeItem(`fintrack_budgets_${userEmail}`);
+        try {
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i);
+            if (k && (k.startsWith('fintrack_budget_') || k.startsWith(`fintrack_budget_store_${userEmail}`))) {
+              localStorage.removeItem(k);
+            }
+          }
+        } catch {}
+      }
+
+      if (section === 'actual' || section === 'entire_app') {
+        localStorage.removeItem(`fintrack_transactions_${userEmail}`);
+        localStorage.removeItem(`fintrack_cached_transactions_${userEmail}`);
+      }
+
       if (section === 'loans' || section === 'entire_app') {
         localStorage.removeItem(`fintrack_loans_list_${userEmail}`);
+        localStorage.removeItem(`fintrack_loan_repayments_${userEmail}`);
+        localStorage.removeItem(`fintrack_loan_txs_${userEmail}`);
       }
+
       if (section === 'cards' || section === 'entire_app') {
         localStorage.removeItem(`fintrack_credit_cards_${userEmail}`);
-      }
-      if (section === 'entire_app') {
-        localStorage.removeItem(`fintrack_budget_store_${userEmail}`);
+        localStorage.removeItem(`fintrack_credit_card_txs_${userEmail}`);
+        localStorage.removeItem(`fintrack_card_txs_${userEmail}`);
       }
 
       const res = await api.post('/user/reset-section', { section });
       if (res.data?.success) {
         setResetMsg({ type: 'success', text: res.data.message || 'Reset completed successfully!' });
+
+        if (section === 'expected') {
+          window.dispatchEvent(new CustomEvent('fintrack-budget-changed'));
+        } else if (section === 'actual') {
+          window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+        } else if (section === 'loans') {
+          window.dispatchEvent(new CustomEvent('fintrack-loans-changed'));
+        } else if (section === 'cards') {
+          window.dispatchEvent(new CustomEvent('fintrack-cards-updated'));
+        }
+
+        window.dispatchEvent(new CustomEvent('fintrack-data-synced'));
+
         setTimeout(() => {
           if (section === 'entire_app') {
             window.location.reload();
@@ -792,6 +945,64 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
+            {isMobile && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 14px',
+          marginBottom: 16,
+          borderRadius: 12,
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
+          boxSizing: 'border-box',
+          width: '100%',
+          flexWrap: 'wrap',
+          gap: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <SlidersHorizontal size={16} style={{ color: 'var(--accent-indigo)' }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+              Settings Sections ({expandedSections.size}/{ALL_SETTINGS_SECTIONS.length} Open)
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={expandAllSections}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                background: 'rgba(99, 102, 241, 0.15)',
+                color: 'var(--accent-indigo)',
+                border: '1px solid rgba(99, 102, 241, 0.3)',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              Expand All
+            </button>
+            <button
+              type="button"
+              onClick={collapseAllSections}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 8,
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: 'var(--text-secondary)',
+                border: '1px solid var(--border-color)',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer'
+              }}
+            >
+              Close All
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="settings-grid">
         
         {/* 1. Profile Information Card with Photo Upload */}
@@ -1069,31 +1280,9 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* 2. Appearance & Theme Mode Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(236, 72, 153, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#EC4899'
-              }}
-            >
-              <Palette size={22} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Appearance & Theme Mode
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Applied synchronously across all dashboard, table and modal views
-              </span>
-            </div>
-          </div>
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('appearance', <Palette size={22} />, 'Appearance & Theme Mode', 'Applied synchronously across all dashboard, table and modal views', 'rgba(236, 72, 153, 0.15)', '#EC4899')}
+          <div style={{ display: (!isMobile || expandedSections.has('appearance')) ? 'block' : 'none' }}>
 
           <div className="settings-theme-grid">
             {themeOptions.map(opt => {
@@ -1164,34 +1353,35 @@ export const SettingsView: React.FC = () => {
             Active palette: <strong style={{ color: 'var(--accent-indigo)' }}>{effectiveTheme.toUpperCase()}</strong> ({theme} preference).
             Every component including charts, ledgers, modals, and tables automatically re-render based on this mode.
           </div>
+          </div>
         </div>
 
         {/* 3. Real-Time Currency Conversion & System Configuration Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('currency', <RefreshCw size={22} />, 'Real-Time Currency & System', 'Live exchange rates & currency conversion across all pages', 'rgba(139, 92, 246, 0.15)', '#8B5CF6')}
+          <div style={{ display: (!isMobile || expandedSections.has('currency')) ? 'block' : 'none' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+              <button
+                onClick={handleRefreshRates}
+                disabled={ratesRefreshing}
                 style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(139, 92, 246, 0.15)',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#8B5CF6'
+                  gap: 6,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#10B981',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer'
                 }}
+                title="Refresh live exchange rates"
               >
-                <Shield size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  Real-Time Currency & System
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  Live exchange rates & currency conversion across all pages
-                </span>
-              </div>
+                <RefreshCw size={13} className={ratesRefreshing ? 'animate-spin' : ''} />
+                {ratesRefreshing ? 'Syncing...' : 'Sync Rates'}
+              </button>
             </div>
 
             <button
@@ -1357,7 +1547,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 190, minWidth: 190 }}
+                style={{ width: isMobile ? '100%' : 190, minWidth: isMobile ? 0 : 190 }}
                 value={currencyCode}
                 onChange={e => handleCurrencyChange(e.target.value)}
               >
@@ -1389,7 +1579,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 160, minWidth: 160 }}
+                style={{ width: isMobile ? '100%' : 160, minWidth: isMobile ? 0 : 160 }}
                 value={dateFormat}
                 onChange={e => handleDateFormatChange(e.target.value)}
               >
@@ -1419,7 +1609,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 180, minWidth: 180 }}
+                style={{ width: isMobile ? '100%' : 180, minWidth: isMobile ? 0 : 180 }}
                 value={numberFormat}
                 onChange={e => handleNumberFormatChange(e.target.value)}
               >
@@ -1448,7 +1638,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 180, minWidth: 180 }}
+                style={{ width: isMobile ? '100%' : 180, minWidth: isMobile ? 0 : 180 }}
                 value={financialYear}
                 onChange={e => handleFinancialYearChange(e.target.value)}
               >
@@ -1537,7 +1727,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 150, minWidth: 150 }}
+                style={{ width: isMobile ? '100%' : 150, minWidth: isMobile ? 0 : 150 }}
                 value={defaultType}
                 onChange={e => handleSaveTransactionDefaults({ type: e.target.value })}
               >
@@ -1567,7 +1757,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 170, minWidth: 170 }}
+                style={{ width: isMobile ? '100%' : 170, minWidth: isMobile ? 0 : 170 }}
                 value={defaultPaymentMode}
                 onChange={e => handleSaveTransactionDefaults({ mode: e.target.value })}
               >
@@ -1600,7 +1790,7 @@ export const SettingsView: React.FC = () => {
               </div>
               <select
                 className="modal-select"
-                style={{ width: 180, minWidth: 180 }}
+                style={{ width: isMobile ? '100%' : 180, minWidth: isMobile ? 0 : 180 }}
                 value={defaultCategory}
                 onChange={e => handleSaveTransactionDefaults({ category: e.target.value })}
               >
@@ -1637,7 +1827,7 @@ export const SettingsView: React.FC = () => {
               <input
                 type="text"
                 className="modal-input"
-                style={{ width: 170, minWidth: 170 }}
+                style={{ width: isMobile ? '100%' : 170, minWidth: isMobile ? 0 : 170 }}
                 placeholder="e.g. HDFC Millennia"
                 value={defaultCard}
                 onChange={e => handleSaveTransactionDefaults({ card: e.target.value })}
@@ -1665,7 +1855,7 @@ export const SettingsView: React.FC = () => {
               <input
                 type="text"
                 className="modal-input"
-                style={{ width: 170, minWidth: 170 }}
+                style={{ width: isMobile ? '100%' : 170, minWidth: isMobile ? 0 : 170 }}
                 placeholder="e.g. Regular Expense"
                 value={defaultNote}
                 onChange={e => handleSaveTransactionDefaults({ note: e.target.value })}
@@ -1697,6 +1887,7 @@ export const SettingsView: React.FC = () => {
                 style={{ width: 18, height: 18, cursor: 'pointer', accentColor: 'var(--accent-indigo)' }}
               />
             </div>
+          </div>
           </div>
         </div>
 
@@ -2359,31 +2550,9 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* 7. Security & Password Update Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(245, 158, 11, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#F59E0B'
-              }}
-            >
-              <Lock size={22} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Security & Password
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Protect your personal account & active credentials
-              </span>
-            </div>
-          </div>
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('security', <Lock size={22} />, 'Security & Password', 'Protect your personal account & active credentials', 'rgba(245, 158, 11, 0.15)', '#F59E0B')}
+          <div style={{ display: (!isMobile || expandedSections.has('security')) ? 'block' : 'none' }}>
 
           <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div>
@@ -2400,7 +2569,7 @@ export const SettingsView: React.FC = () => {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
               <div>
                 <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
                   NEW PASSWORD
@@ -2460,31 +2629,9 @@ export const SettingsView: React.FC = () => {
         </div>
 
         {/* 8. Granular Section Resets Card */}
-        <div className="summary-card" style={{ padding: 28 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 12,
-                background: 'rgba(239, 68, 68, 0.15)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#EF4444'
-              }}
-            >
-              <RotateCcw size={22} />
-            </div>
-            <div>
-              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                Granular Section Resets
-              </h2>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                Reset specific functional modules or wipe your account back to clean initial state
-              </span>
-            </div>
-          </div>
+        <div className="summary-card" style={{ padding: isMobile ? '16px 14px' : 28 }}>
+          {renderSectionHeader('reset', <RotateCcw size={22} />, 'Granular Section Resets', 'Reset specific functional modules or wipe your account back to clean initial state', 'rgba(239, 68, 68, 0.15)', '#EF4444')}
+          <div style={{ display: (!isMobile || expandedSections.has('reset')) ? 'block' : 'none' }}>
 
           {resetMsg && (
             <div
@@ -2505,8 +2652,8 @@ export const SettingsView: React.FC = () => {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-            {/* Reset Categories */}
+          <div className="settings-reset-grid" style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+            {/* 1. Reset Expected Budgets */}
             <div
               style={{
                 padding: 16,
@@ -2519,24 +2666,25 @@ export const SettingsView: React.FC = () => {
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
-                  Categories & Subcategories
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  <Calendar size={16} style={{ color: '#3B82F6' }} />
+                  Expected Budget Targets
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
-                  Restores default system categories (Food, Housing, Utilities, etc.) and removes custom ones.
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Resets all planned monthly income, expense & savings allocations across all years back to blank state.
                 </div>
               </div>
               <button
                 type="button"
-                disabled={resetSectionLoading === 'categories'}
-                onClick={() => handleResetSectionData('categories')}
+                disabled={resetSectionLoading === 'expected'}
+                onClick={() => handleResetSectionData('expected')}
                 style={{
                   marginTop: 14,
                   padding: '8px 14px',
                   borderRadius: 8,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#EF4444',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  color: '#60A5FA',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -2547,11 +2695,11 @@ export const SettingsView: React.FC = () => {
                 }}
               >
                 <RotateCcw size={13} />
-                {resetSectionLoading === 'categories' ? 'Resetting...' : 'Reset Categories'}
+                {resetSectionLoading === 'expected' ? 'Resetting...' : 'Reset Expected Budgets'}
               </button>
             </div>
 
-            {/* Reset Loans & EMI */}
+            {/* 2. Reset Actual Transactions */}
             <div
               style={{
                 padding: 16,
@@ -2564,24 +2712,25 @@ export const SettingsView: React.FC = () => {
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
-                  Loans & EMI Section
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  <ArrowRightLeft size={16} style={{ color: '#F59E0B' }} />
+                  Actual Transactions Ledger
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
-                  Deletes all active loans, liabilities, and EMI payment schedules for your account.
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Wipes all recorded actual income, expense & ledger transactions from your personal FinTrack account.
                 </div>
               </div>
               <button
                 type="button"
-                disabled={resetSectionLoading === 'loans'}
-                onClick={() => handleResetSectionData('loans')}
+                disabled={resetSectionLoading === 'actual'}
+                onClick={() => handleResetSectionData('actual')}
                 style={{
                   marginTop: 14,
                   padding: '8px 14px',
                   borderRadius: 8,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#EF4444',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  background: 'rgba(245, 158, 11, 0.12)',
+                  color: '#FBBF24',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -2592,11 +2741,11 @@ export const SettingsView: React.FC = () => {
                 }}
               >
                 <RotateCcw size={13} />
-                {resetSectionLoading === 'loans' ? 'Resetting...' : 'Reset Loans & EMI'}
+                {resetSectionLoading === 'actual' ? 'Resetting...' : 'Reset Actual Transactions'}
               </button>
             </div>
 
-            {/* Reset Credit Cards */}
+            {/* 3. Reset Credit Cards */}
             <div
               style={{
                 padding: 16,
@@ -2609,11 +2758,12 @@ export const SettingsView: React.FC = () => {
               }}
             >
               <div>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
-                  Credit Cards Section
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  <CreditCard size={16} style={{ color: '#A855F7' }} />
+                  Credit Cards & Spends
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
-                  Removes saved credit cards and card payment records for your account.
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Removes saved credit cards, card statements, credit limits, and credit card spends.
                 </div>
               </div>
               <button
@@ -2624,9 +2774,9 @@ export const SettingsView: React.FC = () => {
                   marginTop: 14,
                   padding: '8px 14px',
                   borderRadius: 8,
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#EF4444',
-                  border: '1px solid rgba(239, 68, 68, 0.25)',
+                  background: 'rgba(168, 85, 247, 0.12)',
+                  color: '#C084FC',
+                  border: '1px solid rgba(168, 85, 247, 0.3)',
                   fontSize: 12,
                   fontWeight: 700,
                   cursor: 'pointer',
@@ -2641,24 +2791,117 @@ export const SettingsView: React.FC = () => {
               </button>
             </div>
 
-            {/* Reset Entire Application (Account Wipe) */}
+            {/* 4. Reset Loans & EMI */}
             <div
               style={{
                 padding: 16,
                 borderRadius: 12,
-                background: 'rgba(239, 68, 68, 0.05)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between'
               }}
             >
               <div>
-                <div style={{ fontWeight: 800, color: '#EF4444', fontSize: 14 }}>
-                  Entire Application (Account Reset)
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  <Clock size={16} style={{ color: '#06B6D4' }} />
+                  Loans & EMI Repayments
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, lineHeight: 1.5 }}>
-                  Wipes all transactions, cards, loans & resets only your account to fresh initial state.
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Deletes all active loans, liability accounts, tenure calculations, and EMI repayment schedules.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'loans'}
+                onClick={() => handleResetSectionData('loans')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'rgba(6, 182, 212, 0.12)',
+                  color: '#22D3EE',
+                  border: '1px solid rgba(6, 182, 212, 0.3)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <RotateCcw size={13} />
+                {resetSectionLoading === 'loans' ? 'Resetting...' : 'Reset Loans & EMI'}
+              </button>
+            </div>
+
+            {/* 5. Reset Categories */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
+                  <Sliders size={16} style={{ color: '#F43F5E' }} />
+                  Categories & Subcategories
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Restores default system categories (Food, Housing, Utilities, etc.) and removes custom categories.
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={resetSectionLoading === 'categories'}
+                onClick={() => handleResetSectionData('categories')}
+                style={{
+                  marginTop: 14,
+                  padding: '8px 14px',
+                  borderRadius: 8,
+                  background: 'rgba(244, 63, 94, 0.12)',
+                  color: '#FB7185',
+                  border: '1px solid rgba(244, 63, 94, 0.3)',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+              >
+                <RotateCcw size={13} />
+                {resetSectionLoading === 'categories' ? 'Resetting...' : 'Reset Categories'}
+              </button>
+            </div>
+
+            {/* 6. Reset Entire Application (Account Wipe) */}
+            <div
+              style={{
+                padding: 16,
+                borderRadius: 12,
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1.5px solid rgba(239, 68, 68, 0.35)',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between'
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, color: '#EF4444', fontSize: 14 }}>
+                  <Trash2 size={16} />
+                  Wipe Entire FinTrack (All Reset)
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6, lineHeight: 1.5 }}>
+                  Full account wipe: deletes all budgets, transactions, cards, loans, custom categories for your account ONLY.
                 </div>
               </div>
               <button
@@ -2686,37 +2929,16 @@ export const SettingsView: React.FC = () => {
               </button>
             </div>
           </div>
+          </div>
         </div>
 
         </div>
 
       {/* 9. Subscription & Upgrade Packages */}
-      <div className="summary-card" style={{ marginTop: 24, padding: 28, width: '100%', boxSizing: 'border-box' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 12,
-                  background: 'rgba(99, 102, 241, 0.15)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#6366F1'
-                }}
-              >
-                <Shield size={22} />
-              </div>
-              <div>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                  Subscription & Upgrade Packages
-                </h2>
-                <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-                  View all available plans and their live feature entitlements. You can request an upgrade to unlock additional quotas and premium capabilities.
-                </span>
-              </div>
-            </div>
+      <div className="summary-card" style={{ marginTop: 24, padding: isMobile ? '16px 14px' : 28, width: '100%', boxSizing: 'border-box' }}>
+        {renderSectionHeader('subscription', <Shield size={22} />, 'Subscription & Upgrade Packages', 'View available plans & feature entitlements', 'rgba(99, 102, 241, 0.15)', '#6366F1')}
+        <div style={{ display: (!isMobile || expandedSections.has('subscription')) ? 'block' : 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: 16, marginBottom: 20 }}>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Current Active Tier:</span>
@@ -3035,6 +3257,7 @@ export const SettingsView: React.FC = () => {
             })()}
           </div>
         </div>
+      </div>
     </main>
   );
 };

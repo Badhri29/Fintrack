@@ -266,9 +266,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   }, []);
   const [mobileExpandedCategories, setMobileExpandedCategories] = useState<Set<string>>(new Set());
   const [mobileSectionOpen, setMobileSectionOpen] = useState<Record<Section, boolean>>({
-    income: true,
-    expense: true,
-    savings: true,
+    income: false,
+    expense: false,
+    savings: false,
   });
 
   const toggleMobileSection = (sec: Section) => {
@@ -3241,7 +3241,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             const secTotalAnnual = total(secTotals);
             const secDisplayTotal = isMonthFiltered ? (secTotals[mobileSelectedMonth] || 0) : secTotalAnnual;
             const catList = sections[sec] || [];
-            const isSecOpen = mobileSectionOpen[sec] ?? true;
+            const isSecOpen = mobileSectionOpen[sec] ?? false;
 
             return (
               <div
@@ -4248,15 +4248,15 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           }}
         >
           <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-            <table className="transactions-table" style={{ width: '100%', minWidth: 640, textAlign: 'left', tableLayout: 'fixed' }}>
+            <table className="transactions-table" style={{ width: '100%', minWidth: 780, textAlign: 'left', tableLayout: 'fixed' }}>
               <colgroup>
-                <col style={{ width: '13%' }} />
                 <col style={{ width: '12%' }} />
-                <col style={{ width: '22%' }} />
+                <col style={{ width: '11%' }} />
+                <col style={{ width: '18%' }} />
+                <col style={{ width: '18%' }} />
                 <col style={{ width: '23%' }} />
-                <col style={{ width: '16%' }} />
-                <col style={{ width: '10%' }} />
-                <col style={{ width: '8%' }} />
+                <col style={{ width: '13%' }} />
+                <col style={{ width: '5%' }} />
               </colgroup>
               <thead>
                 <tr>
@@ -4333,7 +4333,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               {section.toUpperCase()}
                             </span>
                           </td>
-                          <td style={{ fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <td style={{ fontWeight: 600, color: '#F1F5F9', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0, padding: '10px 8px' }}>
                             <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.category}</div>
                             {t.subcategory ? (
                               <div style={{ fontSize: 10, color: '#64748B', fontWeight: 400, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -4341,7 +4341,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                               </div>
                             ) : null}
                           </td>
-                          <td style={{ textAlign: 'center', color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={t.description || ''}>
+                          <td style={{ textAlign: 'center', color: '#94A3B8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 0, padding: '10px 8px' }} title={t.description || ''}>
                             {t.description || '—'}
                           </td>
                           <td
@@ -4366,6 +4366,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                             style={{
                               textAlign: 'right',
                               fontWeight: 700,
+                              whiteSpace: 'nowrap',
+                              padding: '10px 12px 10px 6px',
                               color:
                                 t.type === 'income'
                                   ? '#10B981'
@@ -4580,7 +4582,7 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           inset: 0,
           background: 'rgba(0, 0, 0, 0.75)',
           backdropFilter: 'blur(3px)',
-          zIndex: 9999,
+          zIndex: 9000,
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'flex-end',

@@ -66,6 +66,18 @@ public class AdminController {
     @Autowired
     private CategorySeedService categorySeedService;
 
+    @Autowired(required = false)
+    private BudgetRepository budgetRepository;
+
+    @Autowired(required = false)
+    private LoanRepository loanRepository;
+
+    @Autowired(required = false)
+    private CreditCardRepository creditCardRepository;
+
+    @Autowired(required = false)
+    private CreditCardTransactionRepository creditCardTransactionRepository;
+
     @Autowired
     private PasswordEncoder passwordEncoder;
 
@@ -1251,6 +1263,48 @@ public class AdminController {
         String section = body.getOrDefault("section", "").trim().toLowerCase(); // categories, loans, cards, entire_app
 
         switch (section) {
+            case "expected":
+            case "budget":
+            case "budgets":
+                if (budgetRepository != null) {
+                    budgetRepository.deleteByUserId(userId);
+                }
+                userActivityLogRepository.save(UserActivityLog.builder()
+                        .userId(userId).userEmail(principal.getEmail()).action("RESET_BUDGETS")
+                        .details("User reset planned / expected budget data").build());
+                return ResponseEntity.ok(Map.of("success", true, "message", "Expected budget targets reset successfully."));
+
+            case "actual":
+            case "transactions":
+                transactionRepository.deleteByUserId(userId);
+                userActivityLogRepository.save(UserActivityLog.builder()
+                        .userId(userId).userEmail(principal.getEmail()).action("RESET_TRANSACTIONS")
+                        .details("User reset actual transactions ledger data").build());
+                return ResponseEntity.ok(Map.of("success", true, "message", "Actual transactions data reset successfully."));
+
+            case "loans":
+            case "loan":
+                if (loanRepository != null) {
+                    loanRepository.deleteByUserId(userId);
+                }
+                userActivityLogRepository.save(UserActivityLog.builder()
+                        .userId(userId).userEmail(principal.getEmail()).action("RESET_LOANS")
+                        .details("User reset loans & EMI section data").build());
+                return ResponseEntity.ok(Map.of("success", true, "message", "Loans & EMI data reset successfully."));
+
+            case "cards":
+            case "credit_cards":
+                if (creditCardTransactionRepository != null) {
+                    creditCardTransactionRepository.deleteByUserId(userId);
+                }
+                if (creditCardRepository != null) {
+                    creditCardRepository.deleteByUserId(userId);
+                }
+                userActivityLogRepository.save(UserActivityLog.builder()
+                        .userId(userId).userEmail(principal.getEmail()).action("RESET_CARDS")
+                        .details("User reset credit cards & spends data").build());
+                return ResponseEntity.ok(Map.of("success", true, "message", "Credit cards and card spends reset successfully."));
+
             case "categories":
                 subCategoryRepository.deleteByUserId(userId);
                 categoryRepository.deleteByUserId(userId);
@@ -1262,6 +1316,18 @@ public class AdminController {
 
             case "entire_app":
             case "all":
+                if (budgetRepository != null) {
+                    budgetRepository.deleteByUserId(userId);
+                }
+                if (creditCardTransactionRepository != null) {
+                    creditCardTransactionRepository.deleteByUserId(userId);
+                }
+                if (creditCardRepository != null) {
+                    creditCardRepository.deleteByUserId(userId);
+                }
+                if (loanRepository != null) {
+                    loanRepository.deleteByUserId(userId);
+                }
                 transactionRepository.deleteByUserId(userId);
                 assetRepository.deleteByUserId(userId);
                 liabilityRepository.deleteByUserId(userId);
@@ -1272,14 +1338,6 @@ public class AdminController {
                         .userId(userId).userEmail(principal.getEmail()).action("RESET_ENTIRE_APP")
                         .details("Factory reset entire account data").build());
                 return ResponseEntity.ok(Map.of("success", true, "message", "Entire account data has been reset to a fresh start."));
-
-            case "loans":
-            case "cards":
-                // Handled on client-side localStorage scoping + logged here
-                userActivityLogRepository.save(UserActivityLog.builder()
-                        .userId(userId).userEmail(principal.getEmail()).action("RESET_" + section.toUpperCase())
-                        .details("User reset " + section + " section data").build());
-                return ResponseEntity.ok(Map.of("success", true, "message", section.toUpperCase() + " section data reset successfully."));
 
             default:
                 return ResponseEntity.badRequest().body(Map.of("success", false, "error", "Invalid section specified for reset."));

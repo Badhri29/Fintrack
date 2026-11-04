@@ -897,32 +897,29 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               })}
             </div>
 
-            <div style={{ marginTop: 'auto', paddingTop: 24 }}>
+            <div className="mobile-drawer-footer">
               <button
                 type="button"
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   logout();
                 }}
-                className="navbar-logout-btn"
-                style={{
-                  width: '100%',
-                  padding: '12px',
-                  borderRadius: 10,
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
-                  background: 'rgba(239, 68, 68, 0.1)',
-                  color: '#EF4444',
-                  fontWeight: 700,
-                  fontSize: 13,
-                  cursor: 'pointer',
+                className="mobile-drawer-logout-btn"
+                title="Sign out of FinTrack"
+              >
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 8,
+                  background: 'rgba(239, 68, 68, 0.25)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  gap: 8
-                }}
-              >
-                <LogOut size={16} />
-                <span>Log Out</span>
+                  color: '#EF4444'
+                }}>
+                  <LogOut size={15} />
+                </div>
+                <span>Log Out Account</span>
               </button>
             </div>
           </div>
