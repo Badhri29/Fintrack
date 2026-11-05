@@ -93,6 +93,11 @@ public class LoanController {
                 .repaymentSource((String) body.getOrDefault("repaymentSource", "bank"))
                 .linkedCardId((String) body.get("linkedCardId"))
                 .linkedCardName((String) body.get("linkedCardName"))
+                .isForSomeoneElse(Boolean.TRUE.equals(body.get("isForSomeoneElse")))
+                .borrowerName((String) body.get("borrowerName"))
+                .borrowerPhone((String) body.get("borrowerPhone"))
+                .borrowerNotes((String) body.get("borrowerNotes"))
+                .receivedScheduleIndicesJson(body.get("receivedScheduleIndicesJson") != null ? body.get("receivedScheduleIndicesJson").toString() : null)
                 .build();
 
         loan = loanRepository.save(loan);
@@ -158,6 +163,15 @@ public class LoanController {
         if (body.containsKey("repaymentSource")) loan.setRepaymentSource((String) body.get("repaymentSource"));
         if (body.containsKey("linkedCardId")) loan.setLinkedCardId((String) body.get("linkedCardId"));
         if (body.containsKey("linkedCardName")) loan.setLinkedCardName((String) body.get("linkedCardName"));
+        if (body.containsKey("isForSomeoneElse")) {
+            loan.setIsForSomeoneElse(Boolean.TRUE.equals(body.get("isForSomeoneElse")));
+        }
+        if (body.containsKey("borrowerName")) loan.setBorrowerName((String) body.get("borrowerName"));
+        if (body.containsKey("borrowerPhone")) loan.setBorrowerPhone((String) body.get("borrowerPhone"));
+        if (body.containsKey("borrowerNotes")) loan.setBorrowerNotes((String) body.get("borrowerNotes"));
+        if (body.containsKey("receivedScheduleIndicesJson")) {
+            loan.setReceivedScheduleIndicesJson(body.get("receivedScheduleIndicesJson") != null ? body.get("receivedScheduleIndicesJson").toString() : null);
+        }
 
         loan = loanRepository.save(loan);
         return ResponseEntity.ok(Map.of("success", true, "data", loan));
@@ -245,6 +259,11 @@ public class LoanController {
                     .repaymentSource((String) body.getOrDefault("repaymentSource", "bank"))
                     .linkedCardId((String) body.get("linkedCardId"))
                     .linkedCardName((String) body.get("linkedCardName"))
+                    .isForSomeoneElse(Boolean.TRUE.equals(body.get("isForSomeoneElse")))
+                    .borrowerName((String) body.get("borrowerName"))
+                    .borrowerPhone((String) body.get("borrowerPhone"))
+                    .borrowerNotes((String) body.get("borrowerNotes"))
+                    .receivedScheduleIndicesJson(body.get("receivedScheduleIndicesJson") != null ? body.get("receivedScheduleIndicesJson").toString() : null)
                     .build();
             saved.add(loan);
         }

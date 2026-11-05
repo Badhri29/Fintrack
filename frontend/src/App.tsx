@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth, checkIsUserLocked } from './context/AuthContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './views/DashboardView';
@@ -19,6 +19,7 @@ import { CurrencyOnboardingModal } from './components/CurrencyOnboardingModal';
 import { InactivityTracker } from './components/InactivityTracker';
 import { ToastNotification, showToast } from './components/ToastNotification';
 import { GlobalDueTicker } from './components/GlobalDueTicker';
+import { AccountLockedScreen } from './components/AccountLockedScreen';
 import { AlertTriangle, Lock, Wallet } from 'lucide-react';
 import api from './services/api';
 import { bankAccountService } from './services/bankAccountService';
@@ -27,7 +28,7 @@ import { loanService } from './services/loanService';
 import { budgetService } from './services/budgetService';
 
 function AppContent() {
-  const { user, loading, maintenanceInfo, isAdmin } = useAuth();
+  const { user, loading, maintenanceInfo, isAdmin, refreshUserData, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<string>('Dashboard');
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [transactionDefaults, setTransactionDefaults] = useState<{ category?: string; subcategory?: string; type?: 'income' | 'expense' | 'savings' }>({});
@@ -249,6 +250,19 @@ function AppContent() {
         <InactivityTracker />
         <ToastNotification />
       </div>
+    );
+  }
+
+  // Check if current user is locked (TEMP lock with future expiry, FULL or PERMANENT lock)
+  const lockInfo = checkIsUserLocked(user);
+  if (lockInfo.isLocked) {
+    return (
+      <AccountLockedScreen
+        user={user}
+        lockInfo={lockInfo}
+        onRefresh={refreshUserData}
+        onLogout={logout}
+      />
     );
   }
 

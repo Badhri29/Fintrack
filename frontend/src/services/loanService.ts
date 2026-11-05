@@ -16,13 +16,20 @@ export interface LoanModel {
   interestRate?: number; // Optional Annual %
   tenureMonths?: number;
   paidMonths?: number;
-  paidScheduleIndices?: number[]; // Specific month indices (1, 2, ...) marked paid
+  paidScheduleIndices?: number[]; // Specific month indices (1, 2, ...) marked paid to bank
   dueDay?: number; // Monthly EMI Due Day (1-31, default: 5)
   description?: string; // Description / Purpose
   status?: 'active' | 'closed'; // Active or Closed status
   repaymentSource?: 'bank' | 'credit_card'; // Payment method: direct bank debit or through credit card
   linkedCardId?: string; // ID of the Credit Card that bills this EMI
   linkedCardName?: string; // Display name of the Credit Card
+
+  // Proxy / Third-Party Loan Fields (Loan taken on behalf of someone else)
+  isForSomeoneElse?: boolean;
+  borrowerName?: string;
+  borrowerPhone?: string;
+  borrowerNotes?: string;
+  receivedScheduleIndices?: number[]; // Specific month indices where EMI was received from the borrower
 }
 
 export interface MonthEmiScheduleItem {
@@ -36,6 +43,10 @@ export interface MonthEmiScheduleItem {
   status: 'paid' | 'pending' | 'upcoming';
   isCurrentMonth: boolean;
   isNextMonth: boolean;
+
+  // Third-party receipt status
+  isReceived?: boolean;
+  receivedStatus?: 'received' | 'pending' | 'upcoming';
 }
 
 export const calculateEMI = (principal: number, annualRate: number, tenureMonths: number): number => {
@@ -96,6 +107,14 @@ export const calculateLoanEMIs = (loan: LoanModel) => {
   const paidPrincipal = Math.max(0, loan.principal - remaining);
   const paidPct = loan.principal > 0 ? Math.min(100, Math.max(0, Math.round((paidPrincipal / loan.principal) * 100))) : 100;
 
+  // Third-party / Proxy loan metrics
+  const receivedEmisCount = Array.isArray(loan.receivedScheduleIndices) ? loan.receivedScheduleIndices.length : 0;
+  const totalReceivedAmount = receivedEmisCount * emi;
+  // What user paid to the bank that borrower hasn't reimbursed yet:
+  const pendingFromBorrower = Math.max(0, (completedEmis - receivedEmisCount) * emi);
+  // Total principal not yet received from borrower across the whole loan:
+  const totalUnreceivedAmount = Math.max(0, loan.principal - totalReceivedAmount);
+
   return {
     tenureMonths,
     emi,
@@ -107,7 +126,13 @@ export const calculateLoanEMIs = (loan: LoanModel) => {
     totalPayable,
     paidPrincipal,
     paidPct,
-    isClosed
+    isClosed,
+    isForSomeoneElse: Boolean(loan.isForSomeoneElse),
+    borrowerName: loan.borrowerName || 'Borrower',
+    receivedEmisCount,
+    totalReceivedAmount,
+    pendingFromBorrower,
+    totalUnreceivedAmount
   };
 };
 
@@ -161,6 +186,23 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
       status = 'upcoming';
     }
 
+    // Third-party receipt status from the person
+    let isMonthReceived = false;
+    if (loan.isForSomeoneElse) {
+      if (Array.isArray(loan.receivedScheduleIndices)) {
+        isMonthReceived = loan.receivedScheduleIndices.includes(index);
+      }
+    }
+
+    let receivedStatus: 'received' | 'pending' | 'upcoming' = 'upcoming';
+    if (isMonthReceived) {
+      receivedStatus = 'received';
+    } else if (isCurrent || isPast) {
+      receivedStatus = 'pending';
+    } else {
+      receivedStatus = 'upcoming';
+    }
+
     schedule.push({
       index,
       monthStr,
@@ -171,7 +213,9 @@ export const generateEmiSchedule = (loan: LoanModel, emiMetrics: ReturnType<type
       emiAmount: emiMetrics.emi,
       status,
       isCurrentMonth: isCurrent,
-      isNextMonth: isNext
+      isNextMonth: isNext,
+      isReceived: isMonthReceived,
+      receivedStatus
     });
   }
 
@@ -292,7 +336,12 @@ export const loanService = {
       status: l.status,
       repaymentSource: l.repaymentSource,
       linkedCardId: l.linkedCardId,
-      linkedCardName: l.linkedCardName
+      linkedCardName: l.linkedCardName,
+      isForSomeoneElse: Boolean(l.isForSomeoneElse),
+      borrowerName: l.borrowerName || null,
+      borrowerPhone: l.borrowerPhone || null,
+      borrowerNotes: l.borrowerNotes || null,
+      receivedScheduleIndicesJson: l.receivedScheduleIndices ? JSON.stringify(l.receivedScheduleIndices) : null
     }));
     api.post('/loans/sync', payload).catch(err => {
       console.debug('Async loans sync notice:', err?.message);
@@ -308,6 +357,12 @@ export const loanService = {
           try {
             if (l.paidScheduleIndicesJson) paidScheduleIndices = JSON.parse(l.paidScheduleIndicesJson);
           } catch {}
+
+          let receivedScheduleIndices: number[] = [];
+          try {
+            if (l.receivedScheduleIndicesJson) receivedScheduleIndices = JSON.parse(l.receivedScheduleIndicesJson);
+          } catch {}
+
           return {
             id: l.id,
             name: l.name,
@@ -329,7 +384,12 @@ export const loanService = {
             status: l.status,
             repaymentSource: l.repaymentSource,
             linkedCardId: l.linkedCardId,
-            linkedCardName: l.linkedCardName
+            linkedCardName: l.linkedCardName,
+            isForSomeoneElse: Boolean(l.isForSomeoneElse),
+            borrowerName: l.borrowerName,
+            borrowerPhone: l.borrowerPhone,
+            borrowerNotes: l.borrowerNotes,
+            receivedScheduleIndices
           };
         });
 

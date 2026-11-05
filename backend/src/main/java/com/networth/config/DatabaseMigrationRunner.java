@@ -156,6 +156,11 @@ public class DatabaseMigrationRunner implements CommandLineRunner {
                     repaymentSource VARCHAR(50) DEFAULT 'bank',
                     linkedCardId VARCHAR(100),
                     linkedCardName VARCHAR(255),
+                    isForSomeoneElse BOOLEAN DEFAULT FALSE,
+                    borrowerName VARCHAR(255),
+                    borrowerPhone VARCHAR(50),
+                    borrowerNotes TEXT,
+                    receivedScheduleIndicesJson TEXT,
                     createdAt DATETIME NULL,
                     updatedAt DATETIME NULL,
                     INDEX idx_loans_user (userId)
@@ -165,6 +170,23 @@ public class DatabaseMigrationRunner implements CommandLineRunner {
         } catch (Exception e) {
             logger.warn("DatabaseMigrationRunner: Error creating loans table: {}", e.getMessage());
         }
+
+        // Add third-party loan migration columns if they do not exist
+        try {
+            jdbcTemplate.execute("ALTER TABLE loans ADD COLUMN isForSomeoneElse BOOLEAN DEFAULT FALSE");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE loans ADD COLUMN borrowerName VARCHAR(255) NULL");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE loans ADD COLUMN borrowerPhone VARCHAR(50) NULL");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE loans ADD COLUMN borrowerNotes TEXT NULL");
+        } catch (Exception ignored) {}
+        try {
+            jdbcTemplate.execute("ALTER TABLE loans ADD COLUMN receivedScheduleIndicesJson TEXT NULL");
+        } catch (Exception ignored) {}
 
         // 6. Budgets table
         try {

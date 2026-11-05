@@ -22,7 +22,8 @@ import {
   Trash2,
   Sun,
   Moon,
-  Laptop
+  Laptop,
+  Clock
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
@@ -44,7 +45,7 @@ export interface SubscriptionPlanItem {
   isActive: boolean;
 }
 import api from '../services/api';
-import { useAuth, type User } from '../context/AuthContext';
+import { useAuth, type User, checkIsUserLocked, type LockInfo } from '../context/AuthContext';
 
 interface AdminViewProps {}
 
@@ -126,6 +127,7 @@ export const AdminView: React.FC<AdminViewProps> = () => {
   const [selectedUserForDeepDive, setSelectedUserForDeepDive] = useState<User | null>(null);
   const [deepDiveData, setDeepDiveData] = useState<any>(null);
   const [deepDiveLoading, setDeepDiveLoading] = useState<boolean>(false);
+  const [lockedUserWarning, setLockedUserWarning] = useState<{ user: User; lockInfo: LockInfo } | null>(null);
 
   // Form states for Create User
   const [newEmail, setNewEmail] = useState<string>('');
@@ -506,6 +508,13 @@ export const AdminView: React.FC<AdminViewProps> = () => {
 
   // Deep dive user
   const handleOpenDeepDive = async (user: User) => {
+    // Check if user is currently locked
+    const lockInfo = checkIsUserLocked(user);
+    if (lockInfo.isLocked) {
+      setLockedUserWarning({ user, lockInfo });
+      return;
+    }
+
     setSelectedUserForDeepDive(user);
     setDeepDiveLoading(true);
     try {
@@ -2171,6 +2180,48 @@ export const AdminView: React.FC<AdminViewProps> = () => {
               <div style={{ padding: 40, textAlign: 'center', color: mutedText }}>Loading user financial metrics...</div>
             ) : deepDiveData ? (
               <div>
+                {/* Account Lock Warning Banner */}
+                {selectedUserForDeepDive.lockType && selectedUserForDeepDive.lockType !== 'NONE' && (
+                  <div
+                    style={{
+                      marginBottom: 18,
+                      padding: '12px 16px',
+                      borderRadius: 12,
+                      background: 'rgba(239, 68, 68, 0.12)',
+                      border: '1px solid rgba(239, 68, 68, 0.35)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 8,
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#EF4444',
+                        flexShrink: 0
+                      }}
+                    >
+                      <Lock size={18} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#F87171' }}>
+                        ACCOUNT TEMPORARILY LOCKED / RESTRICTED
+                      </div>
+                      <div style={{ fontSize: 11.5, color: '#FCA5A5', marginTop: 2 }}>
+                        Status: <strong>{selectedUserForDeepDive.lockType}</strong>
+                        {selectedUserForDeepDive.lockUntil && ` • Until: ${new Date(selectedUserForDeepDive.lockUntil).toLocaleString()}`}
+                        {selectedUserForDeepDive.lockReason && ` • Reason: "${selectedUserForDeepDive.lockReason}"`}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* 4 Stat Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12, marginBottom: 24 }}>
                   <div style={{ background: cardInnerBg, border: `1px solid ${borderColor}`, borderRadius: 12, padding: 16 }}>
@@ -2502,6 +2553,232 @@ export const AdminView: React.FC<AdminViewProps> = () => {
                 Save Package & Sync All Users
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          CENTERED WARNING SCREEN: LOCKED USER BLOCKED
+          ========================================================================= */}
+      {lockedUserWarning && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.85)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 20,
+            zIndex: 3000
+          }}
+        >
+          <div
+            style={{
+              maxWidth: 520,
+              width: '100%',
+              background: '#111622',
+              border: '2px solid rgba(239, 68, 68, 0.5)',
+              borderRadius: 24,
+              padding: '36px 32px',
+              boxShadow: '0 25px 60px rgba(0, 0, 0, 0.9), 0 0 40px rgba(239, 68, 68, 0.25)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              textAlign: 'center',
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Pulsing Lock Icon */}
+            <div
+              style={{
+                width: 76,
+                height: 76,
+                borderRadius: '50%',
+                background: 'rgba(239, 68, 68, 0.15)',
+                border: '2px solid rgba(239, 68, 68, 0.5)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#EF4444',
+                marginBottom: 18
+              }}
+            >
+              <Lock size={36} />
+            </div>
+
+            {/* Badge */}
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '4px 14px',
+                borderRadius: 999,
+                background: 'rgba(239, 68, 68, 0.18)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+                color: '#F87171',
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: '0.06em',
+                textTransform: 'uppercase',
+                marginBottom: 12
+              }}
+            >
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#EF4444' }} />
+              <span>
+                {lockedUserWarning.lockInfo.lockType === 'TEMP'
+                  ? 'Temporary Access Lock Active'
+                  : 'Administrative Account Lock'}
+              </span>
+            </div>
+
+            {/* Title */}
+            <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: '#F8FAFC' }}>
+              Account Access Restricted
+            </h2>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#94A3B8', lineHeight: 1.5 }}>
+              Cannot open financial dashboard for <strong>{lockedUserWarning.user.name || lockedUserWarning.user.email}</strong> because this account is locked by the admin tool.
+            </p>
+
+            {/* User Info Bar */}
+            <div
+              style={{
+                width: '100%',
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+                borderRadius: 12,
+                padding: '12px 16px',
+                marginBottom: 16,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: 12
+              }}
+            >
+              <div style={{ textAlign: 'left' }}>
+                <div style={{ fontWeight: 700, color: '#FFF' }}>{lockedUserWarning.user.name || 'User'}</div>
+                <div style={{ color: '#94A3B8', fontSize: 11 }}>{lockedUserWarning.user.email}</div>
+              </div>
+              <span style={{ padding: '3px 8px', borderRadius: 6, background: '#1E2638', color: '#CBD5E1', fontSize: 10, fontWeight: 700 }}>
+                {lockedUserWarning.user.subscriptionTier || 'FREE'}
+              </span>
+            </div>
+
+            {/* Admin Lock Reason */}
+            <div
+              style={{
+                width: '100%',
+                background: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                padding: '12px 16px',
+                borderRadius: 12,
+                marginBottom: 18,
+                textAlign: 'left'
+              }}
+            >
+              <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: '#F87171', letterSpacing: '0.04em' }}>
+                Administrative Lock Reason:
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#FFFFFF', marginTop: 3 }}>
+                "{lockedUserWarning.lockInfo.lockReason || 'Account restricted by administrator.'}"
+              </div>
+            </div>
+
+            {/* Scheduled Unlock / Countdown if TEMP */}
+            {lockedUserWarning.lockInfo.lockUntil && (
+              <div
+                style={{
+                  width: '100%',
+                  background: 'rgba(245, 158, 11, 0.08)',
+                  border: '1px solid rgba(245, 158, 11, 0.3)',
+                  padding: '10px 14px',
+                  borderRadius: 10,
+                  marginBottom: 20,
+                  fontSize: 12,
+                  color: '#FCD34D',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8
+                }}
+              >
+                <Clock size={14} style={{ color: '#F59E0B' }} />
+                <span>
+                  Automatic Unlock Scheduled: <strong>{new Date(lockedUserWarning.lockInfo.lockUntil).toLocaleString()}</strong>
+                </span>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  const targetUser = lockedUserWarning.user;
+                  try {
+                    const res = await api.put(`/admin/users/${targetUser.id}/lock`, { lockType: 'NONE' });
+                    if (res.data?.success) {
+                      showNotice('success', `Account ${targetUser.email} has been unlocked!`);
+                      setLockedUserWarning(null);
+                      await fetchUsers();
+                      // Open deep dive as usual ("asussaly")
+                      setSelectedUserForDeepDive({ ...targetUser, lockType: 'NONE', status: 'ACTIVE' });
+                      setDeepDiveLoading(true);
+                      try {
+                        const dashRes = await api.get(`/admin/users/${targetUser.id}/dashboard`);
+                        if (dashRes.data?.success) {
+                          setDeepDiveData(dashRes.data.data);
+                        }
+                      } finally {
+                        setDeepDiveLoading(false);
+                      }
+                    }
+                  } catch {
+                    showNotice('error', 'Failed to unlock user.');
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  padding: '12px 18px',
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #10B981, #059669)',
+                  border: 'none',
+                  color: '#FFFFFF',
+                  fontSize: 13,
+                  fontWeight: 800,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.35)'
+                }}
+              >
+                <Unlock size={15} />
+                <span>Unlock Account Now & Open Overview</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLockedUserWarning(null)}
+                style={{
+                  width: '100%',
+                  padding: '10px 18px',
+                  borderRadius: 10,
+                  background: 'transparent',
+                  border: '1px solid rgba(255, 255, 255, 0.15)',
+                  color: '#94A3B8',
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
+              >
+                Dismiss / Close Warning
+              </button>
+            </div>
           </div>
         </div>
       )}

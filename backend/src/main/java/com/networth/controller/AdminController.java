@@ -428,6 +428,10 @@ public class AdminController {
                     } catch (Exception ignored) {}
                 }
             }
+            if (user.getLockUntil() == null) {
+                user.setLockUntil(LocalDateTime.now().plusHours(24));
+            }
+            user.setStatus("LOCKED");
         } else if ("NONE".equalsIgnoreCase(lockType)) {
             user.setLockUntil(null);
             user.setLockReason(null);

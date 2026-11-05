@@ -1,5 +1,6 @@
 package com.networth.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.networth.entity.User;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,6 +25,8 @@ public class UserDto {
     private String lockType;
     private LocalDateTime lockUntil;
     private String lockReason;
+    @JsonProperty("isLocked")
+    private Boolean isLocked;
     private String subscriptionTier;
     private Integer cardLimit;
     private Boolean canAccessDashboard;
@@ -63,6 +66,15 @@ public class UserDto {
             isOnline = noLogout && diffMin < 10;
         }
 
+        boolean isLocked = false;
+        if ("TEMP".equalsIgnoreCase(user.getLockType())) {
+            if (user.getLockUntil() != null && now.isBefore(user.getLockUntil())) {
+                isLocked = true;
+            }
+        } else if ("FULL".equalsIgnoreCase(user.getLockType()) || "PERMANENT".equalsIgnoreCase(user.getLockType()) || "LOCKED".equalsIgnoreCase(user.getStatus()) || "SUSPENDED".equalsIgnoreCase(user.getStatus())) {
+            isLocked = true;
+        }
+
         return UserDto.builder()
                 .id(user.getId())
                 .email(user.getEmail())
@@ -75,6 +87,7 @@ public class UserDto {
                 .lockType(user.getLockType() != null ? user.getLockType() : "NONE")
                 .lockUntil(user.getLockUntil())
                 .lockReason(user.getLockReason())
+                .isLocked(isLocked)
                 .subscriptionTier((parent != null && parent.getSubscriptionTier() != null) ? parent.getSubscriptionTier() : (user.getSubscriptionTier() != null ? user.getSubscriptionTier() : "FREE"))
                 .cardLimit((parent != null && parent.getCardLimit() != null) ? parent.getCardLimit() : (user.getCardLimit() != null ? user.getCardLimit() : 2))
                 .canAccessDashboard((parent != null && parent.getCanAccessDashboard() != null) ? parent.getCanAccessDashboard() : (user.getCanAccessDashboard() != null ? user.getCanAccessDashboard() : true))

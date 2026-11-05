@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   RotateCcw
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, type User, type LockInfo } from '../context/AuthContext';
+import { AccountLockedScreen } from '../components/AccountLockedScreen';
 
 interface LoginViewProps {
   onLoginSuccess: () => void;
@@ -75,6 +76,8 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     lockReason?: string;
     identifier?: string;
   } | null>(null);
+
+  const [fullLockedScreenData, setFullLockedScreenData] = useState<{ user: User; lockInfo: LockInfo } | null>(null);
 
   const [maintenanceModal, setMaintenanceModal] = useState<{
     isOpen: boolean;
@@ -232,6 +235,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       // Locked account check (Warning message directly on display & modal)
       if (result.isLocked) {
         const lockDescription = result.lockReason || 'Account restricted by administrator.';
+        const lockInfo: LockInfo = {
+          isLocked: true,
+          lockType: result.lockType || 'FULL',
+          lockUntil: result.lockUntil,
+          lockReason: lockDescription
+        };
+        setFullLockedScreenData({
+          user: {
+            id: 0,
+            email: effectiveEmail,
+            name: isMemberId ? effectiveEmail : (effectiveEmail.split('@')[0]),
+            role: isUser ? 'USER' : 'ADMIN',
+            status: 'LOCKED',
+            lockType: lockInfo.lockType,
+            lockUntil: lockInfo.lockUntil,
+            lockReason: lockInfo.lockReason
+          },
+          lockInfo
+        });
         setLockedAccountWarning({
           isLocked: true,
           lockType: result.lockType || 'FULL',
@@ -283,6 +305,25 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       const result = await loginDemo();
       if (result && result.isLocked) {
         const lockDescription = result.lockReason || 'Account restricted by administrator.';
+        const lockInfo: LockInfo = {
+          isLocked: true,
+          lockType: result.lockType || 'FULL',
+          lockUntil: result.lockUntil,
+          lockReason: lockDescription
+        };
+        setFullLockedScreenData({
+          user: {
+            id: 0,
+            email: 'demo@fintrack.io',
+            name: 'Demo Account',
+            role: 'USER',
+            status: 'LOCKED',
+            lockType: lockInfo.lockType,
+            lockUntil: lockInfo.lockUntil,
+            lockReason: lockInfo.lockReason
+          },
+          lockInfo
+        });
         setLockedAccountWarning({
           isLocked: true,
           lockType: result.lockType || 'FULL',
@@ -364,6 +405,36 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       setLoading(false);
     }
   };
+
+  if (fullLockedScreenData) {
+    return (
+      <AccountLockedScreen
+        user={fullLockedScreenData.user}
+        lockInfo={fullLockedScreenData.lockInfo}
+        onRefresh={async () => {
+          try {
+            const isDemo = fullLockedScreenData.user.email === 'demo@fintrack.io';
+            if (isDemo) {
+              const res = await loginDemo();
+              if (res.success) {
+                setFullLockedScreenData(null);
+                onLoginSuccess();
+              }
+            } else {
+              const res = await login(fullLockedScreenData.user.email, password || 'password123');
+              if (res.success) {
+                setFullLockedScreenData(null);
+                onLoginSuccess();
+              }
+            }
+          } catch {}
+        }}
+        onLogout={async () => {
+          setFullLockedScreenData(null);
+        }}
+      />
+    );
+  }
 
   return (
     <div

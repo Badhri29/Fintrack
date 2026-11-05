@@ -18,7 +18,8 @@ import {
   Search,
   Filter,
   SlidersHorizontal,
-  RotateCcw
+  RotateCcw,
+  Users
 } from 'lucide-react';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -185,6 +186,10 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
   const [loanPaidMonths, setLoanPaidMonths] = useState<number>(0);
   const [loanRepaymentSource, setLoanRepaymentSource] = useState<'bank' | 'credit_card'>('bank');
   const [loanLinkedCardId, setLoanLinkedCardId] = useState<string>('');
+  const [loanIsForSomeoneElse, setLoanIsForSomeoneElse] = useState<boolean>(false);
+  const [loanBorrowerName, setLoanBorrowerName] = useState<string>('');
+  const [loanBorrowerPhone, setLoanBorrowerPhone] = useState<string>('');
+  const [loanBorrowerNotes, setLoanBorrowerNotes] = useState<string>('');
 
   // Edit Loan Modal State
   const [isEditLoanOpen, setIsEditLoanOpen] = useState<boolean>(false);
@@ -204,6 +209,10 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
   const [editPaidMonths, setEditPaidMonths] = useState<number>(0);
   const [editRepaymentSource, setEditRepaymentSource] = useState<'bank' | 'credit_card'>('bank');
   const [editLinkedCardId, setEditLinkedCardId] = useState<string>('');
+  const [editIsForSomeoneElse, setEditIsForSomeoneElse] = useState<boolean>(false);
+  const [editBorrowerName, setEditBorrowerName] = useState<string>('');
+  const [editBorrowerPhone, setEditBorrowerPhone] = useState<string>('');
+  const [editBorrowerNotes, setEditBorrowerNotes] = useState<string>('');
 
   // User Credit Cards for linking
   const [userCards, setUserCards] = useState<CardModel[]>(() => cardService.getCards(user?.email));
@@ -643,7 +652,12 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
       status: (calculatedRem <= 0 || (tenureMonths > 0 && initialPaidCount >= tenureMonths)) ? 'closed' : 'active',
       repaymentSource: loanRepaymentSource,
       linkedCardId: loanRepaymentSource === 'credit_card' ? loanLinkedCardId : undefined,
-      linkedCardName: loanRepaymentSource === 'credit_card' && linkedCard ? linkedCard.name : undefined
+      linkedCardName: loanRepaymentSource === 'credit_card' && linkedCard ? linkedCard.name : undefined,
+      isForSomeoneElse: loanIsForSomeoneElse,
+      borrowerName: loanIsForSomeoneElse ? loanBorrowerName.trim() : undefined,
+      borrowerPhone: loanIsForSomeoneElse ? loanBorrowerPhone.trim() : undefined,
+      borrowerNotes: loanIsForSomeoneElse ? loanBorrowerNotes.trim() : undefined,
+      receivedScheduleIndices: []
     };
 
     const updated = [...loans, newLoan];
@@ -661,6 +675,10 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     setLoanDescription('');
     setLoanIncludeNetWorth(true);
     setLoanPaidMonths(0);
+    setLoanIsForSomeoneElse(false);
+    setLoanBorrowerName('');
+    setLoanBorrowerPhone('');
+    setLoanBorrowerNotes('');
     setBannerMsg({ type: 'success', text: `Loan "${newLoan.name}" added to tracker successfully!` });
     playNotificationChime();
     setTimeout(() => setBannerMsg(null), 3500);
@@ -684,6 +702,10 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     setEditPaidMonths(loan.paidMonths || (Array.isArray(loan.paidScheduleIndices) ? loan.paidScheduleIndices.length : 0));
     setEditRepaymentSource(loan.repaymentSource || 'bank');
     setEditLinkedCardId(loan.linkedCardId || '');
+    setEditIsForSomeoneElse(Boolean(loan.isForSomeoneElse));
+    setEditBorrowerName(loan.borrowerName || '');
+    setEditBorrowerPhone(loan.borrowerPhone || '');
+    setEditBorrowerNotes(loan.borrowerNotes || '');
     setIsEditLoanOpen(true);
   };
 
@@ -728,7 +750,12 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
           status: isNowClosed ? ('closed' as const) : ('active' as const),
           repaymentSource: editRepaymentSource,
           linkedCardId: editRepaymentSource === 'credit_card' ? editLinkedCardId : undefined,
-          linkedCardName: editRepaymentSource === 'credit_card' ? (userCards.find(c => c.id === editLinkedCardId)?.name || l.linkedCardName) : undefined
+          linkedCardName: editRepaymentSource === 'credit_card' ? (userCards.find(c => c.id === editLinkedCardId)?.name || l.linkedCardName) : undefined,
+          isForSomeoneElse: editIsForSomeoneElse,
+          borrowerName: editIsForSomeoneElse ? editBorrowerName.trim() : undefined,
+          borrowerPhone: editIsForSomeoneElse ? editBorrowerPhone.trim() : undefined,
+          borrowerNotes: editIsForSomeoneElse ? editBorrowerNotes.trim() : undefined,
+          receivedScheduleIndices: l.receivedScheduleIndices || []
         };
       }
       return l;
@@ -833,6 +860,83 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     setBannerMsg({
       type: 'success',
       text: `Marked ${pastPendingIndices.length} pending EMI(s) as Paid without logging transactions!`
+    });
+    playNotificationChime();
+    setTimeout(() => setBannerMsg(null), 3500);
+  };
+
+  // Mark / Unmark individual schedule item as Received from the borrower
+  const handleToggleScheduleReceived = (loanId: string, monthIndex: number) => {
+    const targetLoan = loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    let currentIndices: number[] = Array.isArray(targetLoan.receivedScheduleIndices)
+      ? [...targetLoan.receivedScheduleIndices]
+      : [];
+
+    let newIndices: number[];
+    const isAlreadyReceived = currentIndices.includes(monthIndex);
+    if (isAlreadyReceived) {
+      newIndices = currentIndices.filter(idx => idx !== monthIndex);
+    } else {
+      newIndices = [...currentIndices, monthIndex].sort((a, b) => a - b);
+    }
+
+    const borrower = targetLoan.borrowerName || 'Borrower';
+    const updated = loans.map(l => {
+      if (l.id === loanId) {
+        return {
+          ...l,
+          receivedScheduleIndices: newIndices
+        };
+      }
+      return l;
+    });
+
+    saveLoans(updated);
+    setBannerMsg({
+      type: 'success',
+      text: isAlreadyReceived
+        ? `Month #${monthIndex} marked as pending from ${borrower}.`
+        : `Month #${monthIndex} marked as Received from ${borrower}!`
+    });
+    playNotificationChime();
+    setTimeout(() => setBannerMsg(null), 3000);
+  };
+
+  // Mark all past due EMIs as received from the borrower in bulk
+  const handleMarkAllPastDueAsReceived = (loanId: string) => {
+    const targetLoan = loans.find(l => l.id === loanId);
+    if (!targetLoan) return;
+
+    const metrics = calculateLoanEMIs(targetLoan);
+    const schedule = generateEmiSchedule(targetLoan, metrics);
+    const pastPendingIndices = schedule.filter(s => s.receivedStatus === 'pending').map(s => s.index);
+
+    if (pastPendingIndices.length === 0) return;
+
+    let currentIndices: number[] = Array.isArray(targetLoan.receivedScheduleIndices)
+      ? [...targetLoan.receivedScheduleIndices]
+      : [];
+
+    const setUnion = new Set([...currentIndices, ...pastPendingIndices]);
+    const newIndices = Array.from(setUnion).sort((a, b) => a - b);
+    const borrower = targetLoan.borrowerName || 'Borrower';
+
+    const updated = loans.map(l => {
+      if (l.id === loanId) {
+        return {
+          ...l,
+          receivedScheduleIndices: newIndices
+        };
+      }
+      return l;
+    });
+
+    saveLoans(updated);
+    setBannerMsg({
+      type: 'success',
+      text: `Marked ${pastPendingIndices.length} month(s) as Received from ${borrower}!`
     });
     playNotificationChime();
     setTimeout(() => setBannerMsg(null), 3500);
@@ -1383,6 +1487,12 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                                   ✕ Excluded
                                 </span>
                               )}
+
+                              {loan.isForSomeoneElse && (
+                                <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.15)', color: '#818CF8', border: '1px solid rgba(99, 102, 241, 0.3)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                  👤 For: {loan.borrowerName || 'Other Person'}
+                                </span>
+                              )}
                             </div>
 
                             <h3 style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)', margin: '8px 0 2px' }}>
@@ -1547,6 +1657,30 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                             <div style={{ width: `${emiInfo.paidPct}%`, height: '100%', background: 'linear-gradient(90deg, #6366F1, #10B981)', borderRadius: 999 }} />
                           </div>
                         </div>
+
+                        {/* Third-Party Borrower Repayment Metrics */}
+                        {loan.isForSomeoneElse && (
+                          <div style={{ marginTop: 10, padding: '8px 10px', borderRadius: 8, background: emiInfo.pendingFromBorrower > 0 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(16, 185, 129, 0.08)', border: emiInfo.pendingFromBorrower > 0 ? '1px solid rgba(245, 158, 11, 0.25)' : '1px solid rgba(16, 185, 129, 0.25)', fontSize: 11 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <span style={{ color: 'var(--text-secondary)' }}>
+                                👤 Recv'd from <strong>{loan.borrowerName || 'Borrower'}</strong>:
+                              </span>
+                              <strong style={{ color: '#10B981', fontWeight: 800 }}>
+                                {currencyService.format(emiInfo.totalReceivedAmount)} ({emiInfo.receivedEmisCount}/{emiInfo.totalEmis})
+                              </strong>
+                            </div>
+                            {emiInfo.pendingFromBorrower > 0 ? (
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4, paddingTop: 4, borderTop: '1px dashed rgba(245, 158, 11, 0.25)' }}>
+                                <span style={{ color: '#F59E0B', fontWeight: 700 }}>⚠️ Owed by {loan.borrowerName || 'Person'}:</span>
+                                <strong style={{ color: '#F59E0B', fontWeight: 800 }}>{currencyService.format(emiInfo.pendingFromBorrower)}</strong>
+                              </div>
+                            ) : (
+                              <div style={{ marginTop: 3, fontSize: 10, color: '#10B981', fontWeight: 600 }}>
+                                ✓ All bank payments reimbursed
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Card Footer Actions */}
@@ -1784,6 +1918,84 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                   })()}
                 </div>
 
+                {/* Proxy Loan / Beneficiary Status Summary Box */}
+                {selectedLoan.isForSomeoneElse && (
+                  <div style={{ marginBottom: 14, padding: '12px 14px', borderRadius: 10, background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.08), rgba(168, 85, 247, 0.08))', border: '1px solid rgba(99, 102, 241, 0.25)', flexShrink: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text-primary)' }}>
+                          👤 Taken for: <strong style={{ color: '#6366F1' }}>{selectedLoan.borrowerName || 'Borrower'}</strong>
+                        </span>
+                        {selectedLoan.borrowerPhone && (
+                          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>({selectedLoan.borrowerPhone})</span>
+                        )}
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(99, 102, 241, 0.15)', color: '#818CF8' }}>
+                        PROXY LOAN
+                      </span>
+                    </div>
+
+                    {selectedLoan.borrowerNotes && (
+                      <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8, fontStyle: 'italic' }}>
+                        "{selectedLoan.borrowerNotes}"
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11 }}>
+                      <div style={{ padding: '6px 8px', borderRadius: 6, background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: 9.5, color: 'var(--text-muted)', display: 'block', fontWeight: 600 }}>RECEIVED FROM BORROWER</span>
+                        <strong style={{ fontSize: 12.5, color: '#10B981', fontWeight: 800 }}>
+                          {currencyService.format(selectedLoanMetrics.totalReceivedAmount)} ({selectedLoanMetrics.receivedEmisCount}/{selectedLoanMetrics.totalEmis})
+                        </strong>
+                      </div>
+                      <div style={{ padding: '6px 8px', borderRadius: 6, background: selectedLoanMetrics.pendingFromBorrower > 0 ? 'rgba(245, 158, 11, 0.12)' : 'var(--bg-secondary)', border: selectedLoanMetrics.pendingFromBorrower > 0 ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid var(--border-color)' }}>
+                        <span style={{ fontSize: 9.5, color: selectedLoanMetrics.pendingFromBorrower > 0 ? '#F59E0B' : 'var(--text-muted)', display: 'block', fontWeight: 600 }}>
+                          {selectedLoanMetrics.pendingFromBorrower > 0 ? `⚠️ OWED BY ${selectedLoan.borrowerName?.toUpperCase() || 'PERSON'}` : 'REIMBURSEMENT STATUS'}
+                        </span>
+                        <strong style={{ fontSize: 12.5, color: selectedLoanMetrics.pendingFromBorrower > 0 ? '#F59E0B' : '#10B981', fontWeight: 800 }}>
+                          {selectedLoanMetrics.pendingFromBorrower > 0 ? currencyService.format(selectedLoanMetrics.pendingFromBorrower) : '✓ Up to Date'}
+                        </strong>
+                      </div>
+                    </div>
+
+                    {/* Bulk action to mark past due received from borrower */}
+                    {(() => {
+                      const unreceivedPastCount = selectedLoanSchedule.filter(s => s.receivedStatus === 'pending').length;
+                      if (unreceivedPastCount > 0 && !isViewOnly) {
+                        return (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 8, borderTop: '1px dashed rgba(99, 102, 241, 0.25)' }}>
+                            <span style={{ fontSize: 10.5, color: '#F59E0B', fontWeight: 600 }}>
+                              {unreceivedPastCount} month(s) pending receipt from {selectedLoan.borrowerName || 'person'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleMarkAllPastDueAsReceived(selectedLoan.id)}
+                              style={{
+                                background: 'rgba(99, 102, 241, 0.15)',
+                                border: '1px solid rgba(99, 102, 241, 0.35)',
+                                color: '#6366F1',
+                                borderRadius: 6,
+                                padding: '3px 8px',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}
+                              title={`Mark all past pending EMIs as received from ${selectedLoan.borrowerName || 'borrower'}`}
+                            >
+                              <Check size={11} />
+                              <span>Mark All Received</span>
+                            </button>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
+                )}
+
                 {/* Month-by-Month Amortization Schedule (Start Date to End Date) */}
                 <div style={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexShrink: 0 }}>
@@ -1833,6 +2045,127 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
 
                   <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6, paddingRight: 4 }}>
                     {selectedLoanSchedule.map(s => {
+                      if (selectedLoan.isForSomeoneElse) {
+                        return (
+                          <div
+                            key={s.index}
+                            style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                              padding: '10px 12px',
+                              borderRadius: 10,
+                              background: s.isCurrentMonth
+                                ? 'rgba(99, 102, 241, 0.1)'
+                                : 'var(--bg-secondary)',
+                              border: s.isCurrentMonth
+                                ? '1px solid rgba(99, 102, 241, 0.35)'
+                                : '1px solid var(--border-color)',
+                              fontSize: 12
+                            }}
+                          >
+                            {/* Row Header: Month, Amount & Overall Net Status Pill */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                              <div>
+                                <span style={{ fontWeight: 700, color: s.isCurrentMonth ? '#6366F1' : 'var(--text-primary)' }}>
+                                  #{s.index} {s.monthStr} {s.isCurrentMonth ? '• (Current)' : ''}
+                                </span>
+                                <span style={{ fontSize: 10.5, color: 'var(--text-muted)', marginLeft: 8 }}>
+                                  EMI: <strong>{currencyService.format(s.emiAmount)}</strong>
+                                </span>
+                              </div>
+
+                              <div>
+                                {s.status === 'paid' && s.isReceived ? (
+                                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                    ✓ SETTLED
+                                  </span>
+                                ) : s.status === 'paid' && !s.isReceived ? (
+                                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B', display: 'inline-flex', alignItems: 'center', gap: 3 }} title="You paid bank EMI, but borrower hasn't paid you!">
+                                    ⚠️ OWED BY {selectedLoan.borrowerName?.toUpperCase() || 'PERSON'}
+                                  </span>
+                                ) : s.status !== 'paid' && s.isReceived ? (
+                                  <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(56, 189, 248, 0.15)', color: '#38BDF8', display: 'inline-flex', alignItems: 'center', gap: 3 }} title="Received money from person, but Bank EMI not yet paid!">
+                                    📥 RECEIVED • PAY BANK
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-muted)' }}>
+                                    ⏳ PENDING
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Dual Tracking Controls */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 4, paddingTop: 6, borderTop: '1px dashed var(--border-color)' }}>
+                              {/* 1. Bank EMI Payment */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)' }}>Bank:</span>
+                                  {s.status === 'paid' ? (
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#10B981' }}>✓ PAID</span>
+                                  ) : (
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#EF4444' }}>UNPAID</span>
+                                  )}
+                                </div>
+                                {!isViewOnly && (
+                                  s.status === 'paid' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleSchedulePaid(selectedLoan.id, s.index)}
+                                      title="Revert bank paid"
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'inline-flex', alignItems: 'center' }}
+                                    >
+                                      <RotateCcw size={11} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleSchedulePaid(selectedLoan.id, s.index)}
+                                      style={{ background: 'rgba(16, 185, 129, 0.15)', border: '1px solid rgba(16, 185, 129, 0.35)', color: '#10B981', padding: '2px 6px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      Pay Bank
+                                    </button>
+                                  )
+                                )}
+                              </div>
+
+                              {/* 2. From Person Receipt */}
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 8px', borderRadius: 6, background: 'var(--bg-primary)', border: '1px solid var(--border-color)' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-secondary)' }}>From {selectedLoan.borrowerName || 'Person'}:</span>
+                                  {s.isReceived ? (
+                                    <span style={{ fontSize: 10, fontWeight: 800, color: '#10B981' }}>✓ RCVD</span>
+                                  ) : (
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: '#F59E0B' }}>DUE</span>
+                                  )}
+                                </div>
+                                {!isViewOnly && (
+                                  s.isReceived ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleScheduleReceived(selectedLoan.id, s.index)}
+                                      title={`Revert received from ${selectedLoan.borrowerName || 'borrower'}`}
+                                      style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 2, display: 'inline-flex', alignItems: 'center' }}
+                                    >
+                                      <RotateCcw size={11} />
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleScheduleReceived(selectedLoan.id, s.index)}
+                                      style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.35)', color: '#6366F1', padding: '2px 6px', borderRadius: 5, fontSize: 10, fontWeight: 700, cursor: 'pointer' }}
+                                    >
+                                      Mark Rcvd
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div
                           key={s.index}
@@ -3185,6 +3518,119 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                 )}
               </div>
 
+              {/* Third-Party Loan Toggle & Beneficiary Details (Placed prominently right after Repayment Method) */}
+              <div
+                style={{
+                  padding: '14px 16px',
+                  background: loanIsForSomeoneElse
+                    ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%)'
+                    : 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 12,
+                  border: loanIsForSomeoneElse
+                    ? '1.5px solid rgba(99, 102, 241, 0.5)'
+                    : '1px solid var(--border-color)',
+                  boxShadow: loanIsForSomeoneElse ? '0 4px 16px rgba(99, 102, 241, 0.15)' : 'none',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ paddingTop: 2 }}>
+                      <input
+                        type="checkbox"
+                        id="addLoanForSomeoneElse"
+                        checked={loanIsForSomeoneElse}
+                        onChange={e => setLoanIsForSomeoneElse(e.target.checked)}
+                        style={{ width: 20, height: 20, cursor: 'pointer', accentColor: '#6366F1' }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="addLoanForSomeoneElse"
+                        style={{
+                          fontSize: 13.5,
+                          fontWeight: 700,
+                          color: loanIsForSomeoneElse ? '#818CF8' : 'var(--text-primary)',
+                          cursor: 'pointer',
+                          margin: 0,
+                          userSelect: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Users size={16} style={{ color: '#818CF8' }} />
+                        <span>Is this loan taken for someone else? (Proxy Loan)</span>
+                      </label>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'block', marginTop: 3 }}>
+                        Check this if you took this loan in your name for a friend or relative. Tracks both bank payments and reimbursement collections.
+                      </span>
+                    </div>
+                  </div>
+                  {loanIsForSomeoneElse && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        background: '#6366F1',
+                        color: '#FFF',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        flexShrink: 0
+                      }}
+                    >
+                      Proxy Active
+                    </span>
+                  )}
+                </div>
+
+                {loanIsForSomeoneElse && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed rgba(99, 102, 241, 0.3)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#818CF8', marginBottom: 4 }}>
+                          BORROWER / PERSON NAME *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Ramesh, Karthik / Relative"
+                          value={loanBorrowerName}
+                          onChange={e => setLoanBorrowerName(e.target.value)}
+                          className="modal-input"
+                          required={loanIsForSomeoneElse}
+                        />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                          PHONE / CONTACT NUMBER (OPTIONAL)
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. +91 98765 43210"
+                          value={loanBorrowerPhone}
+                          onChange={e => setLoanBorrowerPhone(e.target.value)}
+                          className="modal-input"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        REPAYMENT TERMS / AGREEMENT NOTES (OPTIONAL)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Will transfer EMI amount to my account on or before 3rd of every month"
+                        value={loanBorrowerNotes}
+                        onChange={e => setLoanBorrowerNotes(e.target.value)}
+                        className="modal-input"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Row 5: Description with Bold & Colors Toolbar */}
               <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -3587,6 +4033,119 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                         </option>
                       ))}
                     </select>
+                  </div>
+                )}
+              </div>
+
+              {/* Third-Party Loan Toggle & Beneficiary Details */}
+              <div
+                style={{
+                  padding: '14px 16px',
+                  background: editIsForSomeoneElse
+                    ? 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.08) 100%)'
+                    : 'rgba(255, 255, 255, 0.03)',
+                  borderRadius: 12,
+                  border: editIsForSomeoneElse
+                    ? '1.5px solid rgba(99, 102, 241, 0.5)'
+                    : '1px solid var(--border-color)',
+                  boxShadow: editIsForSomeoneElse ? '0 4px 16px rgba(99, 102, 241, 0.15)' : 'none',
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                    <div style={{ paddingTop: 2 }}>
+                      <input
+                        type="checkbox"
+                        id="editLoanForSomeoneElse"
+                        checked={editIsForSomeoneElse}
+                        onChange={e => setEditIsForSomeoneElse(e.target.checked)}
+                        style={{ width: 20, height: 20, cursor: 'pointer', accentColor: '#6366F1' }}
+                      />
+                    </div>
+                    <div>
+                      <label
+                        htmlFor="editLoanForSomeoneElse"
+                        style={{
+                          fontSize: 13.5,
+                          fontWeight: 700,
+                          color: editIsForSomeoneElse ? '#818CF8' : 'var(--text-primary)',
+                          cursor: 'pointer',
+                          margin: 0,
+                          userSelect: 'none',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        <Users size={16} style={{ color: '#818CF8' }} />
+                        <span>Is this loan taken for someone else? (Proxy Loan)</span>
+                      </label>
+                      <span style={{ fontSize: 11.5, color: 'var(--text-secondary)', display: 'block', marginTop: 3 }}>
+                        Check this if you took this loan in your name for a friend or relative. Tracks both bank payments and reimbursement collections.
+                      </span>
+                    </div>
+                  </div>
+                  {editIsForSomeoneElse && (
+                    <span
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 800,
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        background: '#6366F1',
+                        color: '#FFF',
+                        letterSpacing: '0.04em',
+                        textTransform: 'uppercase',
+                        flexShrink: 0
+                      }}
+                    >
+                      Proxy Active
+                    </span>
+                  )}
+                </div>
+
+                {editIsForSomeoneElse && (
+                  <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed rgba(99, 102, 241, 0.3)', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1fr)', gap: 12 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 700, color: '#818CF8', marginBottom: 4 }}>
+                          BORROWER / PERSON NAME *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Ramesh, Karthik / Relative"
+                          value={editBorrowerName}
+                          onChange={e => setEditBorrowerName(e.target.value)}
+                          className="modal-input"
+                          required={editIsForSomeoneElse}
+                        />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                          PHONE / CONTACT NUMBER (OPTIONAL)
+                        </label>
+                        <input
+                          type="tel"
+                          placeholder="e.g. +91 98765 43210"
+                          value={editBorrowerPhone}
+                          onChange={e => setEditBorrowerPhone(e.target.value)}
+                          className="modal-input"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: 11.5, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                        REPAYMENT TERMS / AGREEMENT NOTES (OPTIONAL)
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Will transfer EMI amount to my account on or before 3rd of every month"
+                        value={editBorrowerNotes}
+                        onChange={e => setEditBorrowerNotes(e.target.value)}
+                        className="modal-input"
+                      />
+                    </div>
                   </div>
                 )}
               </div>

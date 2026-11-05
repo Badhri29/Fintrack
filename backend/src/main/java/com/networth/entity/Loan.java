@@ -79,6 +79,20 @@ public class Loan {
 
     private String linkedCardName;
 
+    // Proxy / Third-Party Loan Fields
+    @Builder.Default
+    private Boolean isForSomeoneElse = false;
+
+    private String borrowerName;
+
+    private String borrowerPhone;
+
+    @Column(columnDefinition = "TEXT")
+    private String borrowerNotes;
+
+    @Column(columnDefinition = "TEXT")
+    private String receivedScheduleIndicesJson;
+
     @CreationTimestamp
     @Column(name = "createdAt", updatable = false)
     private LocalDateTime createdAt;

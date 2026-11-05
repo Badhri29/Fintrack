@@ -572,6 +572,29 @@ public class AuthController {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(AuthResponse.builder().success(false).error("User not found").build());
         }
 
+        // Auto-expire TEMP lock if time has passed
+        String lockType = user.getLockType() != null ? user.getLockType().toUpperCase() : "NONE";
+        if ("TEMP".equals(lockType) && user.getLockUntil() != null && LocalDateTime.now().isAfter(user.getLockUntil())) {
+            user.setLockType("NONE");
+            user.setStatus("ACTIVE");
+            user.setLockUntil(null);
+            user.setLockReason(null);
+            user = userRepository.save(user);
+            lockType = "NONE";
+        }
+
+        boolean isLocked = false;
+        String lockReason = (user.getLockReason() != null && !user.getLockReason().isBlank())
+                ? user.getLockReason()
+                : "Account restricted by administrator.";
+        if ("TEMP".equals(lockType)) {
+            if (user.getLockUntil() != null && LocalDateTime.now().isBefore(user.getLockUntil())) {
+                isLocked = true;
+            }
+        } else if (!"NONE".equalsIgnoreCase(lockType) || "LOCKED".equalsIgnoreCase(user.getStatus()) || "SUSPENDED".equalsIgnoreCase(user.getStatus())) {
+            isLocked = true;
+        }
+
         User parent = null;
         if (user.getParentUserId() != null) {
             parent = userRepository.findById(user.getParentUserId()).orElse(null);
@@ -589,6 +612,10 @@ public class AuthController {
         return ResponseEntity.ok(AuthResponse.builder()
                 .success(true)
                 .user(UserDto.fromEntity(user, parent))
+                .isLocked(isLocked)
+                .lockType(user.getLockType())
+                .lockUntil(user.getLockUntil() != null ? user.getLockUntil().toString() : null)
+                .lockReason(lockReason)
                 .isMaintenance(isMaint)
                 .maintenanceMessage(maintMsg)
                 .maintenanceEnd(maintEnd)

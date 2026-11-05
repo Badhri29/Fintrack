@@ -17,6 +17,7 @@ export interface User {
   lockType?: string;
   lockUntil?: string;
   lockReason?: string;
+  isLocked?: boolean;
   subscriptionTier?: string; // 'FREE' | 'PRO' | 'ENTERPRISE'
   cardLimit?: number;
   canAccessDashboard?: boolean;
@@ -62,6 +63,41 @@ export interface LoginResult {
   isTemporaryPassword?: boolean;
   role?: string;
 }
+
+export interface LockInfo {
+  isLocked: boolean;
+  lockType?: string;
+  lockUntil?: string;
+  lockReason?: string;
+}
+
+export const checkIsUserLocked = (u: User | null): LockInfo => {
+  if (!u) return { isLocked: false };
+  if (u.role === 'ADMIN' || u.role === 'SUPER_ADMIN') return { isLocked: false };
+
+  const lType = (u.lockType || 'NONE').toUpperCase();
+  const reason = u.lockReason || 'Account restricted by administrator.';
+
+  if (lType === 'TEMP') {
+    if (u.lockUntil) {
+      const untilDate = new Date(u.lockUntil);
+      if (!isNaN(untilDate.getTime())) {
+        if (untilDate.getTime() > Date.now()) {
+          return { isLocked: true, lockType: 'TEMP', lockUntil: u.lockUntil, lockReason: reason };
+        } else {
+          return { isLocked: false, lockType: 'NONE' };
+        }
+      }
+    }
+    return { isLocked: true, lockType: 'TEMP', lockReason: reason };
+  }
+
+  if (lType === 'FULL' || lType === 'PERMANENT' || u.status === 'LOCKED' || u.status === 'SUSPENDED' || u.isLocked) {
+    return { isLocked: true, lockType: lType !== 'NONE' ? lType : 'FULL', lockReason: reason };
+  }
+
+  return { isLocked: false };
+};
 
 interface AuthContextType {
   user: User | null;
@@ -142,6 +178,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const res = await api.get('/auth/me');
       if (res.data && res.data.user) {
         let currentUser: User = res.data.user;
+        if (res.data.isLocked !== undefined) currentUser.isLocked = res.data.isLocked;
+        if (res.data.lockType) currentUser.lockType = res.data.lockType;
+        if (res.data.lockUntil !== undefined) currentUser.lockUntil = res.data.lockUntil;
+        if (res.data.lockReason !== undefined) currentUser.lockReason = res.data.lockReason;
         const profRes = await api.get('/profile').catch(() => null);
         if (profRes?.data?.success && profRes.data.data) {
           if (profRes.data.data.name) currentUser.name = profRes.data.data.name;
@@ -164,6 +204,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const res = await api.get('/auth/me');
       if (res.data && res.data.user) {
         let currentUser: User = res.data.user;
+        if (res.data.isLocked !== undefined) currentUser.isLocked = res.data.isLocked;
+        if (res.data.lockType) currentUser.lockType = res.data.lockType;
+        if (res.data.lockUntil !== undefined) currentUser.lockUntil = res.data.lockUntil;
+        if (res.data.lockReason !== undefined) currentUser.lockReason = res.data.lockReason;
         const profRes = await api.get('/profile').catch(() => null);
         if (profRes?.data?.success && profRes.data.data) {
           if (profRes.data.data.name) currentUser.name = profRes.data.data.name;
