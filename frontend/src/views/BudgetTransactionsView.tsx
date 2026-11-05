@@ -40,8 +40,10 @@ import { currencyService } from '../services/currencyService';
 import { cardService } from '../services/cardService';
 import { bankAccountService } from '../services/bankAccountService';
 import { budgetService } from '../services/budgetService';
+import { categoryService } from '../services/categoryService';
 import { TransactionModal } from '../components/TransactionModal';
 import { CategoryModal } from '../components/CategoryModal';
+import { EditCategoryModal, type EditCategoryTarget } from '../components/EditCategoryModal';
 
 interface BudgetTransactionsViewProps {
   onOpenNewTransaction: (category?: string, subcategory?: string, type?: 'income' | 'expense' | 'savings') => void;
@@ -55,19 +57,24 @@ const MONTHS = [
 ];
 
 const DEFAULT_CATEGORIES = {
-  income: ['Salary', 'Bonus & Incentives', 'Other Income'],
-  savings: ['Investments', 'Emergency Fund', 'Mutual Funds'],
+  income: ['Salary', 'Bonus & Incentives', 'Other Income', 'Investments'],
+  savings: ['Investments', 'Emergency Fund', 'Mutual Funds', 'Savings'],
   expense: [
-    'Housing & Rent',
-    'Food & Groceries',
+    'Food & Dining',
+    'Housing',
+    'Maintanance & Insurance',
     'Utilities & Internet',
     'Dining & Entertainment',
     'Shopping & Travel',
     'Health & Insurance',
+    'Loans & EMI',
+    'Repair & Maintenance',
   ],
 };
 
 export const DEFAULT_SUBCATEGORIES_BY_CATEGORY: Record<string, string[]> = {
+  'Food & Dining': ['Groceries', 'Restaurants', 'Food Delivery', 'Supermarket', 'Cafes & Snacks'],
+  'Maintanance & Insurance': ['Health Insurance', 'Life Insurance', 'Medicine', 'Vehicle Insurance', 'Home Maintenance'],
   'Salary': ['Monthly Salary', 'Bonus & Incentives', 'Overtime'],
   'Bonus & Incentives': ['Performance Bonus', 'Festival Bonus', 'Incentives'],
   'Other Income': ['Cash in Hand', 'Freelance & Consulting', 'Rental Income', 'Dividends', 'Side Business'],
@@ -118,6 +125,36 @@ export const unmarkDeletedCategory = (email: string | undefined, name: string) =
   } catch {}
 };
 
+export const getRenamedCategoryMap = (email?: string): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(`fintrack_renamed_categories_${email || 'global'}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const setRenamedCategoryMap = (email: string | undefined, map: Record<string, string>) => {
+  try {
+    localStorage.setItem(`fintrack_renamed_categories_${email || 'global'}`, JSON.stringify(map));
+  } catch {}
+};
+
+export const getRenamedSubcategoryMap = (email?: string): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(`fintrack_renamed_subcategories_${email || 'global'}`);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const setRenamedSubcategoryMap = (email: string | undefined, map: Record<string, string>) => {
+  try {
+    localStorage.setItem(`fintrack_renamed_subcategories_${email || 'global'}`, JSON.stringify(map));
+  } catch {}
+};
+
 export const getMigratedBudgetTransactions = (year: number, userEmail?: string): Record<string, TransactionDetail[]> => {
   const primaryKey = getUserStorageKey(`fintrack-budget-transactions-${year}`, userEmail);
   try {
@@ -157,20 +194,6 @@ export const getMigratedBudgetTransactions = (year: number, userEmail?: string):
 
   return {};
 };
-
-const BASE_CATEGORY_FILTERS = [
-  'All Categories',
-  'Housing & Rent',
-  'Food & Groceries',
-  'Utilities & Internet',
-  'Dining & Entertainment',
-  'Transportation & Auto',
-  'Healthcare & Medical',
-  'Shopping & Personal',
-  'Salary',
-  'Investments',
-  'Freelance & Business'
-];
 
 type Section = 'income' | 'savings' | 'expense';
 type Mode = 'actual' | 'budget';
@@ -562,6 +585,10 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const [categoryModalInitialSection, setCategoryModalInitialSection] = useState<Section>('expense');
   const [categoryModalInitialCategoryName, setCategoryModalInitialCategoryName] = useState<string>('');
 
+  // Edit / Rename Category & Subcategory Modal State
+  const [editingCategoryTarget, setEditingCategoryTarget] = useState<EditCategoryTarget | null>(null);
+  const [isEditCategoryModalOpen, setIsEditCategoryModalOpen] = useState<boolean>(false);
+
   // Inline Category Add State
   const [activeAddCategorySection, setActiveAddCategorySection] = useState<Section | null>(null);
   const [categoryInputName, setCategoryInputName] = useState<string>('');
@@ -865,7 +892,13 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       loadAllData();
     };
     window.addEventListener('fintrack-transactions-changed', onTxChange);
-    return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
+    window.addEventListener('fintrack-categories-changed', onTxChange);
+    window.addEventListener('fintrack-category-updated', onTxChange);
+    return () => {
+      window.removeEventListener('fintrack-transactions-changed', onTxChange);
+      window.removeEventListener('fintrack-categories-changed', onTxChange);
+      window.removeEventListener('fintrack-category-updated', onTxChange);
+    };
   }, [selectedYear, user?.email]);
 
   const isFetchingDataRef = useRef<boolean>(false);
@@ -927,17 +960,34 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
     const map = new Map<string, Category>();
 
+    // Retrieve deleted category blacklist and renamed mappings
+    const deletedSet = getDeletedCategorySet(user?.email);
+    const renamedCatMap = getRenamedCategoryMap(user?.email);
+    const renamedSubMap = getRenamedSubcategoryMap(user?.email);
+
+    const resolveCategoryName = (sec: Section, origName: string): string => {
+      const clean = origName.trim().toLowerCase();
+      return renamedCatMap[`${sec}:${clean}`] || renamedCatMap[clean] || origName;
+    };
+
+    const resolveSubcategoryName = (catName: string, origSubName: string): string => {
+      const cleanSub = origSubName.trim().toLowerCase();
+      const cleanCat = catName.trim().toLowerCase();
+      return renamedSubMap[`${cleanCat}:${cleanSub}`] || renamedSubMap[cleanSub] || origSubName;
+    };
+
     const ensureCategory = (
       section: Section,
       name: string,
       categoryId?: number,
     ) => {
-      const id = `${section}:${name}`;
+      const resolvedName = resolveCategoryName(section, name);
+      const id = `${section}:${resolvedName}`;
 
       if (!map.has(id)) {
         const category: Category = {
           id,
-          name,
+          name: resolvedName,
           categoryId,
           values: zeros(),
           subcategories: [],
@@ -960,24 +1010,24 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       name: string,
       id?: string,
     ) => {
-      let found = category.subcategories.find((item) => item.name === name);
+      const resolvedName = resolveSubcategoryName(category.name, name);
+      let found = category.subcategories.find((item) => item.name === resolvedName || item.name === name);
 
       if (!found) {
         found = {
-          id: id || `${category.id}:${name}`,
-          name,
+          id: id || `${category.id}:${resolvedName}`,
+          name: resolvedName,
           values: zeros(),
           transactions: [],
         };
 
         category.subcategories.push(found);
+      } else {
+        found.name = resolvedName;
       }
 
       return found;
     };
-
-    // Retrieve deleted category blacklist
-    const deletedSet = getDeletedCategorySet(user?.email);
 
     // 1. Sanitize deletedSet: ANY category that actively exists in the user's database MUST NOT be deleted!
     cats.forEach((cat) => {
@@ -1212,21 +1262,18 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     const deletedSet = getDeletedCategorySet(user?.email);
     const set = new Set<string>();
     set.add('All Categories');
-    BASE_CATEGORY_FILTERS.forEach(f => {
-      if (f !== 'All Categories' && !deletedSet.has(f.toLowerCase())) {
-        set.add(f);
-      }
-    });
-    apiCategories.forEach((c) => {
-      if (c?.name) set.add(c.name);
-    });
-    rawTransactions.forEach((t) => {
-      if (t?.category) set.add(t.category);
-    });
     (Object.keys(sections) as Section[]).forEach((sec) => {
       (sections[sec] || []).forEach((c) => {
-        if (c?.name) set.add(c.name);
+        if (c?.name && !deletedSet.has(c.name.toLowerCase())) {
+          set.add(c.name);
+        }
       });
+    });
+    apiCategories.forEach((c) => {
+      if (c?.name && !deletedSet.has(c.name.toLowerCase())) set.add(c.name);
+    });
+    rawTransactions.forEach((t) => {
+      if (t?.category && !deletedSet.has(t.category.toLowerCase())) set.add(t.category);
     });
     return Array.from(set);
   }, [apiCategories, rawTransactions, sections, user?.email]);
@@ -2130,6 +2177,228 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     setIsCategoryModalOpen(true);
   };
 
+  const handleOpenEditCategory = (section: Section, category: Category) => {
+    setEditingCategoryTarget({
+      type: 'category',
+      section,
+      categoryId: category.id,
+      currentName: category.name,
+    });
+    setIsEditCategoryModalOpen(true);
+  };
+
+  const handleOpenEditSubcategory = (section: Section, category: Category, subcategory: Line) => {
+    setEditingCategoryTarget({
+      type: 'subcategory',
+      section,
+      categoryId: category.id,
+      subcategoryId: subcategory.id,
+      currentName: subcategory.name,
+      parentCategoryName: category.name,
+    });
+    setIsEditCategoryModalOpen(true);
+  };
+
+  const handleSaveCategoryRename = async (target: EditCategoryTarget, newName: string) => {
+    const oldName = target.currentName.trim();
+    const cleanNewName = newName.trim();
+    if (!cleanNewName || oldName.toLowerCase() === cleanNewName.toLowerCase()) {
+      return;
+    }
+
+    if (target.type === 'category') {
+      const section = target.section;
+      const catObj = sections[section]?.find((c) => c.id === target.categoryId || c.name === oldName);
+
+      // 1. Update memory state immediately
+      setSections((curr) => ({
+        ...curr,
+        [section]: curr[section].map((c) =>
+          c.id === target.categoryId || c.name === oldName
+            ? { ...c, name: cleanNewName }
+            : c
+        ),
+      }));
+
+      // 2. Persist rename mapping locally
+      const catMap = getRenamedCategoryMap(user?.email);
+      catMap[`${section}:${oldName.toLowerCase()}`] = cleanNewName;
+      catMap[oldName.toLowerCase()] = cleanNewName;
+      setRenamedCategoryMap(user?.email, catMap);
+
+      // 3. Mark old default category as deleted so it does not resurrect, and unmark new name
+      addDeletedCategory(user?.email, [oldName, `${section}:${oldName}`]);
+      unmarkDeletedCategory(user?.email, cleanNewName);
+
+      // 4. Update budget values map
+      try {
+        const budgetMap = budgetService.getBudgetMap(selectedYear, user?.email);
+        let budgetChanged = false;
+        if (budgetMap[oldName]) {
+          budgetMap[cleanNewName] = budgetMap[oldName];
+          delete budgetMap[oldName];
+          budgetChanged = true;
+        }
+        if (budgetMap[`${section}:${oldName}`]) {
+          budgetMap[`${section}:${cleanNewName}`] = budgetMap[`${section}:${oldName}`];
+          delete budgetMap[`${section}:${oldName}`];
+          budgetChanged = true;
+        }
+        if (budgetChanged) {
+          budgetService.saveBudgetMap(selectedYear, budgetMap, user?.email);
+          setBudgetValues(budgetMap);
+        }
+      } catch {}
+
+      // 5. Update planned transactions for this category
+      try {
+        const txKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
+        const storedTx = localStorage.getItem(txKey);
+        if (storedTx) {
+          const txMap = JSON.parse(storedTx);
+          let txChanged = false;
+          Object.keys(txMap).forEach((k) => {
+            if (Array.isArray(txMap[k])) {
+              txMap[k].forEach((t: any) => {
+                if (t.category === oldName) {
+                  t.category = cleanNewName;
+                  txChanged = true;
+                }
+              });
+            }
+          });
+          if (txChanged) {
+            localStorage.setItem(txKey, JSON.stringify(txMap));
+            setBudgetTransactions(txMap);
+          }
+        }
+      } catch {}
+
+      // 6. Update rawTransactions (actual transactions) in memory
+      setRawTransactions((curr) =>
+        curr.map((t) =>
+          t.category === oldName && (t.type === section || !t.type)
+            ? { ...t, category: cleanNewName }
+            : t
+        )
+      );
+
+      // 7. Backend sync (resilient to offline / un-restarted backend)
+      try {
+        if (catObj?.categoryId) {
+          await api.put(`/categories/${catObj.categoryId}`, { name: cleanNewName }).catch(() => {});
+        }
+        await api.put('/categories', { oldName, newName: cleanNewName, type: section }).catch(() => {});
+        if (!catObj?.categoryId) {
+          await api.post('/categories', { name: cleanNewName, type: section }).catch(() => {});
+        }
+      } catch {}
+
+      // 8. Global notification
+      window.dispatchEvent(new CustomEvent('fintrack-category-updated', { detail: { oldName, newName: cleanNewName, section } }));
+      window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+    } else {
+      // Subcategory rename
+      const section = target.section;
+      const categoryId = target.categoryId;
+      const subcategoryId = target.subcategoryId!;
+      const parentName = target.parentCategoryName || '';
+
+      // 1. Update memory state immediately
+      setSections((curr) => ({
+        ...curr,
+        [section]: curr[section].map((cat) =>
+          cat.id === categoryId
+            ? {
+                ...cat,
+                subcategories: cat.subcategories.map((sub) =>
+                  sub.id === subcategoryId || sub.name === oldName
+                    ? { ...sub, name: cleanNewName }
+                    : sub
+                ),
+              }
+            : cat
+        ),
+      }));
+
+      // 2. Persist rename mapping locally
+      const subMap = getRenamedSubcategoryMap(user?.email);
+      if (parentName) {
+        subMap[`${parentName.toLowerCase()}:${oldName.toLowerCase()}`] = cleanNewName;
+      }
+      subMap[oldName.toLowerCase()] = cleanNewName;
+      setRenamedSubcategoryMap(user?.email, subMap);
+
+      // 3. Update budget values map
+      try {
+        const budgetMap = budgetService.getBudgetMap(selectedYear, user?.email);
+        let bChanged = false;
+        if (budgetMap[oldName]) {
+          budgetMap[cleanNewName] = budgetMap[oldName];
+          delete budgetMap[oldName];
+          bChanged = true;
+        }
+        if (budgetMap[`sub:${oldName}`]) {
+          budgetMap[`sub:${cleanNewName}`] = budgetMap[`sub:${oldName}`];
+          delete budgetMap[`sub:${oldName}`];
+          bChanged = true;
+        }
+        if (bChanged) {
+          budgetService.saveBudgetMap(selectedYear, budgetMap, user?.email);
+          setBudgetValues(budgetMap);
+        }
+      } catch {}
+
+      // 4. Update planned transactions
+      setBudgetTransactions((curr) => {
+        const next = { ...curr };
+        let txChanged = false;
+        if (next[subcategoryId]) {
+          next[subcategoryId] = next[subcategoryId].map((t) => ({ ...t, subcategory: cleanNewName }));
+          txChanged = true;
+        }
+        if (oldName !== subcategoryId && next[oldName]) {
+          next[cleanNewName] = next[oldName].map((t) => ({ ...t, subcategory: cleanNewName }));
+          delete next[oldName];
+          txChanged = true;
+        }
+        if (txChanged) {
+          localStorage.setItem(
+            getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email),
+            JSON.stringify(next)
+          );
+        }
+        return next;
+      });
+
+      // 5. Update rawTransactions (actual transactions)
+      setRawTransactions((curr) =>
+        curr.map((t) =>
+          t.subcategory === oldName && (!parentName || t.category === parentName)
+            ? { ...t, subcategory: cleanNewName }
+            : t
+        )
+      );
+
+      // 6. Backend sync
+      try {
+        const rawSubId = subcategoryId.replace(/^sub:?/, '');
+        if (!isNaN(Number(rawSubId)) && Number(rawSubId) > 0) {
+          await api.put(`/subcategories/${rawSubId}`, { name: cleanNewName }).catch(() => {});
+        } else {
+          const parentCat = sections[section]?.find((c) => c.id === categoryId);
+          if (parentCat?.categoryId) {
+            await api.post('/subcategories', { categoryId: parentCat.categoryId, name: cleanNewName }).catch(() => {});
+          }
+        }
+      } catch {}
+
+      // 7. Global notification
+      window.dispatchEvent(new CustomEvent('fintrack-category-updated', { detail: { oldName, newName: cleanNewName, section } }));
+      window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
+    }
+  };
+
   const handleStartAddCategory = (section: Section) => {
     setActiveAddCategorySection(section);
     setCategoryInputName('');
@@ -2163,6 +2432,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         type: section,
       });
       await loadAllData();
+      await categoryService.fetchCategoriesFromDb(user?.email).catch(() => {});
+      window.dispatchEvent(new CustomEvent('fintrack-categories-changed'));
       setActiveAddCategorySection(null);
       setCategoryInputName('');
     } catch (error: any) {
@@ -2228,6 +2499,8 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       });
 
       await loadAllData();
+      await categoryService.fetchCategoriesFromDb(user?.email).catch(() => {});
+      window.dispatchEvent(new CustomEvent('fintrack-categories-changed'));
       setExpanded((current) => new Set(current).add(category.id));
       setActiveAddSubcategoryId(null);
       setSubcategoryInputName('');
@@ -2294,26 +2567,43 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                     {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                     <span>{category.name}</span>
 
-                    <button
-                      className="budget-delete-button"
-                      type="button"
-                      disabled={isCategoryPending}
-                      title={isCategoryPending ? 'Deletion pending (Click Undo in toast to cancel)' : 'Remove category'}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (!isCategoryPending) {
-                          removeCategory(section, category.id);
-                        }
-                      }}
-                    >
-                      {isCategoryPending ? (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>
-                          {pendingCatItem?.secondsLeft}s
-                        </span>
-                      ) : (
-                        <Trash2 size={14} />
-                      )}
-                    </button>
+                    <div className="budget-row-actions">
+                      <button
+                        className="budget-edit-button"
+                        type="button"
+                        disabled={isCategoryPending}
+                        title={`Edit category ${category.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!isCategoryPending) {
+                            handleOpenEditCategory(section, category);
+                          }
+                        }}
+                      >
+                        <Pencil size={13} />
+                      </button>
+
+                      <button
+                        className="budget-delete-button"
+                        type="button"
+                        disabled={isCategoryPending}
+                        title={isCategoryPending ? 'Deletion pending (Click Undo in toast to cancel)' : 'Remove category'}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!isCategoryPending) {
+                            removeCategory(section, category.id);
+                          }
+                        }}
+                      >
+                        {isCategoryPending ? (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#ef4444' }}>
+                            {pendingCatItem?.secondsLeft}s
+                          </span>
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                      </button>
+                    </div>
                   </td>
 
                   {MONTHS.map((_, month) => (
@@ -2364,6 +2654,20 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                   <Plus size={13} />
                                 </button>
                               )}
+                              <button
+                                className="budget-edit-button"
+                                type="button"
+                                disabled={isSubcategoryPending}
+                                title={`Edit subcategory ${subcategory.name}`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (!isSubcategoryPending) {
+                                    handleOpenEditSubcategory(section, category, subcategory);
+                                  }
+                                }}
+                              >
+                                <Pencil size={12} />
+                              </button>
                               <button
                                 className="budget-delete-button"
                                 type="button"
@@ -3467,6 +3771,34 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                     <Plus size={13} />
                                   </button>
 
+                                  {/* Edit Category button */}
+                                  <button
+                                    type="button"
+                                    disabled={isCatPending}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (!isCatPending) {
+                                        handleOpenEditCategory(sec, cat);
+                                      }
+                                    }}
+                                    title={`Edit category ${cat.name}`}
+                                    style={{
+                                      minWidth: 24,
+                                      height: 24,
+                                      padding: 0,
+                                      borderRadius: 6,
+                                      background: 'rgba(56, 189, 248, 0.1)',
+                                      border: '1px solid rgba(56, 189, 248, 0.25)',
+                                      color: '#38BDF8',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      justifyContent: 'center',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <Pencil size={12} />
+                                  </button>
+
                                   {/* Delete Category button */}
                                   <button
                                     type="button"
@@ -3567,38 +3899,67 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
                                         </div>
 
                                         {!isViewOnly && (
-                                          <button
-                                            type="button"
-                                            disabled={isSubPending}
-                                            onClick={(e) => {
-                                              e.stopPropagation();
-                                              if (!isSubPending) {
-                                                removeSubcategory(sec, cat.id, subcat.id);
-                                              }
-                                            }}
-                                            title={`Delete subcategory ${subcat.name}`}
-                                            style={{
-                                              minWidth: 22,
-                                              height: 22,
-                                              padding: isSubPending ? '0 4px' : 0,
-                                              borderRadius: 5,
-                                              background: isSubPending ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.08)',
-                                              border: isSubPending ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(239, 68, 68, 0.15)',
-                                              color: isSubPending ? '#EF4444' : '#F87171',
-                                              display: 'flex',
-                                              alignItems: 'center',
-                                              justifyContent: 'center',
-                                              cursor: 'pointer'
-                                            }}
-                                          >
-                                            {isSubPending ? (
-                                              <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444' }}>
-                                                {pendingSubItem?.secondsLeft}s
-                                              </span>
-                                            ) : (
-                                              <Trash2 size={11} />
-                                            )}
-                                          </button>
+                                          <>
+                                            <button
+                                              type="button"
+                                              disabled={isSubPending}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (!isSubPending) {
+                                                  handleOpenEditSubcategory(sec, cat, subcat);
+                                                }
+                                              }}
+                                              title={`Edit subcategory ${subcat.name}`}
+                                              style={{
+                                                minWidth: 22,
+                                                height: 22,
+                                                padding: 0,
+                                                borderRadius: 5,
+                                                background: 'rgba(56, 189, 248, 0.1)',
+                                                border: '1px solid rgba(56, 189, 248, 0.2)',
+                                                color: '#38BDF8',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer'
+                                              }}
+                                            >
+                                              <Pencil size={11} />
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              disabled={isSubPending}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (!isSubPending) {
+                                                  removeSubcategory(sec, cat.id, subcat.id);
+                                                }
+                                              }}
+                                              title={`Delete subcategory ${subcat.name}`}
+                                              style={{
+                                                minWidth: 22,
+                                                height: 22,
+                                                padding: isSubPending ? '0 4px' : 0,
+                                                borderRadius: 5,
+                                                background: isSubPending ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.08)',
+                                                border: isSubPending ? '1px solid rgba(239, 68, 68, 0.35)' : '1px solid rgba(239, 68, 68, 0.15)',
+                                                color: isSubPending ? '#EF4444' : '#F87171',
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                cursor: 'pointer'
+                                              }}
+                                            >
+                                              {isSubPending ? (
+                                                <span style={{ fontSize: 9, fontWeight: 700, color: '#EF4444' }}>
+                                                  {pendingSubItem?.secondsLeft}s
+                                                </span>
+                                              ) : (
+                                                <Trash2 size={11} />
+                                              )}
+                                            </button>
+                                          </>
                                         )}
                                       </div>
                                     </div>
@@ -4972,6 +5333,26 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           initialSection={categoryModalInitialSection}
           initialCategoryName={categoryModalInitialCategoryName}
           categoriesBySection={modalCategoriesBySection}
+        />
+
+        {/* Edit Category / Subcategory Modal */}
+        <EditCategoryModal
+          isOpen={isEditCategoryModalOpen}
+          onClose={() => {
+            setIsEditCategoryModalOpen(false);
+            setEditingCategoryTarget(null);
+          }}
+          onSave={handleSaveCategoryRename}
+          target={editingCategoryTarget}
+          existingNames={
+            editingCategoryTarget
+              ? editingCategoryTarget.type === 'category'
+                ? (sections[editingCategoryTarget.section] || []).map((c) => c.name)
+                : (sections[editingCategoryTarget.section] || [])
+                    .find((c) => c.id === editingCategoryTarget.categoryId)
+                    ?.subcategories.map((s) => s.name) || []
+              : []
+          }
         />
       </main>
     );
@@ -6731,6 +7112,26 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
         initialCategoryName={categoryModalInitialCategoryName}
         categoriesBySection={modalCategoriesBySection}
       />
+
+        {/* Edit Category / Subcategory Modal */}
+        <EditCategoryModal
+          isOpen={isEditCategoryModalOpen}
+          onClose={() => {
+            setIsEditCategoryModalOpen(false);
+            setEditingCategoryTarget(null);
+          }}
+          onSave={handleSaveCategoryRename}
+          target={editingCategoryTarget}
+          existingNames={
+            editingCategoryTarget
+              ? editingCategoryTarget.type === 'category'
+                ? (sections[editingCategoryTarget.section] || []).map((c) => c.name)
+                : (sections[editingCategoryTarget.section] || [])
+                    .find((c) => c.id === editingCategoryTarget.categoryId)
+                    ?.subcategories.map((s) => s.name) || []
+              : []
+          }
+        />
     </main>
   );
 };

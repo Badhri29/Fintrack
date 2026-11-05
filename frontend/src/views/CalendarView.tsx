@@ -648,13 +648,18 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     const handleCards = () => setCards(cardService.getCards(user?.email));
     const handleLoans = () => setLoans(loanService.getLoans(user?.email));
     const handleTx = () => fetchTransactions();
+    const handleCats = () => fetchMetadata();
     window.addEventListener('fintrack-cards-updated', handleCards);
     window.addEventListener('fintrack-loans-changed', handleLoans);
     window.addEventListener('fintrack-transactions-changed', handleTx);
+    window.addEventListener('fintrack-categories-changed', handleCats);
+    window.addEventListener('fintrack-category-updated', handleCats);
     return () => {
       window.removeEventListener('fintrack-cards-updated', handleCards);
       window.removeEventListener('fintrack-loans-changed', handleLoans);
       window.removeEventListener('fintrack-transactions-changed', handleTx);
+      window.removeEventListener('fintrack-categories-changed', handleCats);
+      window.removeEventListener('fintrack-category-updated', handleCats);
     };
   }, [user?.email]);
 

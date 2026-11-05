@@ -12,6 +12,7 @@ import {
   Tag
 } from 'lucide-react';
 import api from '../services/api';
+import { categoryService } from '../services/categoryService';
 
 export type CategorySection = 'expense' | 'income' | 'savings';
 
@@ -125,7 +126,11 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
   if (!isOpen) return null;
 
   const currentSectionConfig = SECTION_CONFIG[section];
-  const availableCategories = categoriesBySection[section] || [];
+  const cachedSec = categoryService.getCachedCategoriesByType()[section] || {};
+  const fallbackList: CategoryOption[] = Object.keys(cachedSec).map(name => ({ name }));
+  const availableCategories: CategoryOption[] = (categoriesBySection[section] && categoriesBySection[section].length > 0)
+    ? categoriesBySection[section]
+    : fallbackList;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,6 +171,8 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
           }
         }
 
+        await categoryService.fetchCategoriesFromDb().catch(() => {});
+        window.dispatchEvent(new CustomEvent('fintrack-categories-changed'));
         onSuccess();
         onClose();
       } catch (err: any) {
@@ -224,6 +231,8 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
           name: subName,
         });
 
+        await categoryService.fetchCategoriesFromDb().catch(() => {});
+        window.dispatchEvent(new CustomEvent('fintrack-categories-changed'));
         onSuccess();
         onClose();
       } catch (err: any) {

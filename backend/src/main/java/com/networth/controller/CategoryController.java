@@ -26,6 +26,9 @@ public class CategoryController {
     @Autowired
     private SubCategoryRepository subCategoryRepository;
 
+    @Autowired
+    private com.networth.service.CategorySeedService categorySeedService;
+
     @GetMapping("/categories")
     public ResponseEntity<Map<String, Object>> getCategories(@AuthenticationPrincipal UserPrincipal principal,
                                                              @RequestParam(required = false) String type) {
@@ -36,6 +39,13 @@ public class CategoryController {
         List<Category> categories = (type != null && !type.isEmpty())
                 ? categoryRepository.findByUserIdAndType(principal.getId(), type)
                 : categoryRepository.findByUserId(principal.getId());
+
+        if (categories.isEmpty() && (type == null || type.isEmpty())) {
+            try {
+                categorySeedService.seedUserCategories(principal.getId());
+                categories = categoryRepository.findByUserId(principal.getId());
+            } catch (Exception ignored) {}
+        }
 
         return ResponseEntity.ok(Map.of("success", true, "data", categories));
     }
@@ -161,4 +171,84 @@ public class CategoryController {
         }
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "SubCategory not found"));
     }
+
+    @PutMapping("/categories/{id}")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateCategory(@AuthenticationPrincipal UserPrincipal principal,
+                                                              @PathVariable Long id,
+                                                              @RequestBody Map<String, String> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+        String newName = body.get("name");
+        if (newName == null || newName.trim().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("success", false, "message", "Name is required"));
+        }
+        Optional<Category> catOpt = categoryRepository.findByIdAndUserId(id, principal.getId());
+        if (catOpt.isPresent()) {
+            Category cat = catOpt.get();
+            cat.setName(newName.trim());
+            categoryRepository.save(cat);
+            return ResponseEntity.ok(Map.of("success", true, "data", cat));
+        }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "Category not found"));
+    }
+
+    @PutMapping("/categories")
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateCategoryByName(@AuthenticationPrincipal UserPrincipal principal,
+                                                                    @RequestBody Map<String, String> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+        String oldName = body.get("oldName");
+        String newName = body.get("newName");
+        String type = body.get("type");
+        if (oldName == null || newName == null || newName.trim().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("success", false, "message", "oldName and newName required"));
+        }
+        List<Category> all = categoryRepository.findByUserId(principal.getId());
+        boolean found = false;
+        for (Category c : all) {
+            if (c.getName() != null && c.getName().trim().equalsIgnoreCase(oldName.trim())) {
+                if (type == null || type.isBlank() || (c.getType() != null && c.getType().trim().equalsIgnoreCase(type.trim()))) {
+                    c.setName(newName.trim());
+                    categoryRepository.save(c);
+                    found = true;
+                }
+            }
+        }
+        if (!found && type != null) {
+            Category cat = categoryRepository.save(Category.builder()
+                    .userId(principal.getId())
+                    .type(type)
+                    .name(newName.trim())
+                    .build());
+            return ResponseEntity.ok(Map.of("success", true, "data", cat));
+        }
+        return ResponseEntity.ok(Map.of("success", true, "message", "Category updated"));
+    }
+
+    @PutMapping({"/subcategories/{id}", "/categories/subcategories/{id}"})
+    @Transactional
+    public ResponseEntity<Map<String, Object>> updateSubCategory(@AuthenticationPrincipal UserPrincipal principal,
+                                                                 @PathVariable Long id,
+                                                                 @RequestBody Map<String, String> body) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false, "message", "Unauthorized"));
+        }
+        String newName = body.get("name");
+        if (newName == null || newName.trim().isEmpty()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of("success", false, "message", "Name is required"));
+        }
+        Optional<SubCategory> subOpt = subCategoryRepository.findByIdAndUserId(id, principal.getId());
+        if (subOpt.isPresent()) {
+            SubCategory sub = subOpt.get();
+            sub.setName(newName.trim());
+            subCategoryRepository.save(sub);
+            return ResponseEntity.ok(Map.of("success", true, "data", sub));
+        }
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("success", false, "message", "SubCategory not found"));
+    }
 }
+

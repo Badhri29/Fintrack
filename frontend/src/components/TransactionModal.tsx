@@ -16,7 +16,10 @@ import {
 import api from '../services/api';
 import { currencyService } from '../services/currencyService';
 import { useAuth } from '../context/AuthContext';
-import { getDeletedCategorySet } from '../views/BudgetTransactionsView';
+import {
+  categoryService,
+  getDeletedCategorySet,
+} from '../services/categoryService';
 import { cardService, type CardModel } from '../services/cardService';
 import { bankAccountService } from '../services/bankAccountService';
 import { playNotificationChime } from '../services/soundService';
@@ -100,29 +103,6 @@ const TYPE_CONFIGS: Record<TransactionType, TypeConfig> = {
   },
 };
 
-const CATEGORIES_BY_TYPE: Record<TransactionType, Record<string, string[]>> = {
-  expense: {
-    'Housing & Rent': ['Rent/Mortgage', 'Property Tax', 'Home Insurance', 'Maintenance & Repairs', 'HOA Fees', 'Other'],
-    'Food & Groceries': ['Supermarket Groceries', 'Organic & Farmers Market', 'Household Supplies', 'Snacks & Beverages', 'Other'],
-    'Utilities & Internet': ['Electricity', 'Water & Sewer', 'High-Speed Internet', 'Mobile Phone Bill', 'Gas / Heating', 'Other'],
-    'Dining & Entertainment': ['Restaurants & Cafes', 'Food Delivery (Swiggy/Zomato)', 'Streaming (Netflix/Prime)', 'Movies & Concerts', 'Gaming & Hobbies', 'Other'],
-    'Transportation & Auto': ['Fuel / Petrol', 'Car Insurance & EMI', 'Public Transit & Metro', 'Uber / Taxi / Auto', 'Vehicle Servicing', 'Other'],
-    'Healthcare & Medical': ['Doctor Consultation', 'Pharmacy & Medicines', 'Health Insurance Premium', 'Gym & Fitness', 'Dental / Vision', 'Other'],
-    'Shopping & Personal': ['Clothing & Footwear', 'Electronics & Gadgets', 'Personal Care & Grooming', 'Gifts & Donations', 'Other'],
-  },
-  income: {
-    'Salary': ['Monthly Base Salary', 'Performance Bonus', 'Overtime Pay', 'Annual Incentive', 'Other'],
-    'Freelance & Business': ['Consulting Fees', 'Client Project Payment', 'Royalties & Licensing', 'Side Hustle Income', 'Other'],
-    'Investments': ['Stock Dividend', 'Fixed Deposit Interest', 'Crypto / NFT Returns', 'Real Estate Income', 'Capital Gains', 'Other'],
-  },
-  savings: {
-    'Investments': ['Mutual Fund SIP', 'Stock Purchase', 'Fixed Deposit (FD)', 'Public Provident Fund (PPF)', 'Gold / SGB', 'Crypto / Web3', 'Other'],
-    'Savings': ['Emergency Fund', 'Recurring Deposit (RD)', 'Retirement Savings (NPS)', 'High-Yield Savings', 'Other'],
-    'Mutual Funds': ['Equity SIP', 'Debt SIP', 'Index Fund', 'ELSS (Tax Saving)', 'Other'],
-    'Emergency Fund': ['Liquid Fund', 'Savings Account Buffer', 'Cash Reserve', 'Other'],
-  },
-};
-
 /**
  * Safely evaluates mathematical expressions like "1700+100", "500 * 3", "2500 - 300"
  */
@@ -180,11 +160,39 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const isEditing = Boolean(transactionToEdit && transactionToEdit.id);
   const { user } = useAuth();
 
+  const [categoriesByType, setCategoriesByType] = useState<Record<TransactionType, Record<string, string[]>>>(() =>
+    categoryService.getCachedCategoriesByType(user?.email)
+  );
+
   const [type, setType] = useState<TransactionType>('expense');
   const [date, setDate] = useState<string>(new Date().toISOString().substring(0, 10));
   const [amount, setAmount] = useState<string>('');
-  const [category, setCategory] = useState<string>('Housing & Rent');
-  const [subcategory, setSubcategory] = useState<string>('Rent/Mortgage');
+  const [category, setCategory] = useState<string>('Food & Dining');
+  const [subcategory, setSubcategory] = useState<string>('Groceries');
+
+  useEffect(() => {
+    let isMounted = true;
+    categoryService.fetchCategoriesFromDb(user?.email).then((data) => {
+      if (isMounted && data && Object.keys(data.expense || {}).length > 0) {
+        setCategoriesByType(data);
+      }
+    });
+
+    const handleSync = (e?: any) => {
+      const updated = e?.detail?.categoriesByType || categoryService.getCachedCategoriesByType(user?.email);
+      if (isMounted && updated) {
+        setCategoriesByType(updated);
+      }
+    };
+
+    window.addEventListener('fintrack-categories-changed', handleSync);
+    window.addEventListener('fintrack-category-updated', handleSync);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('fintrack-categories-changed', handleSync);
+      window.removeEventListener('fintrack-category-updated', handleSync);
+    };
+  }, [user?.email, isOpen]);
   const [isCustomSubcategory, setIsCustomSubcategory] = useState<boolean>(false);
   const [customSubcategoryText, setCustomSubcategoryText] = useState<string>('');
   const [paymentMode, setPaymentMode] = useState<string>('upi');
@@ -264,8 +272,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         : '';
       setAmount(displayAmt !== '' ? String(displayAmt) : '');
 
-      const typeMap = CATEGORIES_BY_TYPE[editType] || CATEGORIES_BY_TYPE.expense;
-      const defaultCategory = Object.keys(typeMap)[0];
+      const typeMap = categoriesByType[editType] || categoriesByType.expense || {};
+      const availableCategories = Object.keys(typeMap).filter(c => !deletedSet.has(c.toLowerCase()));
+      const defaultCategory = availableCategories[0] || 'Food & Dining';
       const cat = existingCategory || defaultCategory;
       setCategory(cat);
 
@@ -307,17 +316,19 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           : defaultTypePref;
       setType(startingType);
 
-      const typeMap = CATEGORIES_BY_TYPE[startingType] || CATEGORIES_BY_TYPE.expense;
+      const typeMap = categoriesByType[startingType] || categoriesByType.expense || {};
       const savedCategory = localStorage.getItem('fintrack-default-category');
       const deletedSet = getDeletedCategorySet(user?.email);
       const availableCategories = Object.keys(typeMap).filter(c => !deletedSet.has(c.toLowerCase()));
-      const fallbackCat = availableCategories[0] || Object.keys(typeMap)[0];
+      const fallbackCat = availableCategories[0] || 'Food & Dining';
       const defaultCategory = (savedCategory && typeMap[savedCategory] && !deletedSet.has(savedCategory.toLowerCase())) ? savedCategory : fallbackCat;
-      const cat = initialCategory || defaultCategory;
+      const cat = (initialCategory && (!deletedSet.has(initialCategory.toLowerCase()) || typeMap[initialCategory]))
+        ? initialCategory
+        : defaultCategory;
       setCategory(cat);
 
       const options = typeMap[cat] || ['Other'];
-      const defaultSub = initialSubcategory || options[0];
+      const defaultSub = initialSubcategory || options[0] || 'Other';
       setSubcategory(defaultSub);
       setIsCustomSubcategory(defaultSub === 'Other');
       setCustomSubcategoryText('');
@@ -342,15 +353,17 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setAmount('');
       setError(null);
     }
-  }, [isOpen, initialCategory, initialSubcategory, initialType, initialPaymentMode, initialCard, transactionToEdit]);
+  }, [isOpen, initialCategory, initialSubcategory, initialType, initialPaymentMode, initialCard, transactionToEdit, categoriesByType]);
 
   if (!isOpen) return null;
 
   const handleTypeChange = (newType: TransactionType) => {
     setType(newType);
-    const typeMap = CATEGORIES_BY_TYPE[newType];
-    if (!typeMap[category]) {
-      const defaultCat = Object.keys(typeMap)[0];
+    const typeMap = categoriesByType[newType] || {};
+    const deletedSet = getDeletedCategorySet(user?.email);
+    const availableCategories = Object.keys(typeMap).filter(c => !deletedSet.has(c.toLowerCase()));
+    if (!typeMap[category] || !availableCategories.includes(category)) {
+      const defaultCat = availableCategories[0] || Object.keys(typeMap)[0] || 'General';
       setCategory(defaultCat);
       const defaultSub = typeMap[defaultCat]?.[0] || 'Other';
       setSubcategory(defaultSub);
@@ -361,9 +374,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const handleCategoryChange = (newCat: string) => {
     setCategory(newCat);
-    const typeMap = CATEGORIES_BY_TYPE[type];
+    const typeMap = categoriesByType[type] || {};
     const options = typeMap[newCat] || ['Other'];
-    const defaultSub = options[0];
+    const defaultSub = options[0] || 'Other';
     setSubcategory(defaultSub);
     setIsCustomSubcategory(defaultSub === 'Other');
     if (defaultSub !== 'Other') {
@@ -446,12 +459,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     }
   };
 
-  const currentTypeCategories = CATEGORIES_BY_TYPE[type] || {};
+  const currentTypeCategories = categoriesByType[type] || {};
   const deletedSet = getDeletedCategorySet(user?.email);
-  const rawList = Array.from(new Set([...Object.keys(currentTypeCategories), category]));
+  const rawList = Array.from(new Set([...Object.keys(currentTypeCategories), category].filter(Boolean)));
   const categoryList = rawList.filter(c => !deletedSet.has(c.toLowerCase()) || c === category);
   const subcategoryList = Array.from(
-    new Set([...(currentTypeCategories[category] || []), subcategory, 'Other']),
+    new Set([...(currentTypeCategories[category] || []), subcategory, 'Other'].filter(Boolean)),
   );
 
   const inputStyle: React.CSSProperties = {

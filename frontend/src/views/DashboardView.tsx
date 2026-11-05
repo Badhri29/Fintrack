@@ -318,7 +318,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       fetchData();
     };
     window.addEventListener('fintrack-transactions-changed', onTxChange);
-    return () => window.removeEventListener('fintrack-transactions-changed', onTxChange);
+    window.addEventListener('fintrack-categories-changed', onTxChange);
+    window.addEventListener('fintrack-category-updated', onTxChange);
+    return () => {
+      window.removeEventListener('fintrack-transactions-changed', onTxChange);
+      window.removeEventListener('fintrack-categories-changed', onTxChange);
+      window.removeEventListener('fintrack-category-updated', onTxChange);
+    };
   }, [selectedYear]);
 
   // Read budgeted values from localStorage for selected year
