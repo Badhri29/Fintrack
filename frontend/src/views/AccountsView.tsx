@@ -378,7 +378,7 @@ export const AccountsView: React.FC = () => {
         </div>
 
         {!isViewOnly && (
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="accounts-header-actions hide-on-mobile" style={{ display: 'flex', gap: 10 }}>
             <button
               type="button"
               onClick={() => {
@@ -587,9 +587,31 @@ export const AccountsView: React.FC = () => {
           <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
             Your Bank Accounts ({accounts.length})
           </h2>
-          <span style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
+          <span className="hide-on-mobile" style={{ fontSize: 12.5, color: 'var(--text-secondary)' }}>
             Click &quot;Update Balance&quot; on any account to reconcile your current bank balance
           </span>
+          {!isViewOnly && (
+            <button
+              type="button"
+              className="btn-primary hide-on-desktop"
+              onClick={handleOpenAdd}
+              title="Add Bank Account"
+              aria-label="Add Bank Account"
+              style={{
+                width: 32,
+                height: 32,
+                minWidth: 32,
+                padding: 0,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              <Plus size={16} />
+            </button>
+          )}
         </div>
 
         {accounts.length === 0 ? (
@@ -631,13 +653,14 @@ export const AccountsView: React.FC = () => {
             )}
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>
+          <div className="accounts-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 20 }}>
             {accounts.map(acc => {
               const debitCards = acc.debitCards || [];
 
               return (
                 <div
                   key={acc.id}
+                  className="account-card-item summary-card"
                   style={{
                     background: 'var(--bg-card)',
                     border: '1px solid var(--border-color)',
@@ -655,6 +678,7 @@ export const AccountsView: React.FC = () => {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                         <div
+                          className="acc-bank-icon-box"
                           style={{
                             width: 44,
                             height: 44,
@@ -663,23 +687,24 @@ export const AccountsView: React.FC = () => {
                             color: '#3B82F6',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'center'
+                            justifyContent: 'center',
+                            flexShrink: 0
                           }}
                         >
                           <Landmark size={22} />
                         </div>
                         <div>
-                          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+                          <h4 className="acc-bank-title" style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
                             {acc.bankName}
                           </h4>
-                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                          <span className="acc-bank-subtitle" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                             {acc.accountType} Account •••• {acc.accountNumberLast4}
                           </span>
                         </div>
                       </div>
 
                       {!isViewOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div className="acc-card-actions" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <button
                             type="button"
                             onClick={() => handleOpenEdit(acc)}
@@ -716,6 +741,7 @@ export const AccountsView: React.FC = () => {
 
                     {/* Balance Display with Quick Edit Action */}
                     <div
+                      className="acc-balance-box"
                       style={{
                         background: 'rgba(255, 255, 255, 0.03)',
                         border: '1px solid var(--border-color)',
@@ -728,10 +754,10 @@ export const AccountsView: React.FC = () => {
                       }}
                     >
                       <div>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        <span className="acc-balance-label" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Current Account Balance
                         </span>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 2 }}>
+                        <div className="acc-balance-amount" style={{ fontSize: 20, fontWeight: 800, color: '#10B981', marginTop: 2 }}>
                           {currencyService.format(acc.balance || 0)}
                         </div>
                       </div>
@@ -739,6 +765,7 @@ export const AccountsView: React.FC = () => {
                       {!isViewOnly && (
                         <button
                           type="button"
+                          className="acc-update-balance-btn"
                           onClick={() => {
                             setBalanceEditAcc(acc);
                             setNewBalanceValue(String(acc.balance || 0));
@@ -764,7 +791,7 @@ export const AccountsView: React.FC = () => {
                     </div>
 
                     {/* Meta info (Holder, IFSC, Branch) */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 14 }}>
+                    <div className="acc-meta-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 11.5, color: 'var(--text-secondary)', marginBottom: 14 }}>
                       {acc.holderName && (
                         <div>
                           <span style={{ color: 'var(--text-muted)' }}>Holder: </span>
@@ -787,9 +814,9 @@ export const AccountsView: React.FC = () => {
                   </div>
 
                   {/* Linked Debit Cards Section */}
-                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
+                  <div className="acc-debit-cards-box" style={{ borderTop: '1px solid var(--border-color)', paddingTop: 14 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="acc-debit-cards-header" style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <CreditCard size={13} style={{ color: '#F59E0B' }} />
                         <span>Linked Debit Cards ({debitCards.length})</span>
                       </span>
@@ -797,6 +824,7 @@ export const AccountsView: React.FC = () => {
                       {!isViewOnly && (
                         <button
                           type="button"
+                          className="acc-link-debit-btn"
                           onClick={() => {
                             setDebitCardModalAcc(acc);
                             setNewDebitCardName(`${acc.bankName} Platinum Debit Card`);

@@ -900,7 +900,7 @@ input.auth-input::placeholder {
     text-overflow: ellipsis !important;
   }
 
-  /* Loans Page Split Layout & Sorting Toolbar Mobile Refinements */
+  /* Loans Page Split Layout Mobile Refinements */
   .loans-content-split-container {
     flex-direction: column !important;
   }
@@ -911,14 +911,66 @@ input.auth-input::placeholder {
     min-width: 0 !important;
   }
 
-  .loan-details-inspector-panel {
-    flex: 1 1 100% !important;
-    width: 100% !important;
+  /* When a loan card is clicked: Open details on right side, keep 1 column of cards on left */
+  .loans-content-split-container.has-selected-loan {
+    flex-direction: row !important;
+    flex-wrap: nowrap !important;
+    gap: 8px !important;
+    align-items: flex-start !important;
+  }
+
+  .loans-content-split-container.has-selected-loan .loans-cards-column {
+    flex: 0 0 calc(50% - 4px) !important;
+    max-width: calc(50% - 4px) !important;
+    width: calc(50% - 4px) !important;
     min-width: 0 !important;
-    position: static !important;
-    max-height: none !important;
-    margin-top: 18px !important;
-    order: 2 !important;
+  }
+
+  .loans-content-split-container.has-selected-loan .loans-grid-container {
+    grid-template-columns: 1fr !important;
+    gap: 8px !important;
+  }
+
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel {
+    flex: 0 0 calc(50% - 4px) !important;
+    max-width: calc(50% - 4px) !important;
+    width: calc(50% - 4px) !important;
+    min-width: 0 !important;
+    position: sticky !important;
+    top: 10px !important;
+    max-height: calc(100vh - 80px) !important;
+    overflow-y: auto !important;
+    margin-top: 0 !important;
+    order: unset !important;
+    padding: 10px 8px !important;
+    border-radius: 12px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Compact typography inside loan details inspector on mobile */
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel h4 {
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+  }
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel span,
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel p,
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel div {
+    font-size: 9.5px !important;
+  }
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel strong {
+    font-size: 10px !important;
+  }
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel table {
+    font-size: 8px !important;
+  }
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel table th,
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel table td {
+    padding: 3px 4px !important;
+    font-size: 7.5px !important;
+  }
+  .loans-content-split-container.has-selected-loan .loan-details-inspector-panel button {
+    padding: 3px 6px !important;
+    font-size: 8.5px !important;
   }
 
   .loans-sort-toolbar {
@@ -4621,15 +4673,13 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
 
   .loans-ledger-segmented {
-    width: 100% !important;
-    display: flex !important;
+    width: auto !important;
+    display: inline-flex !important;
   }
 
   .loans-ledger-segmented button {
-    flex: 1 !important;
-    text-align: center !important;
-    padding: 5px 4px !important;
-    font-size: 11px !important;
+    padding: 5px 10px !important;
+    font-size: 10.5px !important;
   }
 
   .loans-ledger-toolbar {
@@ -4709,7 +4759,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   }
 
   /* Equal Height Year & Month Row (Dynamic auto-height with min-height 104px, zero overflow) */
-  .credit-cards-year-month-row {
+  .credit-cards-year-month-row,
+  .dashboard-year-month-row,
+  .budget-year-month-row {
     display: flex !important;
     gap: 8px !important;
     align-items: stretch !important;
@@ -5090,6 +5142,101 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     display: none !important;
   }
 
+  /* Credit Card & Loan Ledger Mobile Typography: Uniform Font Size & Truncated Description */
+  .cc-ledger-table,
+  .loans-ledger-table {
+    font-size: 10px !important;
+    width: 100% !important;
+  }
+
+  .cc-ledger-table th,
+  .cc-ledger-table .sticky-table-header th,
+  .loans-ledger-table th,
+  .loans-ledger-table .sticky-table-header th {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    padding: 6px 8px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-ledger-table td,
+  .loans-ledger-table td {
+    font-size: 10px !important;
+    padding: 6px 8px !important;
+    vertical-align: middle !important;
+    white-space: nowrap !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Description Column: Strictly bounded max-width with single line ellipsis */
+  .cc-ledger-table .cc-td-desc,
+  .loans-ledger-table .loans-td-desc {
+    max-width: 135px !important;
+    min-width: 100px !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-ledger-table .cc-desc-wrapper,
+  .loans-ledger-table .loans-desc-wrapper {
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .cc-ledger-table .cc-desc-text,
+  .loans-ledger-table .loans-desc-text {
+    font-size: 10px !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    display: block !important;
+  }
+
+  /* Same uniform micro-font size for all badges in mobile ledger */
+  .cc-ledger-table .cc-badge,
+  .cc-ledger-table .cc-badge-paid,
+  .cc-ledger-table .cc-badge-emi,
+  .cc-ledger-table .cc-badge-card,
+  .cc-ledger-table .cc-badge-mode {
+    font-size: 8.5px !important;
+    padding: 1.5px 5px !important;
+    border-radius: 4px !important;
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    line-height: 1.1 !important;
+  }
+
+  .cc-ledger-table .cc-badge-card svg {
+    width: 10px !important;
+    height: 10px !important;
+  }
+
+  .cc-ledger-table .cc-amount-val,
+  .cc-ledger-table .cc-td-amount {
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-ledger-table .cc-badge-linked {
+    font-size: 9px !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-ledger-table .empty-placeholder-row td,
+  .loans-ledger-table .empty-placeholder-row td {
+    height: 32px !important;
+    padding: 6px 8px !important;
+  }
+
+
     /* Centered Table Headers across all tables */
   table th, .sticky-table-header th {
     text-align: center !important;
@@ -5106,5 +5253,320 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 @media (min-width: 769px) {
   .hide-on-desktop {
     display: none !important;
+  }
+}
+
+/* ==========================================================================
+   LOAN CARDS 2-COLUMN RESPONSIVE LAYOUT & MICRO-TYPOGRAPHY ON MOBILE
+   Retains all PC view information in a 2-column compact grid
+   ========================================================================== */
+@media (max-width: 768px) {
+  .loans-grid-container {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .loan-card-item {
+    padding: 10px 8px !important;
+    border-radius: 12px !important;
+    min-height: auto !important;
+    box-sizing: border-box !important;
+  }
+
+  .loan-card-item .loan-badges-row {
+    gap: 3px !important;
+  }
+
+  .loan-card-item .loan-badges-row > span {
+    font-size: 7px !important;
+    padding: 1px 4px !important;
+    border-radius: 4px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .loan-card-item .loan-badges-row span span[style*="border-radius: 50%"] {
+    width: 5px !important;
+    height: 5px !important;
+  }
+
+  .loan-card-item .loan-card-title {
+    font-size: 11px !important;
+    margin: 4px 0 2px !important;
+    line-height: 1.2 !important;
+    word-break: break-word !important;
+  }
+
+  .loan-card-item .loan-lender-info {
+    font-size: 8px !important;
+    line-height: 1.25 !important;
+  }
+
+  .loan-card-item .loan-lender-info strong {
+    font-size: 8px !important;
+  }
+
+  .loan-card-item .loan-lender-info span {
+    font-size: 7.5px !important;
+  }
+
+  .loan-card-item .loan-card-actions button {
+    padding: 3px 4px !important;
+  }
+
+  .loan-card-item .loan-card-actions svg {
+    width: 11px !important;
+    height: 11px !important;
+  }
+
+  .loan-card-item .loan-due-row {
+    margin-top: 5px !important;
+    padding: 4px 5px !important;
+    font-size: 7.5px !important;
+    gap: 3px !important;
+    border-radius: 6px !important;
+  }
+
+  .loan-card-item .loan-due-row svg {
+    width: 10px !important;
+    height: 10px !important;
+  }
+
+  .loan-card-item .loan-stats-grid {
+    margin-top: 5px !important;
+    padding: 5px 4px !important;
+    gap: 3px !important;
+    border-radius: 6px !important;
+  }
+
+  .loan-card-item .loan-stats-grid span:first-child {
+    font-size: 6.5px !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1 !important;
+  }
+
+  .loan-card-item .loan-stats-grid span:last-child {
+    font-size: 9.5px !important;
+    font-weight: 800 !important;
+    line-height: 1.15 !important;
+  }
+
+  .loan-card-item .loan-emis-grid {
+    margin-top: 4px !important;
+    padding: 4px 3px !important;
+    gap: 2px !important;
+    border-radius: 6px !important;
+  }
+
+  .loan-card-item .loan-emis-grid span {
+    font-size: 6px !important;
+    line-height: 1 !important;
+  }
+
+  .loan-card-item .loan-emis-grid div {
+    font-size: 9.5px !important;
+    line-height: 1.15 !important;
+  }
+
+  .loan-card-item .loan-interest-row {
+    margin-top: 4px !important;
+    padding: 3px 5px !important;
+    font-size: 7.5px !important;
+    border-radius: 5px !important;
+  }
+
+  .loan-card-item .loan-progress-box {
+    margin-top: 5px !important;
+  }
+
+  .loan-card-item .loan-progress-box > div:first-child {
+    font-size: 7.5px !important;
+    margin-bottom: 2px !important;
+  }
+
+  .loan-card-item .loan-progress-box > div:last-child {
+    height: 3.5px !important;
+  }
+
+  .loan-card-item .loan-reimburse-box {
+    margin-top: 5px !important;
+    padding: 4px 5px !important;
+    font-size: 7.5px !important;
+    border-radius: 6px !important;
+  }
+
+  .loan-card-item .loan-card-footer {
+    margin-top: 6px !important;
+    padding-top: 5px !important;
+    gap: 4px !important;
+  }
+
+  .loan-card-item .loan-card-footer label {
+    gap: 3px !important;
+  }
+
+  .loan-card-item .loan-card-footer label span {
+    font-size: 8px !important;
+  }
+
+  .loan-card-item .loan-card-footer label input {
+    width: 12px !important;
+    height: 12px !important;
+  }
+
+  .loan-card-item .loan-card-footer button {
+    padding: 3px 5px !important;
+    font-size: 8px !important;
+    border-radius: 5px !important;
+    gap: 3px !important;
+  }
+
+  .loan-card-item .loan-card-footer button svg {
+    width: 10px !important;
+    height: 10px !important;
+  }
+}
+
+/* ==========================================================================
+   MOBILE FILTER MODAL POPUP (Credit Cards & Loans Ledgers)
+   ========================================================================== */
+.mobile-filter-backdrop {
+  animation: fadeIn 0.15s ease-out;
+}
+
+.mobile-filter-modal {
+  animation: scaleUp 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* ==========================================================================
+   ACCOUNTS VIEW MOBILE 2-COLUMN GRID & COMPACT TYPOGRAPHY
+   ========================================================================== */
+@media (max-width: 768px) {
+  .accounts-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .account-card-item {
+    padding: 10px 8px !important;
+    border-radius: 12px !important;
+    gap: 8px !important;
+    box-sizing: border-box !important;
+  }
+
+  .account-card-item .acc-bank-icon-box {
+    width: 28px !important;
+    height: 28px !important;
+    border-radius: 8px !important;
+  }
+
+  .account-card-item .acc-bank-icon-box svg {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .account-card-item .acc-bank-title {
+    font-size: 11px !important;
+    line-height: 1.2 !important;
+  }
+
+  .account-card-item .acc-bank-subtitle {
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+  }
+
+  .account-card-item .acc-card-actions {
+    gap: 3px !important;
+  }
+
+  .account-card-item .acc-card-actions button {
+    padding: 3px 5px !important;
+    border-radius: 5px !important;
+  }
+
+  .account-card-item .acc-card-actions svg {
+    width: 10px !important;
+    height: 10px !important;
+  }
+
+  .account-card-item .acc-balance-box {
+    padding: 6px 8px !important;
+    border-radius: 8px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .account-card-item .acc-balance-label {
+    font-size: 7.5px !important;
+    letter-spacing: 0.02em !important;
+  }
+
+  .account-card-item .acc-balance-amount {
+    font-size: 13px !important;
+    margin-top: 1px !important;
+  }
+
+  .account-card-item .acc-update-balance-btn {
+    padding: 3px 6px !important;
+    font-size: 8px !important;
+    border-radius: 6px !important;
+    gap: 3px !important;
+  }
+
+  .account-card-item .acc-update-balance-btn svg {
+    width: 9px !important;
+    height: 9px !important;
+  }
+
+  .account-card-item .acc-meta-grid {
+    font-size: 8px !important;
+    gap: 3px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .account-card-item .acc-meta-grid strong,
+  .account-card-item .acc-meta-grid span {
+    font-size: 8px !important;
+  }
+
+  .account-card-item .acc-debit-cards-box {
+    padding-top: 8px !important;
+  }
+
+  .account-card-item .acc-debit-cards-header {
+    font-size: 8.5px !important;
+    gap: 4px !important;
+  }
+
+  .account-card-item .acc-debit-cards-header svg {
+    width: 11px !important;
+    height: 11px !important;
+  }
+
+  .account-card-item .acc-link-debit-btn {
+    font-size: 8px !important;
+    gap: 2px !important;
+  }
+
+  .account-card-item .acc-link-debit-btn svg {
+    width: 9px !important;
+    height: 9px !important;
+  }
+
+  .accounts-kpi-grid .kpi-card {
+    padding: 10px 8px !important;
+    border-radius: 12px !important;
+  }
+
+  .accounts-kpi-grid .kpi-card div[style*="font-size: 24"] {
+    font-size: 14px !important;
   }
 }

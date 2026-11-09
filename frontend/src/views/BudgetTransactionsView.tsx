@@ -1,3 +1,4 @@
+import { YearWheelPicker } from '../components/YearWheelPicker';
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import {
   CalendarDays,
@@ -3380,105 +3381,138 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               </button>
             </div>
 
-        {/* Year Chips Selector: [ 2026 ] [ 2027 ] [ 2028 ] */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            marginBottom: 10,
-            overflowX: 'auto',
-            paddingBottom: 2
-          }}
-        >
-          {[selectedYear - 1, selectedYear, selectedYear + 1, selectedYear + 2].map(y => {
-            const isActive = y === selectedYear;
-            return (
-              <button
-                key={y}
-                type="button"
-                onClick={() => {
-                  setSelectedYear(y);
-                  yearService.setSelectedYear(y);
-                }}
-                style={{
-                  background: isActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
-                  border: isActive ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
-                  color: isActive ? '#FFFFFF' : '#94A3B8',
-                  borderRadius: 8,
-                  padding: '5px 14px',
-                  fontSize: 12,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  flexShrink: 0
-                }}
-              >
-                {y}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Month Chips Selector: [ All Year ] [ Jan ] [ Feb ] ... [ Dec ] */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 6,
-            marginBottom: 16,
-            overflowX: 'auto',
-            paddingBottom: 4,
-            scrollbarWidth: 'none'
-          }}
-        >
-          {/* All Year Button */}
-          <button
-            type="button"
-            onClick={() => setMobileSelectedMonth('all')}
-            style={{
-              background: mobileSelectedMonth === 'all' ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
-              border: mobileSelectedMonth === 'all' ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
-              color: mobileSelectedMonth === 'all' ? '#FFFFFF' : '#94A3B8',
-              borderRadius: 8,
-              padding: '5px 12px',
-              fontSize: 11.5,
-              fontWeight: 700,
-              cursor: 'pointer',
-              flexShrink: 0,
-              whiteSpace: 'nowrap',
-              transition: 'all 0.15s ease'
+        {/* Year & Month Selection: Left Vertical Year Wheel Picker + Right Month Selector Grid */}
+        <div className="credit-cards-year-month-row budget-year-month-row" style={{ display: 'flex', gap: 8, alignItems: 'stretch', marginBottom: 14 }}>
+          {/* Left: Smooth Scrolling Wheel Year Picker */}
+          <YearWheelPicker
+            selectedYear={selectedYear}
+            onYearChange={(yr) => {
+              setSelectedYear(yr);
+              yearService.setSelectedYear(yr);
             }}
-          >
-            All Year
-          </button>
+          />
 
-          {/* Individual Month Buttons (Jan - Dec) */}
-          {MONTHS.map((mName, mIdx) => {
-            const isActive = mobileSelectedMonth === mIdx;
-            return (
-              <button
-                key={mName}
-                type="button"
-                ref={isActive ? activeMonthChipRef : null}
-                onClick={() => setMobileSelectedMonth(mIdx)}
-                style={{
-                  background: isActive ? 'rgba(37, 99, 235, 0.25)' : 'rgba(15, 23, 42, 0.6)',
-                  border: isActive ? '1.5px solid #3B82F6' : '1px solid rgba(255, 255, 255, 0.08)',
-                  color: isActive ? '#FFFFFF' : '#94A3B8',
-                  borderRadius: 8,
-                  padding: '5px 11px',
-                  fontSize: 11.5,
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                  transition: 'all 0.15s ease'
-                }}
-              >
-                {mName}
-              </button>
-            );
-          })}
+          {/* Right: Month Selector Grid (6x2 with Active Status and Full Year) */}
+          <div className="dashboard-month-selector-bar credit-cards-month-bar" style={{ flex: 1, margin: 0 }}>
+            <div className="dashboard-month-bar-header cc-month-bar-header">
+              <div className="cc-month-active-group" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                {/* Clickable Calendar Icon for Current Year */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const curYr = new Date().getFullYear();
+                    setSelectedYear(curYr);
+                    yearService.setSelectedYear(curYr);
+                  }}
+                  title={`Go to current year (${new Date().getFullYear()})`}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    margin: 0,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: selectedYear === new Date().getFullYear() ? 'var(--accent-indigo, #6366F1)' : 'var(--text-secondary, #94A3B8)'
+                  }}
+                >
+                  <CalendarDays size={13} />
+                </button>
+                <span className="hide-on-mobile" style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Month:
+                </span>
+                <span className="cc-month-active-text" style={{ fontSize: 10, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  Active: <strong style={{ color: 'var(--text-primary)' }}>{mobileSelectedMonth === 'all' ? 'All Year' : `${MONTHS[mobileSelectedMonth]} ${selectedYear}`}</strong>
+                </span>
+              </div>
+
+              {/* Full Year Option */}
+              {(() => {
+                const isFullYear = mobileSelectedMonth === 'all';
+                const incTotals = sectionTotals('income');
+                const expTotals = sectionTotals('expense');
+                const annualInc = total(incTotals);
+                const annualExp = total(expTotals);
+                const annualNet = annualInc - annualExp;
+                const isProfit = annualNet >= 0;
+                const compactNet = Math.abs(annualNet) > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(Math.abs(annualNet) / 1000)}k` : '0';
+
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setMobileSelectedMonth('all')}
+                    className="dashboard-full-year-btn cc-full-year-btn"
+                    style={{
+                      background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                      color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                      fontWeight: isFullYear ? 700 : 500,
+                      padding: '2px 6px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3
+                    }}
+                    title={`Full Year ${selectedYear}: ${currencyService.format(annualNet)}`}
+                  >
+                    <span>Full Year</span>
+                    {isFullYear && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                    <span style={{ fontSize: 8.5, color: isProfit ? '#10B981' : '#EF4444', fontWeight: 700 }}>
+                      {annualNet !== 0 ? (isProfit ? `▲${compactNet}` : `▼${compactNet}`) : '0'}
+                    </span>
+                  </button>
+                );
+              })()}
+            </div>
+
+            <div className="dashboard-months-grid no-scrollbar">
+              {MONTHS.map((mName, idx) => {
+                const isSelected = mobileSelectedMonth === idx;
+                const inc = (sectionTotals('income')[idx] || 0);
+                const exp = (sectionTotals('expense')[idx] || 0);
+                const net = inc - exp;
+                                const compactNet = Math.abs(net) > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(Math.abs(net) / 1000)}k` : '—';
+                const tradeColor = net > 0 ? '#10B981' : net < 0 ? '#EF4444' : 'var(--text-muted)';
+                const tradeIcon = net > 0 ? '▲' : net < 0 ? '▼' : '';
+
+                return (
+                  <button
+                    key={mName}
+                    type="button"
+                    className="dashboard-month-btn"
+                    onClick={() => setMobileSelectedMonth(idx)}
+                    style={{
+                      background: isSelected ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isSelected ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                      color: isSelected ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                      fontWeight: isSelected ? 700 : 500,
+                      padding: '2px 1px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: 24,
+                      boxSizing: 'border-box'
+                    }}
+                    title={`${mName} ${selectedYear}: ${currencyService.format(net)}`}
+                  >
+                    <div className="month-name-row" style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 8.5, lineHeight: 1 }}>
+                      <span>{mName}</span>
+                      {isSelected && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                    </div>
+                    <div className="month-net-row" style={{ fontSize: 7, color: tradeColor, lineHeight: 1, marginTop: 1 }}>
+                      {tradeIcon}{compactNet}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Quick Expand / Collapse All Controls */}
@@ -3494,40 +3528,45 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           <span style={{ fontSize: 11, fontWeight: 700, color: '#64748B', letterSpacing: '0.04em' }}>
             SECTIONS
           </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
-              type="button"
-              onClick={() => setMobileSectionOpen({ income: true, expense: true, savings: true })}
-              style={{
-                background: 'rgba(59, 130, 246, 0.12)',
-                border: '1px solid rgba(59, 130, 246, 0.25)',
-                color: '#93C5FD',
-                borderRadius: 6,
-                padding: '3px 8px',
-                fontSize: 10.5,
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Expand All
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileSectionOpen({ income: false, expense: false, savings: false })}
-              style={{
-                background: 'rgba(255, 255, 255, 0.04)',
-                border: '1px solid rgba(255, 255, 255, 0.08)',
-                color: '#94A3B8',
-                borderRadius: 6,
-                padding: '3px 8px',
-                fontSize: 10.5,
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Close All
-            </button>
-          </div>
+          {(() => {
+            const isAllSectionsOpen = mobileSectionOpen.income && mobileSectionOpen.expense && mobileSectionOpen.savings;
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  if (isAllSectionsOpen) {
+                    setMobileSectionOpen({ income: false, expense: false, savings: false });
+                  } else {
+                    setMobileSectionOpen({ income: true, expense: true, savings: true });
+                  }
+                }}
+                style={{
+                  background: isAllSectionsOpen ? 'rgba(99, 102, 241, 0.16)' : 'rgba(255, 255, 255, 0.04)',
+                  border: isAllSectionsOpen ? '1px solid rgba(99, 102, 241, 0.35)' : '1px solid var(--border-color)',
+                  color: isAllSectionsOpen ? 'var(--accent-indigo, #818CF8)' : 'var(--text-secondary, #94A3B8)',
+                  borderRadius: 7,
+                  padding: '4px 9px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  transition: 'all 0.2s ease'
+                }}
+                title={isAllSectionsOpen ? 'Close all sections' : 'Expand all sections'}
+              >
+                <span>Expand / Close</span>
+                <ChevronDown
+                  size={13}
+                  style={{
+                    transform: isAllSectionsOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                    transition: 'transform 0.25s ease'
+                  }}
+                />
+              </button>
+            );
+          })()}
         </div>
 
         {/* Category Cards: Income, Expense, Savings */}

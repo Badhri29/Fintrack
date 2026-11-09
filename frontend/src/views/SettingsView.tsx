@@ -25,7 +25,6 @@ import {
   Clock,
   Upload,
   ChevronDown,
-  SlidersHorizontal,
   Calendar,
   CreditCard
 } from 'lucide-react';
@@ -104,18 +103,6 @@ export const SettingsView: React.FC = () => {
 
   // Mobile Accordion state
   const [isMobile, setIsMobile] = useState<boolean>(() => typeof window !== 'undefined' && window.innerWidth <= 860);
-  const ALL_SETTINGS_SECTIONS = [
-    'profile',
-    'appearance',
-    'currency',
-    'preferences',
-    'notifications',
-    'audio_chimes',
-    'export',
-    'security',
-    'reset',
-    'subscription'
-  ] as const;
   const [expandedSections, setExpandedSections] = useState<Set<string>>(() => new Set<string>());
 
   useEffect(() => {
@@ -132,14 +119,6 @@ export const SettingsView: React.FC = () => {
       else next.add(sec);
       return next;
     });
-  };
-
-  const expandAllSections = () => {
-    setExpandedSections(new Set(ALL_SETTINGS_SECTIONS));
-  };
-
-  const collapseAllSections = () => {
-    setExpandedSections(new Set());
   };
 
   const renderSectionHeader = (
@@ -953,63 +932,7 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-            {isMobile && (
-        <div style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 14px',
-          marginBottom: 16,
-          borderRadius: 12,
-          background: 'var(--bg-secondary)',
-          border: '1px solid var(--border-color)',
-          boxSizing: 'border-box',
-          width: '100%',
-          flexWrap: 'wrap',
-          gap: 10
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <SlidersHorizontal size={16} style={{ color: 'var(--accent-indigo)' }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-              Settings Sections ({expandedSections.size}/{ALL_SETTINGS_SECTIONS.length} Open)
-            </span>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={expandAllSections}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                background: 'rgba(99, 102, 241, 0.15)',
-                color: 'var(--accent-indigo)',
-                border: '1px solid rgba(99, 102, 241, 0.3)',
-                fontSize: 12,
-                fontWeight: 700,
-                cursor: 'pointer'
-              }}
-            >
-              Expand All
-            </button>
-            <button
-              type="button"
-              onClick={collapseAllSections}
-              style={{
-                padding: '6px 12px',
-                borderRadius: 8,
-                background: 'rgba(255, 255, 255, 0.05)',
-                color: 'var(--text-secondary)',
-                border: '1px solid var(--border-color)',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer'
-              }}
-            >
-              Close All
-            </button>
-          </div>
-        </div>
-      )}
+      
 
       <div className="settings-grid">
         

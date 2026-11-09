@@ -1,3 +1,4 @@
+import { YearWheelPicker } from '../components/YearWheelPicker';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   CreditCard,
@@ -14,7 +15,6 @@ import {
   Edit3,
   CalendarDays,
   ChevronDown,
-  ChevronUp,
   PieChart,
   Activity,
   BarChart2,
@@ -117,128 +117,6 @@ export const isBillPaymentTx = (t: any): boolean => {
   );
 };
 
-// Smooth Drum Wheel Year Picker Component
-const YearWheelPicker: React.FC<{
-  selectedYear: number;
-  onYearChange: (yr: number) => void;
-}> = ({ selectedYear, onYearChange }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const ITEM_HEIGHT = 24;
-  const minYear = 2020;
-  const maxYear = 2035;
-  const years = useMemo(() => {
-    const list: number[] = [];
-    for (let y = minYear; y <= maxYear; y++) list.push(y);
-    return list;
-  }, []);
-
-  const isProgrammatic = useRef(false);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const targetIdx = selectedYear - minYear;
-    // Target scroll keeps selectedYear in the middle row (slot 2 of 3)
-    const targetScrollTop = targetIdx * ITEM_HEIGHT;
-    if (Math.abs(containerRef.current.scrollTop - targetScrollTop) > 2) {
-      isProgrammatic.current = true;
-      containerRef.current.scrollTo({
-        top: Math.max(0, targetScrollTop),
-        behavior: 'smooth'
-      });
-      const timer = setTimeout(() => {
-        isProgrammatic.current = false;
-      }, 350);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedYear]);
-
-  const handleArrow = (delta: number) => {
-    const nextYear = Math.max(minYear, Math.min(maxYear, selectedYear + delta));
-    if (nextYear !== selectedYear) {
-      onYearChange(nextYear);
-    }
-  };
-
-  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    if (isProgrammatic.current) return;
-    const scrollTop = e.currentTarget.scrollTop;
-    const nearestIdx = Math.round(scrollTop / ITEM_HEIGHT);
-    const nearestYear = minYear + nearestIdx;
-    if (nearestYear >= minYear && nearestYear <= maxYear && nearestYear !== selectedYear) {
-      onYearChange(nearestYear);
-    }
-  };
-
-  return (
-    <div className="credit-cards-vertical-year-picker">
-      <button
-        type="button"
-        onClick={() => handleArrow(-1)}
-        className="picker-arrow-btn"
-        title="Previous Year"
-        aria-label="Previous Year"
-      >
-        <ChevronUp size={12} />
-      </button>
-
-      <div
-        ref={containerRef}
-        className="picker-wheel-scroll no-scrollbar"
-        onScroll={handleScroll}
-        style={{
-          height: ITEM_HEIGHT * 3, // 72px for exactly 3 items: Prev, Current, Next
-          overflowY: 'scroll',
-          scrollSnapType: 'y mandatory',
-          scrollBehavior: 'smooth',
-          width: '100%',
-          position: 'relative'
-        }}
-      >
-        <div style={{ height: ITEM_HEIGHT }} />
-        {years.map(yr => {
-          const isActive = yr === selectedYear;
-          return (
-            <div
-              key={yr}
-              onClick={() => onYearChange(yr)}
-              className={`picker-year-item ${isActive ? 'active' : ''}`}
-              style={{
-                height: ITEM_HEIGHT,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                scrollSnapAlign: 'center',
-                cursor: 'pointer',
-                userSelect: 'none',
-                fontSize: isActive ? 12 : 9.5,
-                fontWeight: isActive ? 800 : 500,
-                color: isActive ? '#FFFFFF' : 'var(--text-muted)',
-                opacity: isActive ? 1 : 0.65,
-                background: isActive ? 'var(--accent-indigo)' : 'transparent',
-                borderRadius: isActive ? 6 : 0,
-                transition: 'all 0.18s ease'
-              }}
-            >
-              {yr}
-            </div>
-          );
-        })}
-        <div style={{ height: ITEM_HEIGHT }} />
-      </div>
-
-      <button
-        type="button"
-        onClick={() => handleArrow(1)}
-        className="picker-arrow-btn"
-        title="Next Year"
-        aria-label="Next Year"
-      >
-        <ChevronDown size={12} />
-      </button>
-    </div>
-  );
-};
-
 export const CreditCardsView: React.FC = () => {
   const { user } = useAuth();
   const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
@@ -336,6 +214,7 @@ export const CreditCardsView: React.FC = () => {
   // Popover state for Date & Amount filter dropdowns
   const [showCcDatePopover, setShowCcDatePopover] = useState<boolean>(false);
   const [showCcAmountPopover, setShowCcAmountPopover] = useState<boolean>(false);
+  const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
   const ccDateFilterRef = useRef<HTMLDivElement>(null);
   const ccAmountFilterRef = useRef<HTMLDivElement>(null);
 
@@ -1679,6 +1558,25 @@ export const CreditCardsView: React.FC = () => {
         <div className="dashboard-month-selector-bar credit-cards-month-bar" style={{ flex: 1, margin: 0 }}>
           <div className="dashboard-month-bar-header cc-month-bar-header">
             <div className="cc-month-active-group" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              {/* Clickable Calendar Icon for Current Year */}
+              <button
+                type="button"
+                onClick={() => changeYear(new Date().getFullYear())}
+                title={`Go to current year (${new Date().getFullYear()})`}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  padding: 0,
+                  margin: 0,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: selectedYear === new Date().getFullYear() ? 'var(--accent-indigo, #6366F1)' : 'var(--text-secondary, #94A3B8)'
+                }}
+              >
+                <CalendarDays size={13} />
+              </button>
               <span className="hide-on-mobile" style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Month:
               </span>
@@ -2450,6 +2348,42 @@ export const CreditCardsView: React.FC = () => {
               </button>
             </div>
 
+            {/* Mobile Filter Button (Click to open filter popup) */}
+            <button
+              type="button"
+              className="btn-secondary cc-ledger-filter-btn hide-on-desktop"
+              onClick={() => setIsMobileFilterOpen(true)}
+              title="Filter Credit Spends"
+              aria-label="Filter Spends"
+              style={{
+                width: 32,
+                height: 32,
+                minWidth: 32,
+                padding: 0,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer',
+                position: 'relative'
+              }}
+            >
+              <Filter size={15} />
+              {hasActiveCcFilters && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: 4,
+                    right: 4,
+                    width: 7,
+                    height: 7,
+                    borderRadius: '50%',
+                    background: '#6366F1'
+                  }}
+                />
+              )}
+            </button>
+
             <button
               type="button"
               className="btn-primary cc-ledger-add-spend-btn"
@@ -3073,17 +3007,17 @@ export const CreditCardsView: React.FC = () => {
           <div>
             {/* Scrollable table container with strict minHeight (no collapse on 1-2 lines) and maxHeight */}
             <div style={{ overflowX: 'auto', minHeight: 280, maxHeight: 460, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
+              <table className="cc-ledger-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
                 <thead className="sticky-table-header">
                   <tr>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Date</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Description / Merchant</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Card Used</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Category</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Subcategory</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Payment Mode</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Amount</th>
-                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Action</th>
+                    <th className="cc-th cc-th-date" style={{ padding: '9px 12px', textAlign: 'center' }}>Date</th>
+                    <th className="cc-th cc-th-desc" style={{ padding: '9px 12px', textAlign: 'center' }}>Description / Merchant</th>
+                    <th className="cc-th cc-th-card" style={{ padding: '9px 12px', textAlign: 'center' }}>Card Used</th>
+                    <th className="cc-th cc-th-cat" style={{ padding: '9px 12px', textAlign: 'center' }}>Category</th>
+                    <th className="cc-th cc-th-subcat" style={{ padding: '9px 12px', textAlign: 'center' }}>Subcategory</th>
+                    <th className="cc-th cc-th-mode" style={{ padding: '9px 12px', textAlign: 'center' }}>Payment Mode</th>
+                    <th className="cc-th cc-th-amount" style={{ padding: '9px 12px', textAlign: 'center' }}>Amount</th>
+                    <th className="cc-th cc-th-action" style={{ padding: '9px 12px', textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3102,48 +3036,53 @@ export const CreditCardsView: React.FC = () => {
                         onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
                         onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                       >
-                        <td style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        <td className="cc-td cc-td-date" style={{ padding: '12px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                           {tx.date}
                         </td>
-                        <td style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
-                            <span>{tx.description || tx.details || (isPayment ? 'Bill Payment' : 'Card Spend')}</span>
+                        <td className="cc-td cc-td-desc" style={{ padding: '12px 14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                          <div className="cc-desc-wrapper" style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
+                            <span
+                              className="cc-desc-text"
+                              title={tx.description || tx.details || (isPayment ? 'Bill Payment' : 'Card Spend')}
+                            >
+                              {tx.description || tx.details || (isPayment ? 'Bill Payment' : 'Card Spend')}
+                            </span>
                             {isPayment && (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(16, 185, 129, 0.18)', color: '#10B981' }}>
+                              <span className="cc-badge cc-badge-paid" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(16, 185, 129, 0.18)', color: '#10B981', flexShrink: 0 }}>
                                 Bill Paid ✓
                               </span>
                             )}
                             {tx.isEmiTx && (
-                              <span style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: tx.emiStatus === 'paid' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(139, 92, 246, 0.18)', color: tx.emiStatus === 'paid' ? '#10B981' : '#8B5CF6' }}>
+                              <span className={`cc-badge ${tx.emiStatus === 'paid' ? 'cc-badge-paid' : 'cc-badge-emi'}`} style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: tx.emiStatus === 'paid' ? 'rgba(16, 185, 129, 0.18)' : 'rgba(139, 92, 246, 0.18)', color: tx.emiStatus === 'paid' ? '#10B981' : '#8B5CF6', flexShrink: 0 }}>
                                 {tx.emiStatus === 'paid' ? 'EMI Paid ✓' : 'Card EMI'}
                               </span>
                             )}
                           </div>
                         </td>
-                        <td style={{ padding: '12px 14px' }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-indigo)', fontSize: 11, fontWeight: 700 }}>
+                        <td className="cc-td cc-td-card" style={{ padding: '12px 14px' }}>
+                          <span className="cc-badge cc-badge-card" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 8px', borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: 'var(--accent-indigo)', fontSize: 11, fontWeight: 700 }}>
                             <CreditCard size={12} />
                             {cardLabel}
                           </span>
                         </td>
-                        <td style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
+                        <td className="cc-td cc-td-cat" style={{ padding: '12px 14px', color: 'var(--text-secondary)' }}>
                           {tx.category || (isPayment ? 'Utilities & Bills' : 'General')}
                         </td>
-                        <td style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>
+                        <td className="cc-td cc-td-subcat" style={{ padding: '12px 14px', color: 'var(--text-muted)' }}>
                           {tx.subcategory || (isPayment ? 'Credit Card Bill Payment' : '--')}
                         </td>
-                        <td style={{ padding: '12px 14px' }}>
-                          <span style={{ padding: '2px 8px', borderRadius: 6, background: isPayment ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)', color: isPayment ? '#10B981' : '#8B5CF6', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
+                        <td className="cc-td cc-td-mode" style={{ padding: '12px 14px' }}>
+                          <span className="cc-badge cc-badge-mode" style={{ padding: '2px 8px', borderRadius: 6, background: isPayment ? 'rgba(16, 185, 129, 0.12)' : 'rgba(139, 92, 246, 0.12)', color: isPayment ? '#10B981' : '#8B5CF6', fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>
                             {tx.paymentMode || (isPayment ? 'UPI' : 'CREDIT')}
                           </span>
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: isPayment ? '#10B981' : '#EF4444', whiteSpace: 'nowrap' }}>
-                          {isPayment ? `+${currencyService.format(amt)}` : `-${currencyService.format(amt)}`}
+                        <td className="cc-td cc-td-amount" style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 700, color: isPayment ? '#10B981' : '#EF4444', whiteSpace: 'nowrap' }}>
+                          <span className="cc-amount-val">{isPayment ? `+${currencyService.format(amt)}` : `-${currencyService.format(amt)}`}</span>
                         </td>
-                        <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <td className="cc-td cc-td-action" style={{ padding: '12px 14px', textAlign: 'center' }}>
                           {!isViewOnly ? (
                             tx.isEmiTx ? (
-                              <span style={{ fontSize: 11, color: '#8B5CF6', fontWeight: 600 }} title="Linked from Loan & EMI">
+                              <span className="cc-badge-linked" style={{ fontSize: 11, color: '#8B5CF6', fontWeight: 600 }} title="Linked from Loan & EMI">
                                 Linked EMI
                               </span>
                             ) : (
@@ -3151,6 +3090,7 @@ export const CreditCardsView: React.FC = () => {
                               type="button"
                               onClick={() => handleDeleteTransaction(tx.id)}
                               title="Delete transaction"
+                              className="cc-action-delete-btn"
                               style={{
                                 background: 'transparent',
                                 border: 'none',
@@ -4794,6 +4734,206 @@ export const CreditCardsView: React.FC = () => {
             >
               Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Mobile Filter Modal Popup for Credit Card Spends */}
+      {isMobileFilterOpen && (
+        <div
+          className="modal-backdrop mobile-filter-backdrop"
+          onClick={() => setIsMobileFilterOpen(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0, 0, 0, 0.72)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100,
+            padding: 16
+          }}
+        >
+          <div
+            className="modal-content mobile-filter-modal"
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--bg-primary, #0F172A)',
+              border: '1px solid var(--border-color)',
+              borderRadius: 16,
+              width: '100%',
+              maxWidth: 420,
+              padding: 20,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 14,
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-color)', paddingBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Filter size={16} color="var(--accent-indigo)" />
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  Filter Credit Spends
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsMobileFilterOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: '65vh', overflowY: 'auto' }}>
+              {/* Search Field */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  Search Card, Category, Merchant
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-input)', border: '1px solid var(--border-color)', borderRadius: 8, padding: '7px 10px', gap: 6 }}>
+                  <Search size={14} style={{ color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Search spends & bills..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    style={{ border: 'none', background: 'transparent', outline: 'none', color: 'var(--text-primary)', width: '100%', fontSize: 12 }}
+                  />
+                  {searchQuery && (
+                    <button type="button" onClick={() => setSearchQuery('')} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Card Used Dropdown */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  Card Used
+                </label>
+                <select
+                  value={selectedCardId}
+                  onChange={e => setSelectedCardId(e.target.value)}
+                  style={{ width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '7px 10px', borderRadius: 8, fontSize: 12 }}
+                >
+                  <option value="all">All Cards</option>
+                  {cards.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.bank})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Category Dropdown */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  Category
+                </label>
+                <select
+                  value={categoryFilter}
+                  onChange={e => setCategoryFilter(e.target.value)}
+                  style={{ width: '100%', background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '7px 10px', borderRadius: 8, fontSize: 12 }}
+                >
+                  <option value="all">All Categories</option>
+                  {Object.keys(CREDIT_CATEGORIES).map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date Presets & Range */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  Date Range
+                </label>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <button type="button" onClick={() => applyCcDatePreset('all')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: !ccFromDate && !ccToDate ? 'var(--accent-indigo)' : 'var(--bg-secondary)', color: !ccFromDate && !ccToDate ? '#fff' : 'var(--text-secondary)', cursor: 'pointer' }}>All Time</button>
+                  <button type="button" onClick={() => applyCcDatePreset('this_month')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>This Month</button>
+                  <button type="button" onClick={() => applyCcDatePreset('last_month')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>Last Month</button>
+                  <button type="button" onClick={() => applyCcDatePreset('last_30')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>Last 30 Days</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="date"
+                    value={ccFromDate}
+                    onChange={e => setCcFromDate(e.target.value)}
+                    style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>to</span>
+                  <input
+                    type="date"
+                    value={ccToDate}
+                    onChange={e => setCcToDate(e.target.value)}
+                    style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}
+                  />
+                </div>
+              </div>
+
+              {/* Amount Range */}
+              <div>
+                <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  Amount Range
+                </label>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <button type="button" onClick={() => applyCcAmountPreset('all')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: !ccMinAmount && !ccMaxAmount ? 'var(--accent-indigo)' : 'var(--bg-secondary)', color: !ccMinAmount && !ccMaxAmount ? '#fff' : 'var(--text-secondary)', cursor: 'pointer' }}>Any</button>
+                  <button type="button" onClick={() => applyCcAmountPreset('under_1k')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>&lt; ₹1k</button>
+                  <button type="button" onClick={() => applyCcAmountPreset('1k_5k')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>₹1k - 5k</button>
+                  <button type="button" onClick={() => applyCcAmountPreset('5k_20k')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>₹5k - 20k</button>
+                  <button type="button" onClick={() => applyCcAmountPreset('above_20k')} style={{ padding: '3px 8px', fontSize: 10, borderRadius: 5, border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', color: 'var(--text-secondary)', cursor: 'pointer' }}>&gt; ₹20k</button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    placeholder="Min ₹"
+                    value={ccMinAmount}
+                    onChange={e => setCcMinAmount(e.target.value)}
+                    style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}
+                  />
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>to</span>
+                  <input
+                    type="number"
+                    placeholder="Max ₹"
+                    value={ccMaxAmount}
+                    onChange={e => setCcMaxAmount(e.target.value)}
+                    style={{ flex: 1, background: 'var(--bg-input)', border: '1px solid var(--border-color)', color: 'var(--text-primary)', padding: '6px 8px', borderRadius: 6, fontSize: 11 }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 10, borderTop: '1px solid var(--border-color)', marginTop: 4 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  handleResetCcFilters();
+                }}
+                disabled={!hasActiveCcFilters}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: hasActiveCcFilters ? '#EF4444' : 'var(--text-muted)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: hasActiveCcFilters ? 'pointer' : 'default'
+                }}
+              >
+                Reset All
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setIsMobileFilterOpen(false)}
+                style={{ padding: '6px 16px', fontSize: 12, borderRadius: 8 }}
+              >
+                Apply Filters
+              </button>
+            </div>
           </div>
         </div>
       )}

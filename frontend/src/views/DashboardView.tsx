@@ -1,9 +1,9 @@
+import { YearWheelPicker } from '../components/YearWheelPicker';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Plus,
   ChevronDown,
   ChevronRight,
-  ChevronLeft,
   CalendarDays,
   Landmark,
   Target,
@@ -1259,195 +1259,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             </p>
           </div>
         </div>
-
-        {/* Right Header Controls: Dynamic Year Selector & New Transaction */}
-        <div className="dashboard-header-controls" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Dynamic 5-year carousel controls with Prev/Next arrows (Point 3) */}
-          <div className="dashboard-year-selector" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-            <button
-              type="button"
-              onClick={() => changeYear(selectedYear - 1)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                padding: '4px 6px',
-                borderRadius: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Previous Year"
-              aria-label="Previous Year"
-            >
-              <ChevronLeft size={16} />
-            </button>
-
-            {[selectedYear - 2, selectedYear - 1, selectedYear, selectedYear + 1, selectedYear + 2].map(yr => (
-              <button
-                key={yr}
-                type="button"
-                onClick={() => changeYear(yr)}
-                className={`segmented-btn ${selectedYear === yr ? 'active' : ''}`}
-                style={{
-                  padding: '5px 12px',
-                  fontSize: 13,
-                  fontWeight: selectedYear === yr ? 700 : 500,
-                  borderRadius: 6,
-                  cursor: 'pointer'
-                }}
-              >
-                {yr}
-              </button>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => changeYear(selectedYear + 1)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                padding: '4px 6px',
-                borderRadius: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Next Year"
-              aria-label="Next Year"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <div className="dashboard-header-actions-row">
-            {/* Quick Current Year button matching Budget & Transactions (Point 3) */}
-            <button
-              type="button"
-              className="btn-secondary"
-            onClick={() => changeYear(new Date().getFullYear())}
-            style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8 }}
-            title={`Go to current year (${new Date().getFullYear()})`}
-          >
-            <CalendarDays size={14} />
-            <span>Current Year</span>
-          </button>
-
-          {!isViewOnly ? (
-            <button className="btn-primary" onClick={onOpenNewTransaction}>
-              <Plus size={16} />
-              <span>Add Transaction</span>
-            </button>
-          ) : (
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                background: 'rgba(59, 130, 246, 0.12)',
-                border: '1px solid rgba(59, 130, 246, 0.3)',
-                color: '#60A5FA',
-                padding: '8px 14px',
-                borderRadius: 10,
-                fontSize: 13,
-                fontWeight: 700
-              }}
-            >
-              <Eye size={15} />
-              <span>View-only Access</span>
-            </div>
-          )}
-          </div>
-        </div>
       </div>
 
-      {/* 2. Month Navigation Pills with Drag-to-Select Multi-Month Selection (Point 1) */}
-      <div className="dashboard-month-selector-bar">
-        <div className="dashboard-month-bar-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              Month:
-            </span>
-            <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              Active: <strong style={{ color: 'var(--text-primary)' }}>{getSelectedMonthLabel()}</strong>
-            </span>
-          </div>
-
-          {/* Full Year Option */}
-          {(() => {
-            const isFullYear = selectedMonths.length === 12;
-            const isProfit = fullYearTrade.status === 'profit';
-            const isLoss = fullYearTrade.status === 'loss';
-            const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
-            const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
-            const compactNet = formatCompactCurrency(fullYearTrade.net);
-
-            return (
-              <button
-                type="button"
-                onClick={selectFullYear}
-                className="dashboard-full-year-btn"
-                style={{
-                  background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
-                  border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
-                  color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-                  fontWeight: isFullYear ? 700 : 500,
-                  padding: '3px 8px',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  fontSize: 11,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 4
-                }}
-                title={isProfit ? `Full Year: +${currencyService.format(fullYearTrade.net)} Profit` : isLoss ? `Full Year: -${currencyService.format(Math.abs(fullYearTrade.net))} Deficit` : 'Full Year'}
-              >
-                <span>Full Year</span>
-                {isFullYear && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
-                <span style={{ fontSize: 9, color: tradeColor, fontWeight: 700 }}>{tradeIcon}{compactNet}</span>
-              </button>
-            );
-          })()}
-        </div>
-
-        <div className="dashboard-months-grid no-scrollbar">
-          {MONTH_NAMES.map((mName, idx) => {
-            const isSelected = selectedMonths.includes(idx);
-            const trade = monthlyTrades[idx] || { income: 0, expense: 0, net: 0, status: 'even' };
-            const isProfit = trade.status === 'profit';
-            const isLoss = trade.status === 'loss';
-            const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
-            const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
-            const compactNet = formatCompactCurrency(trade.net);
-
-            return (
-              <button
-                key={mName}
-                type="button"
-                onMouseDown={(e) => handleMonthMouseDown(idx, e)}
-                onMouseEnter={() => handleMonthMouseEnter(idx)}
-                onClick={(e) => e.preventDefault()}
-                className={`dashboard-month-btn ${isSelected ? 'selected' : ''}`}
-                title={`${mName} ${selectedYear}: ${isProfit ? '+' : isLoss ? '-' : ''}${currencyService.format(Math.abs(trade.net))}`}
-              >
-                <div className="month-name-row">
-                  <span>{mName}</span>
-                  {isSelected && <span className="month-check">✓</span>}
-                </div>
-                <div className="month-net-row" style={{ color: tradeColor }}>
-                  <span style={{ fontSize: 8 }}>{tradeIcon}</span>
-                  <span>{compactNet}</span>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* 3. PERFORMANCE & NET WORTH SUMMARY (Moved above Financial Overview with compact height!) */}
+      {/* 2. PERFORMANCE & NET WORTH SUMMARY (Positioned right at the top under Page Header) */}
       <div className="dashboard-kpi-grid">
         {/* Card 1: COMPREHENSIVE NET WORTH (Moved to Top #1 Position as requested) */}
         <div
@@ -1979,7 +1793,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       </div>
 
 
-      {/* 4. Dashboard View Mode Toggle & Expand/Collapse All Controls */}
+      {/* 3. Dashboard View Mode Toggle, Year/Month, and Overview Controls */}
       <div className="dashboard-overview-header-container">
         <div className="dashboard-overview-title-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1989,45 +1803,213 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             </span>
           </div>
 
-          {/* Quick Expand All / Collapse All Button */}
-          <button
-            type="button"
-            onClick={() => {
-              const allExpanded = expandedSections.income && expandedSections.expense && expandedSections.savings;
-              setExpandedSections({
-                income: !allExpanded,
-                expense: !allExpanded,
-                savings: !allExpanded
-              });
-            }}
-            className="dashboard-collapse-btn"
-            style={{
-              background: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-secondary)',
-              padding: '4px 10px',
-              borderRadius: 8,
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.15s ease'
-            }}
-            title={expandedSections.income && expandedSections.expense && expandedSections.savings ? 'Collapse all 3 columns' : 'Expand all 3 columns'}
-          >
-            <ChevronDown
-              size={13}
-              style={{
-                transform: expandedSections.income && expandedSections.expense && expandedSections.savings ? 'rotate(180deg)' : 'rotate(0deg)',
-                transition: 'transform 0.25s ease'
+          {/* Controls next to title: Current Year + Add Transaction + Expand/Collapse */}
+          <div className="dashboard-overview-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn-secondary hide-on-mobile"
+              onClick={() => changeYear(new Date().getFullYear())}
+              style={{ padding: '5px 10px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8 }}
+              title={`Go to current year (${new Date().getFullYear()})`}
+            >
+              <CalendarDays size={13} />
+              <span>Current Year</span>
+            </button>
+
+            {!isViewOnly ? (
+              <button
+                type="button"
+                className="btn-primary hide-on-mobile"
+                onClick={onOpenNewTransaction}
+                style={{ padding: '5px 10px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 5, borderRadius: 8 }}
+              >
+                <Plus size={14} />
+                <span>Add Transaction</span>
+              </button>
+            ) : (
+              <div
+                className="hide-on-mobile"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'rgba(59, 130, 246, 0.12)',
+                  border: '1px solid rgba(59, 130, 246, 0.3)',
+                  color: '#60A5FA',
+                  padding: '5px 10px',
+                  borderRadius: 8,
+                  fontSize: 11,
+                  fontWeight: 700
+                }}
+              >
+                <Eye size={13} />
+                <span>View-only</span>
+              </div>
+            )}
+
+            {/* Quick Expand All / Collapse All Button */}
+            <button
+              type="button"
+              onClick={() => {
+                const allExpanded = expandedSections.income && expandedSections.expense && expandedSections.savings;
+                setExpandedSections({
+                  income: !allExpanded,
+                  expense: !allExpanded,
+                  savings: !allExpanded
+                });
               }}
-            />
-            <span>
-              {expandedSections.income && expandedSections.expense && expandedSections.savings ? 'Collapse All' : 'Expand All'}
-            </span>
-          </button>
+              className="dashboard-collapse-btn"
+              style={{
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-secondary)',
+                padding: '4px 9px',
+                borderRadius: 8,
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                transition: 'all 0.15s ease'
+              }}
+              title={expandedSections.income && expandedSections.expense && expandedSections.savings ? 'Collapse all 3 columns' : 'Expand all 3 columns'}
+            >
+              <ChevronDown
+                size={13}
+                style={{
+                  transform: expandedSections.income && expandedSections.expense && expandedSections.savings ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.25s ease'
+                }}
+              />
+              <span className="hide-on-mobile">
+                {expandedSections.income && expandedSections.expense && expandedSections.savings ? 'Collapse All' : 'Expand All'}
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* Year & Month Selection: Left Vertical Year Wheel Picker + Right Month Selector Grid */}
+        <div className="credit-cards-year-month-row dashboard-year-month-row" style={{ display: 'flex', gap: 8, alignItems: 'stretch', width: '100%', margin: '6px 0 10px' }}>
+          {/* Left: Smooth Scrolling Wheel Year Picker */}
+          <YearWheelPicker selectedYear={selectedYear} onYearChange={changeYear} />
+
+          {/* Right: Month Selector Grid (6x2 with Active Status and Full Year) */}
+          <div className="dashboard-month-selector-bar credit-cards-month-bar" style={{ flex: 1, margin: 0 }}>
+            <div className="dashboard-month-bar-header cc-month-bar-header">
+              <div className="cc-month-active-group" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                {/* Clickable Calendar Icon for Current Year */}
+                <button
+                  type="button"
+                  onClick={() => changeYear(new Date().getFullYear())}
+                  title={`Go to current year (${new Date().getFullYear()})`}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    padding: 0,
+                    margin: 0,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: selectedYear === new Date().getFullYear() ? 'var(--accent-indigo, #6366F1)' : 'var(--text-secondary, #94A3B8)'
+                  }}
+                >
+                  <CalendarDays size={13} />
+                </button>
+                <span className="hide-on-mobile" style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Month:
+                </span>
+                <span className="cc-month-active-text" style={{ fontSize: 10, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                  Active: <strong style={{ color: 'var(--text-primary)' }}>{getSelectedMonthLabel()}</strong>
+                </span>
+              </div>
+
+              {/* Full Year Option */}
+              {(() => {
+                const isFullYear = selectedMonths.length === 12;
+                const isProfit = fullYearTrade.status === 'profit';
+                const isLoss = fullYearTrade.status === 'loss';
+                const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
+                const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
+                const compactNet = formatCompactCurrency(fullYearTrade.net);
+
+                return (
+                  <button
+                    type="button"
+                    onClick={selectFullYear}
+                    className="dashboard-full-year-btn cc-full-year-btn"
+                    style={{
+                      background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                      color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                      fontWeight: isFullYear ? 700 : 500,
+                      padding: '2px 6px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3
+                    }}
+                    title={isProfit ? `Full Year: +${currencyService.format(fullYearTrade.net)} Profit` : isLoss ? `Full Year: -${currencyService.format(Math.abs(fullYearTrade.net))} Deficit` : 'Full Year'}
+                  >
+                    <span>Full Year</span>
+                    {isFullYear && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                    <span style={{ fontSize: 8.5, color: tradeColor, fontWeight: 700 }}>{tradeIcon}{compactNet}</span>
+                  </button>
+                );
+              })()}
+            </div>
+
+            <div className="dashboard-months-grid no-scrollbar">
+              {MONTH_NAMES.map((mName, idx) => {
+                const isSelected = selectedMonths.includes(idx);
+                const trade = monthlyTrades[idx] || { income: 0, expense: 0, net: 0, status: 'even' };
+                const isProfit = trade.status === 'profit';
+                const isLoss = trade.status === 'loss';
+                const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
+                const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
+                const compactNet = formatCompactCurrency(trade.net);
+
+                return (
+                  <button
+                    key={mName}
+                    type="button"
+                    onMouseDown={(e) => handleMonthMouseDown(idx, e)}
+                    onMouseEnter={() => handleMonthMouseEnter(idx)}
+                    onClick={(e) => e.preventDefault()}
+                    className={`dashboard-month-btn ${isSelected ? 'selected' : ''}`}
+                    title={`${mName} ${selectedYear}: ${isProfit ? '+' : isLoss ? '-' : ''}${currencyService.format(Math.abs(trade.net))}`}
+                    style={{
+                      background: isSelected ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isSelected ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                      color: isSelected ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                      fontWeight: isSelected ? 700 : 500,
+                      padding: '2px 1px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minHeight: 24,
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    <div className="month-name-row" style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 8.5, lineHeight: 1 }}>
+                      <span>{mName}</span>
+                      {isSelected && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                    </div>
+                    <div className="month-net-row" style={{ fontSize: 7, color: tradeColor, lineHeight: 1, marginTop: 1 }}>
+                      <span>{tradeIcon}</span>
+                      <span>{compactNet}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Mode Toggle: Estimate | Actual | Combined + % Basis Sub-Toggle */}
