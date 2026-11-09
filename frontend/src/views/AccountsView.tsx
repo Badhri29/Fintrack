@@ -370,7 +370,7 @@ export const AccountsView: React.FC = () => {
               <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' }}>
                 Bank Accounts & Cash Reserve
               </h1>
-              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
+              <p className="page-subtitle hide-on-mobile" style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
                 Manage your bank accounts, update real-time liquid balances, track linked debit cards, and maintain cash in hand.
               </p>
             </div>
@@ -430,7 +430,7 @@ export const AccountsView: React.FC = () => {
       </div>
 
       {/* Top KPI Cards Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 28 }}>
+      <div className="kpi-grid accounts-kpi-grid">
         {/* Total Liquid Wealth */}
         <div className="kpi-card" style={{ padding: 20, borderRadius: 16, background: 'var(--bg-card)', border: '1px solid var(--border-color)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>

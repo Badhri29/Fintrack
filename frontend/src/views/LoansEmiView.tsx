@@ -7,7 +7,6 @@ import {
   CheckCircle,
   CheckCircle2,
   TrendingDown,
-  Calculator,
   Clock,
   DollarSign,
   Edit3,
@@ -146,6 +145,22 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
       const metricsB = calculateLoanEMIs(b);
 
       switch (loanSortOption) {
+        case 'outstanding_high':
+          return metricsB.remaining - metricsA.remaining;
+        case 'outstanding_low':
+          return metricsA.remaining - metricsB.remaining;
+        case 'repaid_high':
+          return (metricsB.paidPct || 0) - (metricsA.paidPct || 0);
+        case 'repaid_low':
+          return (metricsA.paidPct || 0) - (metricsB.paidPct || 0);
+        case 'rate_high':
+          return (Number(b.interestRate) || 0) - (Number(a.interestRate) || 0);
+        case 'rate_low':
+          return (Number(a.interestRate) || 0) - (Number(b.interestRate) || 0);
+        case 'name_asc':
+          return (a.name || '').localeCompare(b.name || '');
+        case 'name_desc':
+          return (b.name || '').localeCompare(a.name || '');
         case 'amount_high':
           return (Number(b.principal) || 0) - (Number(a.principal) || 0);
         case 'amount_low':
@@ -283,10 +298,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     };
   }, [loans, selectedLoanId]);
 
-  // Interactive EMI Calculator State
-  const [calcPrincipal, setCalcPrincipal] = useState<number>(1000000);
-  const [calcRate, setCalcRate] = useState<number>(8.5);
-  const [calcTenureYears, setCalcTenureYears] = useState<number>(5);
+
 
   // Pagination & Filtering for Loans/EMI Transactions Table (Budget & Transactions style)
   const [emiSearchQuery, setEmiSearchQuery] = useState<string>('');
@@ -585,23 +597,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     };
   }, [loans]);
 
-  // EMI Calculator Calculation
-  const calcResults = useMemo(() => {
-    const tenureMonths = calcTenureYears * 12;
-    const monthlyEmi = calculateEMI(calcPrincipal, calcRate, tenureMonths);
-    const totalPayment = monthlyEmi * tenureMonths;
-    const totalInterest = Math.max(0, totalPayment - calcPrincipal);
-    const principalPct = totalPayment > 0 ? (calcPrincipal / totalPayment) * 100 : 100;
-    const interestPct = totalPayment > 0 ? (totalInterest / totalPayment) * 100 : 0;
 
-    return {
-      monthlyEmi,
-      totalInterest,
-      totalPayment,
-      principalPct,
-      interestPct
-    };
-  }, [calcPrincipal, calcRate, calcTenureYears]);
 
   // Toggle net worth calculation on any loan card
   const handleToggleNetWorth = (loanId: string, checked: boolean) => {
@@ -1081,38 +1077,37 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     }
   };
 
-  // Add from Calculator to Active Loans
-  const handleAddFromCalculator = () => {
-    const tenureMonths = calcTenureYears * 12;
-    const emi = calculateEMI(calcPrincipal, calcRate, tenureMonths);
-    const sDate = new Date();
-    const eDate = new Date();
-    eDate.setMonth(eDate.getMonth() + tenureMonths);
 
-    const newLoan: LoanModel = {
-      id: `loan-${Date.now()}`,
-      name: `Loan (${currencyService.format(calcPrincipal)})`,
-      loanNumber: `LN-${Math.floor(100000 + Math.random() * 900000)}`,
-      lender: 'Bank / NBFC',
-      dueDay: 5,
-      principal: calcPrincipal,
-      emiAmount: emi,
-      remainingAmount: calcPrincipal,
-      startDate: sDate.toISOString().substring(0, 10),
-      endDate: eDate.toISOString().substring(0, 10),
-      description: `Calculated ${calcTenureYears}-year amortization loan at ${calcRate}% p.a.`,
-      includeInNetWorth: true,
-      type: 'Personal Loan',
-      interestRate: calcRate,
-      tenureMonths: tenureMonths,
-      paidMonths: 0,
-      status: 'active'
-    };
-    const updated = [...loans, newLoan];
-    saveLoans(updated);
-    setBannerMsg({ type: 'success', text: `Calculated loan of ${currencyService.format(calcPrincipal)} saved directly to your active loans tracker!` });
-    playNotificationChime();
-    setTimeout(() => setBannerMsg(null), 3500);
+
+  // Ref for loan details inspector panel to smoothly scroll into view on mobile
+  const loanDetailsInspectorRef = useRef<HTMLDivElement>(null);
+
+  const handleCloseLoanDetails = () => {
+    const currentId = selectedLoanId;
+    setSelectedLoanId(null);
+    if (currentId) {
+      setTimeout(() => {
+        const el = document.getElementById(`loan-card-${currentId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else if (loanCardsContainerRef.current) {
+          loanCardsContainerRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 50);
+    }
+  };
+
+  const handleSelectLoan = (loanId: string) => {
+    if (selectedLoanId === loanId) {
+      handleCloseLoanDetails();
+    } else {
+      setSelectedLoanId(loanId);
+      if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+        setTimeout(() => {
+          loanDetailsInspectorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 120);
+      }
+    }
   };
 
   // Get currently selected loan for split view
@@ -1142,7 +1137,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
             </div>
             <div>
               <h1 className="page-title" style={{ margin: 0 }}>Loans & EMI Tracker</h1>
-              <p className="page-subtitle" style={{ margin: '2px 0 0' }}>
+              <p className="page-subtitle hide-on-mobile" style={{ margin: '2px 0 0' }}>
                 Track active loans, calculate interest, manage monthly due dates & inspect amortization schedules
               </p>
             </div>
@@ -1188,90 +1183,74 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
         </div>
       )}
 
-      {/* KPI Stats Grid (Total Borrowed, Paid Loan Amount, Outstanding, Monthly EMI, Progress) */}
+      {/* KPI Stats Grid (Total Borrowed, Total Repaid, Outstanding, Monthly EMI - 4 Balanced Equal Cards) */}
       <div className="kpi-grid" style={{ marginBottom: 24 }}>
         {/* 1. Total Borrowed Principal */}
-        <div className="kpi-card">
+        <div className="kpi-card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">TOTAL BORROWED</span>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
+            <span className="kpi-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TOTAL BORROWED</span>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1', flexShrink: 0 }}>
               <Landmark size={18} />
             </div>
           </div>
-          <div className="kpi-value" style={{ marginTop: 8 }}>
+          <div className="kpi-value" style={{ marginTop: 8, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {currencyService.format(metrics.totalPrincipal)}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-            Across {loans.length} active & closed accounts
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Across {loans.length} accounts
           </div>
         </div>
 
-        {/* 2. Paid Loan Amount (Requirement 4) */}
-        <div className="kpi-card">
+        {/* 2. Paid / Repaid Amount + Progress Bar */}
+        <div className="kpi-card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">TOTAL PAID AMOUNT</span>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
-              <CheckCircle2 size={18} />
-            </div>
+            <span className="kpi-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>TOTAL REPAID</span>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', flexShrink: 0 }}>
+              {metrics.payoffProgress}%
+            </span>
           </div>
-          <div className="kpi-value" style={{ marginTop: 8, color: '#10B981' }}>
+          <div className="kpi-value" style={{ marginTop: 8, color: '#10B981', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {currencyService.format(metrics.totalPaid)}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-            {metrics.payoffProgress}% of overall debt repaid
+          <div style={{ width: '100%', height: 4, background: 'var(--border-color)', borderRadius: 999, marginTop: 5, overflow: 'hidden' }}>
+            <div style={{ width: `${metrics.payoffProgress}%`, height: '100%', background: '#10B981', borderRadius: 999 }} />
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {metrics.payoffProgress}% of debt cleared
           </div>
         </div>
 
         {/* 3. Total Outstanding Balance */}
-        <div className="kpi-card">
+        <div className="kpi-card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">OUTSTANDING BALANCE</span>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}>
+            <span className="kpi-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>OUTSTANDING</span>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444', flexShrink: 0 }}>
               <TrendingDown size={18} />
             </div>
           </div>
-          <div className="kpi-value" style={{ marginTop: 8, color: '#EF4444' }}>
+          <div className="kpi-value" style={{ marginTop: 8, color: '#EF4444', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {currencyService.format(metrics.totalOutstanding)}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {metrics.netWorthLiabilities !== metrics.totalOutstanding
-              ? `${currencyService.format(metrics.netWorthLiabilities)} included in Net Worth`
-              : 'Remaining debt principal balance'}
+              ? `${currencyService.format(metrics.netWorthLiabilities)} in Net Worth`
+              : 'Remaining debt balance'}
           </div>
         </div>
 
         {/* 4. Monthly EMI Outflow */}
-        <div className="kpi-card">
+        <div className="kpi-card" style={{ minWidth: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">MONTHLY EMI COMMITMENT</span>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B' }}>
+            <span className="kpi-title" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>MONTHLY EMI</span>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(245, 158, 11, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F59E0B', flexShrink: 0 }}>
               <Clock size={18} />
             </div>
           </div>
-          <div className="kpi-value" style={{ marginTop: 8, color: '#F59E0B' }}>
+          <div className="kpi-value" style={{ marginTop: 8, color: '#F59E0B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {currencyService.format(metrics.totalMonthlyEmi)}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-            Total monthly debit for all EMIs
-          </div>
-        </div>
-
-        {/* 5. Payoff Progress */}
-        <div className="kpi-card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">DEBT REPAID PROGRESS</span>
-            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}>
-              {metrics.payoffProgress}% PAID
-            </span>
-          </div>
-          <div className="kpi-value" style={{ marginTop: 8, color: '#10B981' }}>
-            {metrics.payoffProgress}%
-          </div>
-          <div style={{ width: '100%', height: 6, background: 'var(--border-color)', borderRadius: 999, marginTop: 8, overflow: 'hidden' }}>
-            <div style={{ width: `${metrics.payoffProgress}%`, height: '100%', background: '#10B981', borderRadius: 999 }} />
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
-            {currencyService.format(metrics.totalPaid)} principal paid off
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Total monthly debit
           </div>
         </div>
       </div>
@@ -1283,14 +1262,14 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
             <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
               Active Loans & Schedules ({loans.length})
             </h2>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span className="hide-on-mobile" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Click any loan card to open the interactive EMI schedule split inspector
             </span>
           </div>
           {selectedLoanId && (
             <button
               type="button"
-              onClick={() => setSelectedLoanId(null)}
+              onClick={handleCloseLoanDetails}
               style={{
                 background: 'rgba(255, 255, 255, 0.06)',
                 border: '1px solid var(--border-color)',
@@ -1343,18 +1322,20 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
             )}
           </div>
         ) : (
-          <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div className="loans-content-split-container" style={{ display: 'flex', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {/* Left Box: Loans Cards Grid */}
             <div
               ref={loanCardsContainerRef}
+              className="loans-cards-column"
               style={{
                 flex: selectedLoanId ? '1 1 56%' : '1 1 100%',
-                minWidth: 320,
+                minWidth: 0,
                 transition: 'all 0.3s ease'
               }}
             >
-              {/* Sorting Toolbar (Requirement 3) */}
+              {/* Sorting Toolbar (Responsive, No Overflow, More Options) */}
               <div
+                className="loans-sort-toolbar"
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
@@ -1368,39 +1349,47 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                   gap: 10
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="loans-sort-controls" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <SlidersHorizontal size={14} />
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
-                    SORT LOAN CARDS:
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+                    SORT LOANS:
                   </span>
                   <select
                     value={loanSortOption}
                     onChange={e => setLoanSortOption(e.target.value)}
-                    className="modal-select"
+                    className="modal-select loans-sort-select"
                     style={{
                       padding: '5px 12px',
                       fontSize: 12,
                       fontWeight: 600,
                       borderRadius: 8,
                       width: 'auto',
-                      minWidth: 210,
+                      minWidth: 200,
                       cursor: 'pointer'
                     }}
                   >
                     <option value="latest">⏱️ Latest Added (Newest)</option>
                     <option value="oldest">🕰️ Oldest Added</option>
-                    <option value="amount_high">💰 Big Loan Amount (Highest)</option>
-                    <option value="amount_low">🪙 Small Loan Amount (Lowest)</option>
-                    <option value="monthly_high">📈 High Monthly EMI</option>
-                    <option value="monthly_low">📉 Low Monthly EMI</option>
-                    <option value="emis_high">📅 Largest EMI Count (Remaining)</option>
-                    <option value="emis_low">⚡ Smallest EMI Count (Remaining)</option>
-                    <option value="due_day">🗓️ Closest Monthly Due Date</option>
+                    <option value="outstanding_high">🔴 Outstanding: Highest First</option>
+                    <option value="outstanding_low">🟢 Outstanding: Lowest First</option>
+                    <option value="repaid_high">🏆 Most Repaid % (Highest Progress)</option>
+                    <option value="repaid_low">⏳ Least Repaid % (Lowest Progress)</option>
+                    <option value="amount_high">💰 Principal: Highest First</option>
+                    <option value="amount_low">🪙 Principal: Lowest First</option>
+                    <option value="monthly_high">📈 Monthly EMI: Highest First</option>
+                    <option value="monthly_low">📉 Monthly EMI: Lowest First</option>
+                    <option value="rate_high">📊 Interest Rate: Highest First</option>
+                    <option value="rate_low">📉 Interest Rate: Lowest First</option>
+                    <option value="emis_high">📅 Remaining EMIs: Most First</option>
+                    <option value="emis_low">⚡ Remaining EMIs: Fewest First</option>
+                    <option value="due_day">🗓️ Due Date: Earliest in Month</option>
+                    <option value="name_asc">🔤 Loan Name: A to Z</option>
+                    <option value="name_desc">🔤 Loan Name: Z to A</option>
                   </select>
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                <div className="loans-count-label" style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
                   Showing <strong style={{ color: 'var(--text-primary)' }}>{sortedLoans.length}</strong> active loans
                 </div>
               </div>
@@ -1425,7 +1414,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                       key={loan.id}
                       id={`loan-card-${loan.id}`}
                       className="summary-card"
-                      onClick={() => setSelectedLoanId(prev => (prev === loan.id ? null : loan.id))}
+                      onClick={() => handleSelectLoan(loan.id)}
                       style={{
                         padding: 20,
                         display: 'flex',
@@ -1758,12 +1747,14 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
               </div>
             </div>
 
-            {/* Right Box: Split Screen EMI Details Panel (Requirement 9) */}
+            {/* Right Box: Split Screen EMI Details Panel (Stacked at bottom on mobile with smooth scroll) */}
             {selectedLoan && selectedLoanMetrics && (
               <div
+                ref={loanDetailsInspectorRef}
+                className="loan-details-inspector-panel"
                 style={{
                   flex: '0 0 380px',
-                  minWidth: 320,
+                  minWidth: 0,
                   maxWidth: '100%',
                   background: 'var(--card-bg)',
                   border: '1px solid var(--border-color)',
@@ -1802,7 +1793,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
 
                   <button
                     type="button"
-                    onClick={() => setSelectedLoanId(null)}
+                    onClick={handleCloseLoanDetails}
                     style={{
                       background: 'rgba(255, 255, 255, 0.08)',
                       border: '1px solid var(--border-color)',
@@ -2425,109 +2416,89 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
       {/* Actual EMI Payment History Ledger with Full Filtering, Limits & Pagination (Budget & Transactions style) */}
       <div className="summary-card" style={{ padding: 24, borderRadius: 16, marginBottom: 30 }}>
         {/* Table Header Controls */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+        <div className="loans-ledger-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
               Actual Loan EMI Repayments Ledger ({filteredEmiTransactions.length})
             </h3>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span className="hide-on-mobile" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Search, filter, and track loan repayments, EMI auto-debits & principal payoffs
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div className="segmented-control" style={{ display: 'inline-flex', background: 'var(--bg-secondary)', padding: 3, borderRadius: 10, border: '1px solid var(--border-color)' }}>
-              <button
-                type="button"
-                onClick={() => setEmiFilterType('all')}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 7,
-                  border: 'none',
-                  fontSize: 12,
-                  fontWeight: emiFilterType === 'all' ? 700 : 500,
-                  background: emiFilterType === 'all' ? 'var(--accent-indigo)' : 'transparent',
-                  color: emiFilterType === 'all' ? '#FFF' : 'var(--text-secondary)',
-                  cursor: 'pointer'
-                }}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                onClick={() => setEmiFilterType('paid')}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 7,
-                  border: 'none',
-                  fontSize: 12,
-                  fontWeight: emiFilterType === 'paid' ? 700 : 500,
-                  background: emiFilterType === 'paid' ? 'var(--accent-indigo)' : 'transparent',
-                  color: emiFilterType === 'paid' ? '#FFF' : 'var(--text-secondary)',
-                  cursor: 'pointer'
-                }}
-              >
-                Paid
-              </button>
-              <button
-                type="button"
-                onClick={() => setEmiFilterType('recent')}
-                style={{
-                  padding: '5px 12px',
-                  borderRadius: 7,
-                  border: 'none',
-                  fontSize: 12,
-                  fontWeight: emiFilterType === 'recent' ? 700 : 500,
-                  background: emiFilterType === 'recent' ? 'var(--accent-indigo)' : 'transparent',
-                  color: emiFilterType === 'recent' ? '#FFF' : 'var(--text-secondary)',
-                  cursor: 'pointer'
-                }}
-              >
-                Last 30 Days
-              </button>
-            </div>
-
-            {!isViewOnly && (
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ padding: '6px 14px', fontSize: 12 }}
-                onClick={() => {
-                  if (loans.length === 0) {
-                    setBannerMsg({ type: 'error', text: 'Please add a loan first before recording EMI repayments.' });
-                    setTimeout(() => setBannerMsg(null), 3500);
-                    setIsAddLoanOpen(true);
-                    return;
-                  }
-                  setPayingLoan(loans[0]);
-                  setPayEmiAmount(String(calculateLoanEMIs(loans[0]).emi));
-                  setIsPayEmiOpen(true);
-                }}
-              >
-                <Plus size={14} />
-                <span>Record EMI Payment</span>
-              </button>
-            )}
+          {/* Segmented Control (All / Paid / Last 30 Days) */}
+          <div className="segmented-control loans-ledger-segmented" style={{ display: 'inline-flex', background: 'var(--bg-secondary)', padding: 3, borderRadius: 10, border: '1px solid var(--border-color)' }}>
+            <button
+              type="button"
+              onClick={() => setEmiFilterType('all')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                border: 'none',
+                fontSize: 12,
+                fontWeight: emiFilterType === 'all' ? 700 : 500,
+                background: emiFilterType === 'all' ? 'var(--accent-indigo)' : 'transparent',
+                color: emiFilterType === 'all' ? '#FFF' : 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmiFilterType('paid')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                border: 'none',
+                fontSize: 12,
+                fontWeight: emiFilterType === 'paid' ? 700 : 500,
+                background: emiFilterType === 'paid' ? 'var(--accent-indigo)' : 'transparent',
+                color: emiFilterType === 'paid' ? '#FFF' : 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              Paid
+            </button>
+            <button
+              type="button"
+              onClick={() => setEmiFilterType('recent')}
+              style={{
+                padding: '5px 12px',
+                borderRadius: 7,
+                border: 'none',
+                fontSize: 12,
+                fontWeight: emiFilterType === 'recent' ? 700 : 500,
+                background: emiFilterType === 'recent' ? 'var(--accent-indigo)' : 'transparent',
+                color: emiFilterType === 'recent' ? '#FFF' : 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              Last 30 Days
+            </button>
           </div>
         </div>
 
-        {/* Search & Filter Toolbar (Budget & Transactions style) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
-          {/* Search Box */}
+        {/* Search Box (75% width on Left) & Record EMI Payment Button (25% width on Right) in Single Row */}
+        <div className="loans-search-record-row" style={{ display: 'flex', gap: 10, alignItems: 'center', width: '100%', marginBottom: 12 }}>
+          {/* Left: Search Box (75% width) */}
           <div
+            className="loans-ledger-search"
             style={{
-              width: 260,
-              flexShrink: 0,
+              flex: '3 1 75%',
+              width: '75%',
               display: 'flex',
               alignItems: 'center',
               background: 'var(--bg-input)',
               border: '1px solid var(--border-color)',
               borderRadius: 10,
               padding: '8px 12px',
-              gap: 8
+              gap: 8,
+              minWidth: 0,
+              boxSizing: 'border-box'
             }}
           >
-            <Search size={15} style={{ color: 'var(--text-secondary)' }} />
+            <Search size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
             <input
               type="text"
               placeholder="Search loan repayments..."
@@ -2554,54 +2525,104 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
             )}
           </div>
 
-          {/* Loan Filter Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
-            <select
-              value={emiSelectedLoanFilter}
-              onChange={e => setEmiSelectedLoanFilter(e.target.value)}
+          {/* Right: Record EMI Payment Button (25% width) */}
+          {!isViewOnly && (
+            <button
+              type="button"
+              className="btn-primary loans-ledger-record-btn"
               style={{
-                background: 'var(--bg-input)',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                padding: '8px 12px',
-                borderRadius: 10,
+                flex: '1 1 25%',
+                width: '25%',
+                padding: '8px 10px',
                 fontSize: 12,
-                outline: 'none',
-                cursor: 'pointer'
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                minWidth: 0,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                boxSizing: 'border-box'
+              }}
+              onClick={() => {
+                if (loans.length === 0) {
+                  setBannerMsg({ type: 'error', text: 'Please add a loan first before recording EMI repayments.' });
+                  setTimeout(() => setBannerMsg(null), 3500);
+                  setIsAddLoanOpen(true);
+                  return;
+                }
+                setPayingLoan(loans[0]);
+                setPayEmiAmount(String(calculateLoanEMIs(loans[0]).emi));
+                setIsPayEmiOpen(true);
               }}
             >
-              <option value="all">All Loans & Accounts</option>
-              {loans.map(l => (
-                <option key={l.id} value={l.id}>{l.name} ({l.lender})</option>
-              ))}
-            </select>
+              <Plus size={14} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Record EMI</span>
+            </button>
+          )}
+        </div>
+
+        {/* Filter Toolbar (Dropdowns & Popovers) */}
+        <div className="loans-ledger-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+
+          <div className="loans-ledger-filter-row">
+            {/* Loan Filter Dropdown */}
+            <div className="loans-ledger-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <Filter size={14} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+              <select
+                value={emiSelectedLoanFilter}
+                onChange={e => setEmiSelectedLoanFilter(e.target.value)}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                <option value="all">All Loans & Accounts</option>
+                {loans.map(l => (
+                  <option key={l.id} value={l.id}>{l.name} ({l.lender})</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Payment Mode Filter Dropdown */}
+            <div className="loans-ledger-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <select
+                value={emiPaymentModeFilter}
+                onChange={e => setEmiPaymentModeFilter(e.target.value)}
+                style={{
+                  background: 'var(--bg-input)',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                <option value="all">All Payment Modes</option>
+                <option value="bank_transfer">Bank Auto-Debit</option>
+                <option value="upi">UPI / GPay</option>
+                <option value="netbanking">Net Banking</option>
+                <option value="debit">Debit Card</option>
+              </select>
+            </div>
           </div>
 
-          {/* Payment Mode Filter Dropdown */}
-          <select
-            value={emiPaymentModeFilter}
-            onChange={e => setEmiPaymentModeFilter(e.target.value)}
-            style={{
-              background: 'var(--bg-input)',
-              border: '1px solid var(--border-color)',
-              color: 'var(--text-primary)',
-              padding: '8px 12px',
-              borderRadius: 10,
-              fontSize: 12,
-              outline: 'none',
-              cursor: 'pointer'
-            }}
-          >
-            <option value="all">All Payment Modes</option>
-            <option value="bank_transfer">Bank Auto-Debit / ECS</option>
-            <option value="upi">UPI / GPay</option>
-            <option value="netbanking">Net Banking</option>
-            <option value="debit">Debit Card</option>
-          </select>
-
-          {/* Date Filter Popover */}
-          <div style={{ position: 'relative', flexShrink: 0 }} ref={emiDateRef}>
+          {/* Date & Amount Filter Popovers in 2-Column Row on Mobile */}
+          <div className="loans-ledger-popover-row">
+            {/* Date Filter Popover */}
+            <div style={{ position: 'relative', flexShrink: 0 }} ref={emiDateRef}>
             <button
               type="button"
               onClick={() => {
@@ -2865,6 +2886,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
               </div>
             )}
           </div>
+          </div>
 
           {/* Reset Filters Button */}
           {hasActiveEmiFilters && (
@@ -2941,16 +2963,16 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
           <div>
             {/* Scrollable table container with strict minHeight & maxHeight (Prevents infinite expansion) */}
             <div style={{ overflowX: 'auto', minHeight: 280, maxHeight: 460, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
                 <thead className="sticky-table-header">
                   <tr>
-                    <th style={{ padding: '12px 14px' }}>Date</th>
-                    <th style={{ padding: '12px 14px' }}>Description</th>
-                    <th style={{ padding: '12px 14px' }}>Category</th>
-                    <th style={{ padding: '12px 14px' }}>Payment Mode</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Amount Paid</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>Status</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>Action</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Date</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Description</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Category</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Payment Mode</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Amount Paid</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Status</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3147,140 +3169,6 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
             </div>
           </div>
         )}
-      </div>
-
-      {/* Interactive EMI Calculator Tool (Moved to the last of the page) */}
-      <div className="summary-card" style={{ padding: 26, marginBottom: 30 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
-            <Calculator size={20} />
-          </div>
-          <div>
-            <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-              Interactive EMI & Loan Calculator
-            </h3>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              Estimate monthly payments, interest vs principal breakdown & plan repayments
-            </span>
-          </div>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 24, alignItems: 'center' }}>
-          {/* Controls */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {/* Principal */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>LOAN PRINCIPAL</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{currencyService.format(calcPrincipal)}</span>
-              </div>
-              <input
-                type="range"
-                min={50000}
-                max={10000000}
-                step={25000}
-                value={calcPrincipal}
-                onChange={e => setCalcPrincipal(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-
-            {/* Interest Rate */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>INTEREST RATE (% P.A.)</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcRate}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={24}
-                step={0.1}
-                value={calcRate}
-                onChange={e => setCalcRate(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-
-            {/* Tenure */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>
-                <span>TENURE (YEARS)</span>
-                <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{calcTenureYears} Years ({calcTenureYears * 12} Months)</span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={30}
-                step={1}
-                value={calcTenureYears}
-                onChange={e => setCalcTenureYears(Number(e.target.value))}
-                style={{ width: '100%', accentColor: '#6366F1', cursor: 'pointer' }}
-              />
-            </div>
-          </div>
-
-          {/* Calculator Output Display */}
-          <div
-            style={{
-              padding: 22,
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(139, 92, 246, 0.12) 100%)',
-              border: '1px solid rgba(99, 102, 241, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 14
-            }}
-          >
-            <div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>
-                ESTIMATED MONTHLY EMI
-              </span>
-              <div style={{ fontSize: 28, fontWeight: 800, color: '#6366F1', marginTop: 4 }}>
-                {currencyService.format(calcResults.monthlyEmi)}
-                <span style={{ fontSize: 14, color: 'var(--text-secondary)', fontWeight: 500 }}> / month</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, paddingTop: 10, borderTop: '1px solid rgba(99, 102, 241, 0.2)' }}>
-              <div>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL INTEREST</span>
-                <div style={{ fontSize: 15, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
-                  {currencyService.format(calcResults.totalInterest)}
-                </div>
-              </div>
-              <div>
-                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>TOTAL PAYMENT</span>
-                <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                  {currencyService.format(calcResults.totalPayment)}
-                </div>
-              </div>
-            </div>
-
-            {/* Ratio Breakdown Bar */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
-                <span>Principal: {calcResults.principalPct.toFixed(0)}%</span>
-                <span>Interest: {calcResults.interestPct.toFixed(0)}%</span>
-              </div>
-              <div style={{ width: '100%', height: 8, background: '#EF4444', borderRadius: 999, overflow: 'hidden', display: 'flex' }}>
-                <div style={{ width: `${calcResults.principalPct}%`, height: '100%', background: '#6366F1' }} />
-              </div>
-            </div>
-
-            {!isViewOnly && (
-              <button
-                type="button"
-                className="btn-primary"
-                style={{ marginTop: 4, width: '100%', justifyContent: 'center' }}
-                onClick={handleAddFromCalculator}
-              >
-                <Plus size={16} />
-                <span>Add as Tracked Loan</span>
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* Modal: Add New Loan (Requirements 2 & 8: Name, Loan Number, Lender, Due Day, Principal, EMI, Remaining, Start Date, End Date, Description, Net Worth) */}

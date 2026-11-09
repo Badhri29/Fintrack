@@ -283,7 +283,7 @@ Login URL: ${window.location.origin}`;
       )}
 
       {/* 3 Top Stat Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
+      <div className="access-stat-grid">
         {/* Card 1: You / Workspace Owner */}
         <div
           style={{

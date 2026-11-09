@@ -689,7 +689,7 @@ input.auth-input::placeholder {
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
 }
 
-/* KPI Grid */
+/* KPI Grid & Display Boxes */
 .kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -697,15 +697,269 @@ input.auth-input::placeholder {
   padding: 0 28px 24px;
 }
 
+.dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.dashboard-quick-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.accounts-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 28px;
+  padding: 0 !important;
+}
+
+.admin-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+  padding: 0 !important;
+}
+
+.access-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+}
+
+.dashboard-stat-chips-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.dashboard-credit-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.dashboard-chart-canvas-container {
+  height: 250px;
+}
+
 @media (max-width: 1200px) {
-  .kpi-grid {
+  .kpi-grid,
+  .accounts-kpi-grid,
+  .admin-kpi-grid {
     grid-template-columns: repeat(2, 1fr);
   }
 }
 
+/* Mobile View Grid Format: Box Box (2-Column Grid instead of 1-column straight width) */
+@media (max-width: 768px) {
+  .dashboard-chart-canvas-container {
+    height: 180px !important;
+  }
+
+  .kpi-grid,
+  .dashboard-kpi-grid,
+  .dashboard-quick-cards-grid,
+  .accounts-kpi-grid,
+  .admin-kpi-grid,
+  .access-stat-grid,
+  .dashboard-stat-chips-grid,
+  .dashboard-credit-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+    padding: 0 0 16px 0 !important;
+  }
+
+  /* Ensure strictly equal widths and no child overflow */
+  .kpi-card,
+  .dashboard-kpi-grid > *,
+  .dashboard-quick-cards-grid > *,
+  .accounts-kpi-grid > *,
+  .admin-kpi-grid > *,
+  .access-stat-grid > *,
+  .dashboard-stat-chips-grid > *,
+  .dashboard-credit-cards-grid > * {
+    min-width: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+  }
+
+  /* Compact Box-Box styling on mobile devices */
+  .kpi-card,
+  .dashboard-kpi-grid .kpi-card,
+  .dashboard-quick-cards-grid .kpi-card,
+  .accounts-kpi-grid .kpi-card,
+  .admin-kpi-grid > div,
+  .access-stat-grid > div {
+    padding: 12px 10px !important;
+    border-radius: 12px !important;
+    gap: 6px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Display box / KPI title: Never wrap, concise font size */
+  .kpi-title,
+  .kpi-label,
+  .dashboard-kpi-grid .kpi-title,
+  .dashboard-quick-cards-grid .kpi-title,
+  .accounts-kpi-grid .kpi-card span[style*="uppercase"],
+  .admin-kpi-grid span {
+    font-size: 9.5px !important;
+    letter-spacing: 0.02em !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    text-transform: uppercase !important;
+  }
+
+  /* Display box / KPI amount & value: Never wrap, reduced font size (16px) */
+  .kpi-value,
+  .dashboard-kpi-grid .kpi-value,
+  .dashboard-quick-cards-grid .kpi-value,
+  .accounts-kpi-grid [style*="fontSize: 24"],
+  .admin-kpi-grid [style*="fontSize: 32"] {
+    font-size: 16px !important;
+    line-height: 1.15 !important;
+    margin-top: 2px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    word-break: normal !important;
+  }
+
+  /* KPI footer & subtitle text: Never wrap, clean ellipsis */
+  .kpi-card > div:last-child,
+  .kpi-card > span:last-child,
+  .dashboard-kpi-grid .kpi-card div:last-child,
+  .dashboard-quick-cards-grid .kpi-card div:last-child {
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    font-size: 9.5px !important;
+  }
+
+  .kpi-icon-box,
+  .dashboard-kpi-grid .kpi-card > div:first-child > div:last-child,
+  .dashboard-quick-cards-grid .kpi-card > div:first-child > div:last-child,
+  .accounts-kpi-grid .kpi-card > div:first-child > div:last-child {
+    width: 26px !important;
+    height: 26px !important;
+    border-radius: 7px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .kpi-icon-box svg,
+  .dashboard-kpi-grid .kpi-card svg,
+  .dashboard-quick-cards-grid .kpi-card svg,
+  .accounts-kpi-grid .kpi-card svg {
+    width: 14px !important;
+    height: 14px !important;
+  }
+
+  .dashboard-kpi-footer-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 2px !important;
+    font-size: 9.5px !important;
+    margin-top: 4px !important;
+  }
+
+  .quick-card-footer {
+    font-size: 9.5px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    margin-top: 4px !important;
+    padding-top: 4px !important;
+  }
+
+  .dashboard-stat-chips-grid > div {
+    padding: 10px 12px !important;
+  }
+
+  .dashboard-stat-chips-grid > div span:first-child {
+    font-size: 9px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .dashboard-stat-chips-grid > div span:nth-child(2) {
+    font-size: 15px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  /* Loans Page Split Layout & Sorting Toolbar Mobile Refinements */
+  .loans-content-split-container {
+    flex-direction: column !important;
+  }
+
+  .loans-cards-column {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+
+  .loan-details-inspector-panel {
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    position: static !important;
+    max-height: none !important;
+    margin-top: 18px !important;
+    order: 2 !important;
+  }
+
+  .loans-sort-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    padding: 10px !important;
+  }
+
+  .loans-sort-controls {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+  }
+
+  .loans-sort-select {
+    flex: 1 1 auto !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    font-size: 11.5px !important;
+    padding: 6px 8px !important;
+  }
+
+  .loans-count-label {
+    text-align: right !important;
+    font-size: 11px !important;
+  }
+}
+
 @media (max-width: 640px) {
-  .kpi-grid {
-    grid-template-columns: 1fr;
+  .kpi-grid,
+  .dashboard-kpi-grid,
+  .dashboard-quick-cards-grid,
+  .accounts-kpi-grid,
+  .admin-kpi-grid,
+  .access-stat-grid,
+  .dashboard-stat-chips-grid,
+  .dashboard-credit-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
   }
 }
 
@@ -2490,8 +2744,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .credit-card-container:hover .credit-card-drawer,
-.credit-card-container.is-hovered .credit-card-drawer {
-  max-height: 420px;
+.credit-card-container.is-hovered .credit-card-drawer,
+.credit-card-drawer.is-open {
+  max-height: 460px;
   opacity: 1;
   border-top-color: var(--border-color);
   pointer-events: auto;
@@ -2506,7 +2761,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .credit-card-container:hover .credit-card-drawer-inner,
-.credit-card-container.is-hovered .credit-card-drawer-inner {
+.credit-card-container.is-hovered .credit-card-drawer-inner,
+.credit-card-drawer.is-open .credit-card-drawer-inner {
   transform: translateY(0);
 }
 
@@ -2570,8 +2826,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 
 @media (max-width: 640px) {
   .credit-cards-grid {
-    grid-template-columns: 1fr !important;
-    gap: 16px !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
   }
 }
 
@@ -2730,6 +2986,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .navbar {
     padding: 0 12px !important;
     height: 58px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000 !important;
+    background: rgba(11, 14, 20, 0.96) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+  }
+  .global-due-ticker-container {
+    position: sticky !important;
+    top: 58px !important;
+    z-index: 999 !important;
   }
 }
 
@@ -2761,6 +3028,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   .navbar {
     padding: 0 8px !important;
     height: 54px !important;
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 1000 !important;
+    background: rgba(11, 14, 20, 0.96) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+  }
+  .global-due-ticker-container {
+    position: sticky !important;
+    top: 54px !important;
+    z-index: 999 !important;
   }
   .brand-logo {
     gap: 6px !important;
@@ -2833,7 +3111,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
   display: flex !important;
   flex-direction: column !important;
-  padding: 18px 16px 0 !important;
+  padding: 12px 14px 0 !important;
   box-sizing: border-box !important;
   animation: slideInRight 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
   overflow: hidden !important;
@@ -2849,7 +3127,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding-bottom: 16px;
+  padding-bottom: 8px;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -2873,7 +3151,7 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border-radius: 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  margin: 16px 0;
+  margin: 8px 0;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -2972,8 +3250,8 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
 }
 
 .mobile-drawer-footer {
-  padding-top: 14px !important;
-  padding-bottom: max(75px, calc(65px + env(safe-area-inset-bottom, 20px))) !important;
+  padding-top: 8px !important;
+  padding-bottom: 12px !important;
   border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
   margin-top: auto !important;
   flex-shrink: 0 !important;
@@ -2984,16 +3262,16 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  gap: 10px !important;
-  padding: 12px 16px !important;
-  border-radius: 12px !important;
+  gap: 8px !important;
+  padding: 8px 12px !important;
+  border-radius: 8px !important;
   background: linear-gradient(135deg, rgba(239, 68, 68, 0.18) 0%, rgba(220, 38, 38, 0.32) 100%) !important;
-  border: 1.5px solid rgba(239, 68, 68, 0.45) !important;
+  border: 1px solid rgba(239, 68, 68, 0.45) !important;
   color: #FCA5A5 !important;
-  font-size: 14px !important;
+  font-size: 12px !important;
   font-weight: 700 !important;
   cursor: pointer !important;
-  box-shadow: 0 4px 16px rgba(239, 68, 68, 0.22) !important;
+  box-shadow: 0 4px 14px rgba(239, 68, 68, 0.2) !important;
   transition: all 0.2s ease !important;
   letter-spacing: 0.02em !important;
 }
@@ -3477,5 +3755,1356 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     overflow-x: hidden !important;
     max-width: 100% !important;
     box-sizing: border-box !important;
+  }
+}
+
+/* Text visibility helpers for clean mobile abbreviation */
+.desktop-text {
+  display: inline;
+}
+.mobile-text {
+  display: none;
+}
+
+/* Dashboard Month Navigation Pills & Compact Box */
+.dashboard-month-selector-bar {
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  padding: 8px 12px;
+  margin-bottom: 16px;
+  user-select: none;
+}
+
+.dashboard-month-bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.dashboard-months-grid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.dashboard-month-btn {
+  min-width: 68px;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  white-space: nowrap;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.dashboard-month-btn.selected {
+  background: rgba(99, 102, 241, 0.18);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  color: var(--accent-indigo);
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+}
+
+.month-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.month-check {
+  margin-left: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--accent-indigo);
+}
+
+.month-net-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.dashboard-header-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dashboard-overview-header-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.dashboard-overview-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dashboard-overview-toggles-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .desktop-text {
+    display: none !important;
+  }
+  .mobile-text {
+    display: inline !important;
+  }
+
+  /* Subtitle hidden on mobile as requested */
+  .page-subtitle {
+    display: none !important;
+  }
+
+  .dashboard-header-controls {
+    width: 100% !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+    margin-top: 8px !important;
+  }
+
+  .dashboard-year-selector {
+    width: 100% !important;
+    justify-content: space-between !important;
+    padding: 3px 6px !important;
+    box-sizing: border-box !important;
+  }
+
+  .dashboard-year-selector button {
+    padding: 4px 8px !important;
+    font-size: 12px !important;
+  }
+
+  .dashboard-header-actions-row {
+    display: flex !important;
+    width: 100% !important;
+    gap: 8px !important;
+  }
+
+  .dashboard-header-actions-row button,
+  .dashboard-header-actions-row .btn-secondary,
+  .dashboard-header-actions-row .btn-primary {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 6px 8px !important;
+    font-size: 12px !important;
+    height: 36px !important;
+    border-radius: 8px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Month selector in ONE compact box (6x2 grid) with ZERO horizontal scrolling */
+  .dashboard-month-selector-bar {
+    padding: 8px 10px !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: auto !important;
+    margin-bottom: 14px !important;
+  }
+
+  .dashboard-month-bar-header {
+    margin-bottom: 6px !important;
+  }
+
+  .dashboard-months-grid {
+    display: grid !important;
+    grid-template-columns: repeat(6, 1fr) !important;
+    gap: 4px !important;
+    overflow-x: visible !important;
+  }
+
+  .dashboard-month-btn {
+    min-width: 0 !important;
+    width: 100% !important;
+    padding: 4px 2px !important;
+    border-radius: 6px !important;
+  }
+
+  .month-name-row {
+    font-size: 11px !important;
+  }
+
+  .month-net-row {
+    font-size: 8px !important;
+  }
+
+  /* Overview & Breakdown Toggles on Mobile (Row 1: Title & Collapse; Row 2: Toggles side-by-side) */
+  .dashboard-overview-header-container {
+    flex-direction: column !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-bottom: 12px !important;
+  }
+
+  .dashboard-overview-title-row {
+    width: 100% !important;
+    justify-content: space-between !important;
+  }
+
+  .dashboard-overview-toggles-row {
+    width: 100% !important;
+    justify-content: space-between !important;
+    gap: 6px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .dashboard-pct-basis-control {
+    flex: 1 !important;
+    justify-content: center !important;
+    padding: 2px 4px !important;
+  }
+
+  .dashboard-pct-basis-control button {
+    padding: 3px 6px !important;
+    font-size: 11px !important;
+  }
+
+  .dashboard-mode-control {
+    flex: 1.2 !important;
+    display: flex !important;
+    justify-content: center !important;
+    padding: 2px 3px !important;
+  }
+
+  .dashboard-mode-control button {
+    flex: 1 !important;
+    padding: 4px 6px !important;
+    font-size: 11px !important;
+    text-align: center !important;
+  }
+}
+
+
+/* Vertical Wheel Year Picker Component */
+.credit-cards-vertical-year-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  width: 78px;
+  min-width: 78px;
+  height: 88px;
+  max-height: 88px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 2px 2px;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.credit-cards-vertical-year-picker .picker-blur-top {
+  position: absolute;
+  top: 16px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: linear-gradient(to bottom, var(--bg-card) 20%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.credit-cards-vertical-year-picker .picker-blur-bottom {
+  position: absolute;
+  bottom: 16px;
+  left: 0;
+  right: 0;
+  height: 16px;
+  background: linear-gradient(to top, var(--bg-card) 20%, transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.credit-cards-vertical-year-picker .picker-wheel-scroll {
+  scroll-behavior: smooth;
+  scroll-snap-type: y mandatory;
+  overflow-y: scroll;
+}
+
+.credit-cards-vertical-year-picker .picker-year-item {
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.45;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.credit-cards-vertical-year-picker .picker-year-item.active {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #FFFFFF;
+  background: var(--accent-indigo);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  opacity: 1;
+}
+
+.credit-cards-vertical-year-picker .picker-blur-top {
+  position: absolute;
+  top: 24px;
+  left: 0;
+  right: 0;
+  height: 18px;
+  background: linear-gradient(to bottom, var(--bg-card), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.credit-cards-vertical-year-picker .picker-blur-bottom {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  right: 0;
+  height: 18px;
+  background: linear-gradient(to top, var(--bg-card), transparent);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.credit-cards-vertical-year-picker .picker-arrow-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  z-index: 3;
+  transition: color 0.15s ease;
+}
+
+.credit-cards-vertical-year-picker .picker-arrow-btn:hover {
+  color: var(--accent-indigo);
+}
+
+.credit-cards-vertical-year-picker .picker-years-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 100%;
+  z-index: 1;
+}
+
+.credit-cards-vertical-year-picker .picker-year-item {
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.45;
+  cursor: pointer;
+  padding: 2px 0;
+  line-height: 1;
+  transition: all 0.15s ease;
+}
+
+.credit-cards-vertical-year-picker .picker-year-item.active {
+  font-size: 14px;
+  font-weight: 800;
+  color: #FFFFFF;
+  background: var(--accent-indigo);
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+  opacity: 1;
+  cursor: default;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+}
+
+.credit-cards-vertical-year-picker .picker-year-item:not(.active):hover {
+  opacity: 0.85;
+  color: var(--text-primary);
+}
+
+
+/* Credit Card Front Frame Internal Classes */
+.cc-front-header {
+  margin-bottom: 8px;
+}
+.credit-card-bank-label {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+  display: block;
+}
+.credit-card-name-label {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 2px;
+}
+.credit-card-network-logo {
+  font-size: 15px;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.05em;
+  color: #FFF;
+}
+.credit-card-addon-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: rgba(99, 102, 241, 0.4);
+  border: 1px solid rgba(165, 180, 252, 0.5);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 800;
+  color: #FFF;
+}
+.cc-action-btn {
+  padding: 5px;
+  border-radius: 6px;
+}
+.cc-front-chip-number-row {
+  margin: 12px 0 8px;
+  gap: 10px;
+}
+.cc-sim-chip {
+  width: 34px;
+  height: 26px;
+}
+.cc-contactless-wave {
+  font-size: 13px;
+}
+.credit-card-number-full {
+  font-size: 15px;
+  letter-spacing: 0.14em;
+  font-family: monospace;
+  font-weight: 700;
+  color: #FFF;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+  white-space: nowrap;
+}
+.cc-front-holder-row {
+  margin-top: 12px;
+}
+.cc-micro-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.05em;
+  display: block;
+}
+.cc-holder-name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cc-expiry-col {
+  gap: 18px;
+}
+.cc-mono-val {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: monospace;
+}
+.cc-front-stats-wrap {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.cc-limit-line {
+  margin-bottom: 5px;
+}
+.cc-avail-limit-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.9);
+}
+.cc-used-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+}
+.cc-progress-bar-track {
+  height: 5px;
+}
+.cc-front-due-row {
+  margin-top: 10px;
+  min-height: 32px;
+}
+.cc-due-text {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.8);
+}
+.cc-emi-badge {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 5px;
+  margin-left: 6px;
+}
+.cc-pay-bill-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ==========================================================================
+   GLOBAL MOBILE TYPOGRAPHY & COMPACT STYLING SCALE
+   ========================================================================== */
+.credit-card-front-frame {
+  min-height: 220px;
+  padding: 22px 24px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-sizing: border-box;
+}
+
+.credit-card-number-compact {
+  display: none;
+}
+
+.loans-ledger-filter-row,
+.loans-ledger-popover-row,
+.cc-ledger-dropdown-row,
+.cc-ledger-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+@media (max-width: 768px) {
+  /* Global font size reduction on mobile for all pages */
+  body, html {
+    font-size: 13.5px;
+  }
+
+  .page-title, h1 {
+    font-size: 18px !important;
+    letter-spacing: -0.01em !important;
+  }
+
+  /* Unwanted descriptive text removed on mobile across all pages */
+  .page-subtitle,
+  .hide-on-mobile {
+    display: none !important;
+  }
+
+  h2 {
+    font-size: 15px !important;
+  }
+
+  h3 {
+    font-size: 13.5px !important;
+  }
+
+  h4 {
+    font-size: 12.5px !important;
+  }
+
+  .btn-primary, .btn-secondary, button {
+    font-size: 12px !important;
+  }
+
+  .summary-card, .glass-card {
+    padding: 14px 12px !important;
+    border-radius: 12px !important;
+  }
+
+  .modal-container {
+    padding: 16px !important;
+    font-size: 12px !important;
+  }
+
+  .modal-title {
+    font-size: 15px !important;
+  }
+
+  input, select, textarea {
+    font-size: 12px !important;
+  }
+
+  table {
+    font-size: 11.5px !important;
+  }
+
+  th {
+    font-size: 10px !important;
+  }
+
+  td {
+    font-size: 11px !important;
+  }
+
+  /* Credit Cards Page Mobile Alignment */
+  .credit-cards-actions-container {
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .credit-cards-year-carousel {
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .credit-cards-action-buttons-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .credit-cards-current-year-btn,
+  .credit-cards-add-card-btn {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 7px 10px !important;
+    font-size: 11.5px !important;
+  }
+
+  .credit-cards-add-spend-btn {
+    width: 100% !important;
+    justify-content: center !important;
+    padding: 8px 12px !important;
+    font-size: 12px !important;
+  }
+
+  /* Credit Card Mini-Cards in 2-Column Grid (Fixed Landscape Ratio 176x128) */
+  .credit-cards-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+  }
+
+  .credit-card-container {
+    border-radius: 10px !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* Fixed height & width card front on mobile as requested (no grow, no shrink) */
+  .credit-card-front-frame {
+    padding: 6px 7px 5px !important;
+    height: 128px !important;
+    min-height: 128px !important;
+    max-height: 128px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 1px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 1. Header Row */
+  .cc-front-header {
+    margin-bottom: 2px !important;
+  }
+
+  .credit-card-bank-label {
+    font-size: 7.5px !important;
+    line-height: 1 !important;
+    letter-spacing: 0.02em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 65px !important;
+    display: block !important;
+  }
+
+  .credit-card-name-label {
+    font-size: 6px !important;
+    line-height: 1 !important;
+    margin-top: 1px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 65px !important;
+    display: block !important;
+  }
+
+  .credit-card-network-logo {
+    font-size: 8px !important;
+    line-height: 1 !important;
+  }
+
+  .credit-card-addon-badge {
+    font-size: 5px !important;
+    padding: 1px 3px !important;
+    border-radius: 2px !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-action-btn {
+    padding: 1px 2px !important;
+    border-radius: 3px !important;
+  }
+
+  .cc-action-btn svg {
+    width: 8px !important;
+    height: 8px !important;
+  }
+
+  /* 2. Chip & Number Row */
+  .cc-front-chip-number-row {
+    margin: 1px 0 !important;
+    gap: 3px !important;
+  }
+
+  .cc-sim-chip {
+    width: 12px !important;
+    height: 8.5px !important;
+    border-radius: 2px !important;
+  }
+
+  .cc-contactless-wave {
+    font-size: 5px !important;
+  }
+
+  .credit-card-number-full {
+    display: inline-block !important;
+    font-size: 6.5px !important;
+    letter-spacing: 0.02em !important;
+    font-family: monospace !important;
+    white-space: nowrap !important;
+  }
+
+  .credit-card-number-compact {
+    display: none !important;
+  }
+
+  /* 3. Cardholder & Expiry Row */
+  .cc-front-holder-row {
+    margin-top: 1px !important;
+    gap: 3px !important;
+  }
+
+  .cc-micro-label {
+    font-size: 4.8px !important;
+    line-height: 1 !important;
+  }
+
+  .cc-holder-name {
+    font-size: 6.2px !important;
+    line-height: 1 !important;
+    letter-spacing: 0.01em !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 58px !important;
+    display: block !important;
+  }
+
+  .cc-expiry-col {
+    gap: 6px !important;
+  }
+
+  .cc-mono-val {
+    font-size: 6px !important;
+    line-height: 1 !important;
+  }
+
+  /* 4 & 5. Available Limit, % used & Progress Bar */
+  .cc-front-stats-wrap {
+    margin-top: 1px !important;
+    padding-top: 2px !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .cc-limit-line {
+    margin-bottom: 2px !important;
+  }
+
+  .cc-avail-limit-text {
+    font-size: 6px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-used-badge {
+    font-size: 5.5px !important;
+    padding: 1px 3px !important;
+    line-height: 1 !important;
+  }
+
+  .cc-progress-bar-track {
+    height: 2px !important;
+    margin: 1px 0 !important;
+  }
+
+  /* 6. Due date & Pay Bill */
+  .cc-front-due-row {
+    margin-top: 1px !important;
+    min-height: auto !important;
+  }
+
+  .cc-due-text {
+    font-size: 5.5px !important;
+    line-height: 1 !important;
+    white-space: nowrap !important;
+  }
+
+  .cc-emi-badge {
+    font-size: 5px !important;
+    padding: 1px 2px !important;
+    border-radius: 2px !important;
+    margin-left: 2px !important;
+  }
+
+  .cc-pay-bill-btn {
+    padding: 1px 4px !important;
+    font-size: 6px !important;
+    border-radius: 3px !important;
+    height: 13px !important;
+    min-height: 13px !important;
+    line-height: 13px !important;
+  }
+
+  /* Loans Search Box (75%) & Record EMI Payment (25%) in Single Row */
+  .loans-search-record-row {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    width: 100% !important;
+    gap: 8px !important;
+    margin-bottom: 10px !important;
+  }
+
+  .loans-search-record-row .loans-ledger-search {
+    flex: 3 1 75% !important;
+    width: 75% !important;
+    min-width: 0 !important;
+  }
+
+  .loans-search-record-row .loans-ledger-record-btn {
+    flex: 1 1 25% !important;
+    width: 25% !important;
+    min-width: 0 !important;
+    justify-content: center !important;
+    padding: 7px 6px !important;
+    font-size: 11px !important;
+  }
+
+  /* Loans Ledger Toolbar Responsive Layout */
+  .loans-ledger-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    gap: 10px !important;
+  }
+
+  .loans-ledger-segmented {
+    width: 100% !important;
+    display: flex !important;
+  }
+
+  .loans-ledger-segmented button {
+    flex: 1 !important;
+    text-align: center !important;
+    padding: 5px 4px !important;
+    font-size: 11px !important;
+  }
+
+  .loans-ledger-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .loans-ledger-filter-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .loans-ledger-select-wrapper {
+    width: 100% !important;
+  }
+
+  .loans-ledger-select {
+    width: 100% !important;
+    font-size: 11.5px !important;
+    padding: 6px 8px !important;
+  }
+
+  .loans-ledger-popover-row {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .loans-ledger-popover-row button {
+    width: 100% !important;
+    font-size: 11.5px !important;
+    padding: 6px 8px !important;
+    justify-content: center !important;
+  }
+
+  
+/* Gap between Credit Card Transactions Ledger and Monthly Spending Flow */
+.cc-ledger-card {
+  margin-bottom: 28px !important;
+}
+.cc-monthly-flow-card {
+  margin-top: 28px !important;
+  margin-bottom: 28px !important;
+}
+
+/* Section Spacing & Single Row Actions (Current Year, + Add Card, + Add Spend) */
+  .credit-cards-actions-container {
+    width: 100% !important;
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+    margin: 6px 0 12px 0 !important;
+  }
+
+  .credit-cards-actions-container button {
+    width: 100% !important;
+    min-width: 0 !important;
+    padding: 6px 3px !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    justify-content: center !important;
+    white-space: nowrap !important;
+    border-radius: 7px !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .credit-cards-actions-container button span {
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+  }
+
+  /* Equal Height Year & Month Row (Dynamic auto-height with min-height 104px, zero overflow) */
+  .credit-cards-year-month-row {
+    display: flex !important;
+    gap: 8px !important;
+    align-items: stretch !important;
+    width: 100% !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Year Picker: Stretches dynamically to match Month Bar height with centered wheel */
+  .credit-cards-vertical-year-picker {
+    width: 64px !important;
+    min-width: 64px !important;
+    min-height: 104px !important;
+    height: auto !important;
+    align-self: stretch !important;
+    border-radius: 10px !important;
+    padding: 1px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    overflow: hidden !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-arrow-btn {
+    height: 14px !important;
+    min-height: 14px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    width: 100% !important;
+    cursor: pointer !important;
+    border: none !important;
+    background: transparent !important;
+    color: var(--text-secondary) !important;
+    flex-shrink: 0 !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-wheel-scroll {
+    height: 72px !important;
+    width: 100% !important;
+    margin: auto 0 !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-year-item {
+    font-size: 9.5px !important;
+    height: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-year-item.active {
+    font-size: 12px !important;
+    padding: 1px 5px !important;
+    font-weight: 800 !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-blur-top,
+  .credit-cards-vertical-year-picker .picker-blur-bottom {
+    display: none !important;
+  }
+
+  /* Month Bar: Auto height expansion, no wrap on header, all 12 months perfectly contained */
+  .credit-cards-month-bar {
+    flex: 1 !important;
+    min-width: 0 !important;
+    min-height: 104px !important;
+    height: auto !important;
+    max-height: none !important;
+    padding: 5px 6px !important;
+    border-radius: 10px !important;
+    box-sizing: border-box !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    gap: 4px !important;
+    overflow: visible !important;
+  }
+
+  .cc-month-bar-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    flex-wrap: nowrap !important;
+    gap: 3px !important;
+    width: 100% !important;
+    margin-bottom: 2px !important;
+  }
+
+  .cc-month-active-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 2px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .cc-month-active-text {
+    font-size: 8.5px !important;
+    white-space: nowrap !important;
+    line-height: 1 !important;
+  }
+
+  .cc-month-spend-group {
+    display: flex !important;
+    align-items: center !important;
+    gap: 3px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .cc-month-spend-text {
+    font-size: 8.5px !important;
+    white-space: nowrap !important;
+    line-height: 1 !important;
+  }
+
+  .cc-full-year-btn {
+    padding: 1.5px 4px !important;
+    font-size: 8px !important;
+    gap: 2px !important;
+    white-space: nowrap !important;
+    border-radius: 4px !important;
+  }
+
+  .credit-cards-month-bar .dashboard-months-grid {
+    display: grid !important;
+    grid-template-columns: repeat(6, 1fr) !important;
+    gap: 3px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .credit-cards-month-bar .dashboard-month-btn {
+    padding: 2px 1px !important;
+    min-height: 24px !important;
+    border-radius: 5px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+  }
+
+  .credit-cards-month-bar .month-name-row {
+    font-size: 8.5px !important;
+    line-height: 1 !important;
+  }
+
+  .credit-cards-month-bar .month-net-row {
+    font-size: 7px !important;
+    line-height: 1 !important;
+    margin-top: 1px !important;
+  }
+
+    /* Calculation Mode bar below Month: No background, title & toggle side-by-side */
+  .credit-cards-calc-mode-bar {
+    display: flex !important;
+    flex-direction: row !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 2px 0 !important;
+    background: transparent !important;
+    border: none !important;
+    gap: 6px !important;
+    margin-bottom: 12px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .credit-cards-calc-mode-buttons {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 4px !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    flex-shrink: 0 !important;
+  }
+
+  .credit-cards-calc-mode-buttons button {
+    padding: 4px 6px !important;
+    font-size: 9px !important;
+    border-radius: 6px !important;
+    white-space: nowrap !important;
+    min-height: auto !important;
+    cursor: pointer !important;
+  }
+
+  /* KPI Card Titles & Footers Wrapping (Current Outstanding & Credit Utilization) */
+  .kpi-title-wrap {
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.15 !important;
+    font-size: 8.5px !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  .kpi-desc-wrap {
+    white-space: normal !important;
+    word-break: break-word !important;
+    line-height: 1.25 !important;
+    font-size: 8.5px !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  .kpi-util-footer {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 3px !important;
+    white-space: normal !important;
+    font-size: 8px !important;
+  }
+
+  /* Linked Add-on Card Strip under the Card on Mobile (Typography matching Card micro-fonts) */
+  .credit-card-addon-linked-strip {
+    padding: 3px 6px !important;
+    border-radius: 5px !important;
+    margin-top: -2px !important;
+  }
+
+  .credit-card-addon-linked-strip > div {
+    font-size: 6.5px !important;
+    gap: 3px !important;
+  }
+
+  .credit-card-addon-linked-strip span {
+    font-size: 6px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Credit Card Expandable Drawer on Mobile: Micro-typography exactly matching Card micro-fonts */
+  .credit-card-drawer {
+    background: var(--bg-card) !important;
+    font-family: var(--font-main) !important;
+  }
+
+  .credit-card-drawer .credit-card-drawer-inner {
+    padding: 0 !important;
+    font-family: var(--font-main) !important;
+  }
+
+  .credit-card-drawer-content {
+    padding: 6px 8px !important;
+    box-sizing: border-box !important;
+    font-family: var(--font-main) !important;
+  }
+
+  .cc-drawer-limits-row {
+    padding-bottom: 4px !important;
+    margin-bottom: 4px !important;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .cc-drawer-micro-label {
+    font-size: 5px !important;
+    line-height: 1 !important;
+    letter-spacing: 0.03em !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    text-transform: uppercase !important;
+    display: block !important;
+    margin-bottom: 1.5px !important;
+  }
+
+  .cc-drawer-limit-value {
+    font-size: 7.5px !important;
+    font-weight: 800 !important;
+    line-height: 1.1 !important;
+    color: #FFFFFF !important;
+    display: block !important;
+  }
+
+  .cc-drawer-spent-value {
+    font-size: 7.5px !important;
+    font-weight: 800 !important;
+    line-height: 1.1 !important;
+    color: #EF4444 !important;
+    display: block !important;
+  }
+
+  .cc-drawer-cat-title {
+    font-size: 5.5px !important;
+    font-weight: 800 !important;
+    letter-spacing: 0.03em !important;
+    text-transform: uppercase !important;
+    color: rgba(255, 255, 255, 0.65) !important;
+    margin-bottom: 3px !important;
+  }
+
+  .cc-drawer-cat-list {
+    gap: 3.5px !important;
+  }
+
+  .cc-drawer-cat-item {
+    margin-bottom: 1px !important;
+  }
+
+  .cc-drawer-cat-name {
+    font-size: 6.2px !important;
+    font-weight: 700 !important;
+    line-height: 1.1 !important;
+    color: #FFFFFF !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    max-width: 75px !important;
+  }
+
+  .cc-drawer-cat-amount {
+    font-size: 6.2px !important;
+    font-weight: 700 !important;
+    line-height: 1.1 !important;
+    color: #EF4444 !important;
+  }
+
+  .cc-drawer-cat-pct {
+    font-size: 5.2px !important;
+    line-height: 1.1 !important;
+    color: rgba(255, 255, 255, 0.55) !important;
+  }
+
+  .cc-drawer-cat-bar {
+    height: 2px !important;
+    margin-top: 1.5px !important;
+  }
+
+  .cc-drawer-empty,
+  .cc-drawer-empty-addon {
+    font-size: 5.5px !important;
+    padding: 4px 6px !important;
+    border-radius: 4px !important;
+  }
+
+  .cc-drawer-empty-addon div {
+    font-size: 5.5px !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Ledger card and monthly flow gap on mobile */
+  .cc-ledger-card {
+    margin-bottom: 20px !important;
+  }
+  .cc-monthly-flow-card {
+    margin-top: 20px !important;
+    margin-bottom: 20px !important;
+  }
+
+  /* Ledger Header on Mobile: Title + ONLY '+' icon button */
+  .cc-ledger-header {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    width: 100% !important;
+    margin-bottom: 10px !important;
+  }
+
+  .cc-ledger-add-spend-btn {
+    width: 32px !important;
+    height: 32px !important;
+    min-width: 32px !important;
+    padding: 0 !important;
+    border-radius: 8px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+  }
+
+  .cc-ledger-add-spend-btn span {
+    display: none !important;
+  }
+
+  /* Filter toolbar completely removed on mobile as requested */
+  .cc-ledger-filter-toolbar {
+    display: none !important;
+  }
+
+    /* Centered Table Headers across all tables */
+  table th, .sticky-table-header th {
+    text-align: center !important;
+    font-size: 10.5px !important;
+    padding: 8px 10px !important;
+  }
+
+  table td {
+    font-size: 11px !important;
+    padding: 7px 10px !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .hide-on-desktop {
+    display: none !important;
   }
 }

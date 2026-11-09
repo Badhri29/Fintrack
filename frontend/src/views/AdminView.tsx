@@ -767,14 +767,7 @@ export const AdminView: React.FC<AdminViewProps> = () => {
         </div>
 
         {/* 4 Top Stat Cards (From Figma Screenshot 3) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: 16,
-            marginBottom: 32
-          }}
-        >
+        <div className="kpi-grid admin-kpi-grid">
           {/* Card 1: Total accounts */}
           <div style={{ background: cardBg, border: `1px solid ${borderColor}`, borderRadius: 16, padding: '20px 24px', boxShadow: isLight ? '0 2px 8px rgba(0,0,0,0.04)' : 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#60A5FA', marginBottom: 12 }}>

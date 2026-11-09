@@ -798,20 +798,20 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
               </button>
             </div>
 
-            {/* User Profile Card inside Drawer with Quick Logout */}
+            {/* User Profile Card inside Drawer with Quick Logout (Compact) */}
             <div
               className="mobile-drawer-user-card"
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', margin: '8px 0', borderRadius: 10 }}
             >
               <div
                 onClick={() => {
                   setIsMobileMenuOpen(false);
                   onOpenProfile?.();
                 }}
-                style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1, cursor: 'pointer' }}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1, cursor: 'pointer' }}
                 title="Click to view & edit profile"
               >
-                <div className="user-avatar" style={{ width: 42, height: 42, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div className="user-avatar" style={{ width: 34, height: 34, overflow: 'hidden', padding: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 13 }}>
                   {profilePhoto ? (
                     <img src={profilePhoto} alt={user?.name || 'Profile'} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} />
                   ) : (
@@ -819,24 +819,24 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                   )}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {user?.name || 'User'}
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {user?.email || 'user@fintrack.app'}
-                  </div>
-                  <div style={{ marginTop: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
                     <span style={{
-                      fontSize: 9.5,
+                      fontSize: 8.5,
                       fontWeight: 800,
-                      padding: '2px 6px',
+                      padding: '1px 5px',
                       borderRadius: 4,
                       letterSpacing: '0.04em',
                       background: user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.15)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.15)' : 'rgba(100, 116, 139, 0.15)',
                       color: user?.subscriptionTier === 'ENTERPRISE' ? '#C084FC' : user?.subscriptionTier === 'PRO' ? '#60A5FA' : '#94A3B8',
                       border: `1px solid ${user?.subscriptionTier === 'ENTERPRISE' ? 'rgba(168, 85, 247, 0.3)' : user?.subscriptionTier === 'PRO' ? 'rgba(59, 130, 246, 0.3)' : 'rgba(100, 116, 139, 0.25)'}`
                     }}>
-                      {user?.subscriptionTier || 'FREE'} PLAN
+                      {user?.subscriptionTier || 'FREE'}
+                    </span>
+                    <span style={{ fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {user?.email || 'user@fintrack.app'}
                     </span>
                   </div>
                 </div>
@@ -854,25 +854,25 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                   background: 'rgba(239, 68, 68, 0.15)',
                   border: '1px solid rgba(239, 68, 68, 0.35)',
                   color: '#EF4444',
-                  borderRadius: 8,
-                  padding: '6px 10px',
-                  fontSize: 11.5,
+                  borderRadius: 6,
+                  padding: '4px 8px',
+                  fontSize: 10.5,
                   fontWeight: 700,
                   cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 5,
+                  gap: 4,
                   flexShrink: 0
                 }}
                 title="Log Out Account"
               >
-                <LogOut size={13} />
+                <LogOut size={12} />
                 <span>Exit</span>
               </button>
             </div>
 
-            {/* Mobile Nav Links */}
-            <div className="mobile-drawer-links" style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 12 }}>
+            {/* Mobile Nav Links (Compact, Fits without scrolling) */}
+            <div className="mobile-drawer-links" style={{ display: 'flex', flexDirection: 'column', gap: 3, marginTop: 4 }}>
               {isAdmin && (
                 <button
                   type="button"
@@ -886,15 +886,16 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                     background: activeTab === 'Admin' ? 'rgba(124, 58, 237, 0.2)' : 'transparent',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 12,
-                    padding: '12px 16px',
-                    borderRadius: 10,
+                    gap: 10,
+                    padding: '8px 12px',
+                    borderRadius: 8,
                     border: 'none',
                     fontWeight: 700,
+                    fontSize: 13,
                     cursor: 'pointer'
                   }}
                 >
-                  <ShieldCheck size={18} />
+                  <ShieldCheck size={16} />
                   <span>Super Admin Portal</span>
                 </button>
               )}
@@ -913,17 +914,18 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, onTabChange, onOpenPr
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      gap: 12,
-                      padding: '12px 16px',
-                      borderRadius: 10,
+                      gap: 10,
+                      padding: '8px 12px',
+                      borderRadius: 8,
                       border: isTabActive(tab) ? '1px solid rgba(59, 130, 246, 0.4)' : '1px solid transparent',
                       color: isTabActive(tab) ? '#60A5FA' : 'var(--text-primary)',
                       background: isTabActive(tab) ? 'rgba(59, 130, 246, 0.15)' : 'transparent',
                       fontWeight: isTabActive(tab) ? 700 : 600,
+                      fontSize: 13,
                       cursor: 'pointer'
                     }}
                   >
-                    <Icon size={18} />
+                    <Icon size={16} />
                     <span>{tab}</span>
                   </button>
                 );

@@ -13,9 +13,8 @@ import {
   EyeOff,
   Edit3,
   CalendarDays,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
+  ChevronUp,
   PieChart,
   Activity,
   BarChart2,
@@ -115,6 +114,128 @@ export const isBillPaymentTx = (t: any): boolean => {
     desc.includes('card bill payment') ||
     (desc.includes('payment towards') && desc.includes('bill')) ||
     (cat.includes('utilities') && sub.includes('bill payment'))
+  );
+};
+
+// Smooth Drum Wheel Year Picker Component
+const YearWheelPicker: React.FC<{
+  selectedYear: number;
+  onYearChange: (yr: number) => void;
+}> = ({ selectedYear, onYearChange }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const ITEM_HEIGHT = 24;
+  const minYear = 2020;
+  const maxYear = 2035;
+  const years = useMemo(() => {
+    const list: number[] = [];
+    for (let y = minYear; y <= maxYear; y++) list.push(y);
+    return list;
+  }, []);
+
+  const isProgrammatic = useRef(false);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const targetIdx = selectedYear - minYear;
+    // Target scroll keeps selectedYear in the middle row (slot 2 of 3)
+    const targetScrollTop = targetIdx * ITEM_HEIGHT;
+    if (Math.abs(containerRef.current.scrollTop - targetScrollTop) > 2) {
+      isProgrammatic.current = true;
+      containerRef.current.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: 'smooth'
+      });
+      const timer = setTimeout(() => {
+        isProgrammatic.current = false;
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedYear]);
+
+  const handleArrow = (delta: number) => {
+    const nextYear = Math.max(minYear, Math.min(maxYear, selectedYear + delta));
+    if (nextYear !== selectedYear) {
+      onYearChange(nextYear);
+    }
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (isProgrammatic.current) return;
+    const scrollTop = e.currentTarget.scrollTop;
+    const nearestIdx = Math.round(scrollTop / ITEM_HEIGHT);
+    const nearestYear = minYear + nearestIdx;
+    if (nearestYear >= minYear && nearestYear <= maxYear && nearestYear !== selectedYear) {
+      onYearChange(nearestYear);
+    }
+  };
+
+  return (
+    <div className="credit-cards-vertical-year-picker">
+      <button
+        type="button"
+        onClick={() => handleArrow(-1)}
+        className="picker-arrow-btn"
+        title="Previous Year"
+        aria-label="Previous Year"
+      >
+        <ChevronUp size={12} />
+      </button>
+
+      <div
+        ref={containerRef}
+        className="picker-wheel-scroll no-scrollbar"
+        onScroll={handleScroll}
+        style={{
+          height: ITEM_HEIGHT * 3, // 72px for exactly 3 items: Prev, Current, Next
+          overflowY: 'scroll',
+          scrollSnapType: 'y mandatory',
+          scrollBehavior: 'smooth',
+          width: '100%',
+          position: 'relative'
+        }}
+      >
+        <div style={{ height: ITEM_HEIGHT }} />
+        {years.map(yr => {
+          const isActive = yr === selectedYear;
+          return (
+            <div
+              key={yr}
+              onClick={() => onYearChange(yr)}
+              className={`picker-year-item ${isActive ? 'active' : ''}`}
+              style={{
+                height: ITEM_HEIGHT,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                scrollSnapAlign: 'center',
+                cursor: 'pointer',
+                userSelect: 'none',
+                fontSize: isActive ? 12 : 9.5,
+                fontWeight: isActive ? 800 : 500,
+                color: isActive ? '#FFFFFF' : 'var(--text-muted)',
+                opacity: isActive ? 1 : 0.65,
+                background: isActive ? 'var(--accent-indigo)' : 'transparent',
+                borderRadius: isActive ? 6 : 0,
+                transition: 'all 0.18s ease'
+              }}
+            >
+              {yr}
+            </div>
+          );
+        })}
+        <div style={{ height: ITEM_HEIGHT }} />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => handleArrow(1)}
+        className="picker-arrow-btn"
+        title="Next Year"
+        aria-label="Next Year"
+      >
+        <ChevronDown size={12} />
+      </button>
+    </div>
   );
 };
 
@@ -319,6 +440,7 @@ export const CreditCardsView: React.FC = () => {
 
   // Hovered Card State: Automatically expands on hover, collapses on mouse leave with smooth grace window
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null);
+  const [expandedCardId, setExpandedCardId] = useState<string | null>(null);
   const hoverTimeoutRef = useRef<any>(null);
 
   const handleCardMouseEnter = (cardId: string) => {
@@ -1372,303 +1494,6 @@ export const CreditCardsView: React.FC = () => {
 
   return (
     <main className="fintrack-page-container">
-      {/* 1. Page Header with Synchronized Year Carousel */}
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16, marginBottom: 18, padding: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
-            <CreditCard size={22} />
-          </div>
-          <div>
-            <h1 className="page-title" style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Credit Cards & Statements</h1>
-            <p className="page-subtitle" style={{ margin: '2px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
-              Track real credit expenditures, utilization %, statements & live payments in real-time
-            </p>
-          </div>
-        </div>
-
-        {/* Dynamic Year Controls & Action Buttons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Synchronized 5-year carousel controls */}
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 4,
-              background: 'var(--bg-secondary)',
-              padding: '4px 6px',
-              borderRadius: 10,
-              border: '1px solid var(--border-color)'
-            }}
-          >
-            <button
-              type="button"
-              onClick={() => changeYear(selectedYear - 1)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                padding: '4px 6px',
-                borderRadius: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Previous Year"
-              aria-label="Previous Year"
-            >
-              <ChevronLeft size={16} />
-            </button>
-
-            {[
-              selectedYear - 2,
-              selectedYear - 1,
-              selectedYear,
-              selectedYear + 1,
-              selectedYear + 2
-            ].map(yr => (
-              <button
-                key={yr}
-                type="button"
-                onClick={() => changeYear(yr)}
-                style={{
-                  background: selectedYear === yr ? 'var(--accent-indigo)' : 'transparent',
-                  color: selectedYear === yr ? '#FFFFFF' : 'var(--text-secondary)',
-                  border: 'none',
-                  padding: '5px 10px',
-                  fontSize: 12,
-                  fontWeight: selectedYear === yr ? 700 : 500,
-                  borderRadius: 6,
-                  cursor: 'pointer'
-                }}
-              >
-                {yr}
-              </button>
-            ))}
-
-            <button
-              type="button"
-              onClick={() => changeYear(selectedYear + 1)}
-              style={{
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--text-secondary)',
-                cursor: 'pointer',
-                padding: '4px 6px',
-                borderRadius: 6,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center'
-              }}
-              title="Next Year"
-              aria-label="Next Year"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => changeYear(new Date().getFullYear())}
-            style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8 }}
-            title={`Go to current year (${new Date().getFullYear()})`}
-          >
-            <CalendarDays size={14} />
-            <span>Current Year</span>
-          </button>
-
-                    <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              if (!isEnterprise && cards.length >= cardLimit) {
-                setIsCardLimitModalOpen(true);
-              } else {
-                setIsAddCardOpen(true);
-              }
-            }}
-            style={{ padding: '6px 14px', fontSize: 13, display: isViewOnly ? 'none' : 'flex', alignItems: 'center', gap: 6 }}
-            title={!isEnterprise && cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
-          >
-            <Plus size={15} />
-            <span>{isEnterprise ? 'Add Card' : `Add Card (${cards.length}/${cardLimit})`}</span>
-          </button>
-
-          <button
-            type="button"
-            className="btn-primary"
-            onClick={() => {
-              if (cards.length === 0) {
-                setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
-                setTimeout(() => setBannerMsg(null), 3500);
-                setIsAddCardOpen(true);
-                return;
-              }
-              setSpendCard(cards[0]?.name || '');
-              setIsAddSpendOpen(true);
-            }}
-            style={{ padding: '6px 16px', fontSize: 13, display: isViewOnly ? 'none' : 'flex', alignItems: 'center', gap: 6 }}
-          >
-            <Plus size={15} />
-            <span>Add Credit Spend</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 2. Month Navigation Pills with Dynamic Width Fit & Active Filter Status */}
-      <div
-        className="no-scrollbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '7px 12px',
-          background: 'var(--bg-secondary)',
-          borderRadius: 14,
-          border: '1px solid var(--border-color)',
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          marginBottom: 20,
-          userSelect: 'none',
-          width: '100%',
-          boxSizing: 'border-box'
-        }}
-      >
-        {/* Active Filter Status Badge (solves empty space & gives clear active feedback) */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            padding: '5px 12px',
-            borderRadius: 8,
-            background: 'rgba(99, 102, 241, 0.12)',
-            border: '1px solid rgba(99, 102, 241, 0.3)',
-            color: 'var(--accent-indigo)',
-            flexShrink: 0
-          }}
-          title={`Active Filter: ${activeMonthStatusText} • Total Spend: ${currencyService.format(activePeriodSpend)} (${activePeriodUsagePct.toFixed(1)}%)`}
-        >
-          <CalendarDays size={14} />
-          <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
-            <span style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.06em', opacity: 0.85 }}>
-              Active Status
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 800, whiteSpace: 'nowrap' }}>
-              {activeMonthStatusText}
-            </span>
-          </div>
-        </div>
-
-        <div style={{ width: 1, height: 26, background: 'var(--border-color)', margin: '0 2px', flexShrink: 0 }} />
-
-        {/* 12 Months Pills (flex: 1 dynamically expands each month box to fit the full bar width) */}
-        {MONTH_NAMES.map((mName, idx) => {
-          const isSelected = selectedMonths.includes(idx);
-          const monthSpend = monthlySpendingValues[idx] || 0;
-          const monthUsagePct = totalCreditLimit > 0 ? (monthSpend / totalCreditLimit) * 100 : 0;
-          const utilColor = monthUsagePct > 50 ? '#EF4444' : monthUsagePct > 30 ? '#F59E0B' : '#10B981';
-
-          return (
-            <button
-              key={mName}
-              type="button"
-              onMouseDown={(e) => handleMonthMouseDown(idx, e)}
-              onMouseEnter={() => handleMonthMouseEnter(idx)}
-              onClick={(e) => e.preventDefault()}
-              style={{
-                flex: 1,
-                minWidth: 76,
-                background: isSelected ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
-                border: isSelected ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
-                color: isSelected ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-                fontWeight: isSelected ? 700 : 500,
-                padding: '5px 6px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
-                display: 'inline-flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2,
-                boxShadow: isSelected ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
-              }}
-              title={`${mName} ${selectedYear}: Total Spend ${currencyService.format(monthSpend)} (${monthUsagePct.toFixed(1)}% usage)`}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1.2 }}>
-                <span>{mName}</span>
-                <span
-                  style={{
-                    width: 10,
-                    marginLeft: 2,
-                    fontSize: 9,
-                    fontWeight: 800,
-                    display: 'inline-block',
-                    textAlign: 'center',
-                    opacity: isSelected ? 1 : 0,
-                    color: 'var(--accent-indigo)'
-                  }}
-                >
-                  ✓
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 700 }}>
-                <span style={{ color: monthSpend > 0 ? '#EF4444' : 'var(--text-muted)' }}>
-                  {monthSpend > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(monthSpend / 1000)}k` : '—'}
-                </span>
-                <span style={{ color: utilColor, fontSize: 9, fontWeight: 800, opacity: 0.9 }}>
-                  {monthUsagePct > 0 ? `${monthUsagePct.toFixed(1)}%` : '0%'}
-                </span>
-              </div>
-            </button>
-          );
-        })}
-
-        {/* Full Year Option */}
-        {(() => {
-          const annualUsagePct = totalCreditLimit > 0 ? (annualTotalSpent / totalCreditLimit) * 100 : 0;
-          const isFullYear = selectedMonths.length === 12;
-
-          return (
-            <button
-              type="button"
-              onClick={selectFullYear}
-              style={{
-                flex: 1.15,
-                minWidth: 88,
-                background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
-                border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
-                color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-                fontWeight: isFullYear ? 700 : 500,
-                padding: '5px 8px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
-                display: 'inline-flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2
-              }}
-              title={`View entire ${selectedYear} (${currencyService.format(annualTotalSpent)})`}
-            >
-              <div style={{ fontSize: 12, fontWeight: 700 }}>
-                Full Year {isFullYear ? '✓' : ''}
-              </div>
-              <div style={{ fontSize: 10, color: '#EF4444', fontWeight: 700 }}>
-                {annualTotalSpent > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(annualTotalSpent / 1000)}k` : '0'} • {annualUsagePct.toFixed(1)}%
-              </div>
-            </button>
-          );
-        })()}
-      </div>
-
       {bannerMsg && (
         <div
           style={{
@@ -1682,7 +1507,7 @@ export const CreditCardsView: React.FC = () => {
             gap: 10,
             fontSize: 13,
             fontWeight: 600,
-            marginBottom: 20
+            marginBottom: 16
           }}
         >
           {bannerMsg.type === 'success' ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
@@ -1690,84 +1515,8 @@ export const CreditCardsView: React.FC = () => {
         </div>
       )}
 
-      {/* Credit Utilization Toggle Bar (Requirement: Toggle between Card Only vs With Loans/EMI) */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 12,
-          padding: '12px 18px',
-          background: 'var(--bg-card)',
-          border: '1px solid var(--border-color)',
-          borderRadius: 14,
-          marginBottom: 20
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(99, 102, 241, 0.12)', color: '#818CF8', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <CreditCard size={18} />
-          </div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
-              Credit Utilization &amp; Outstanding Calculation Mode
-            </div>
-            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
-              {includeLoansInUtilization
-                ? 'Active Mode: Including direct card spend + active linked Loan EMIs & principal'
-                : 'Active Mode: Pure direct credit card transactions only (excluding linked loans)'}
-            </div>
-          </div>
-        </div>
-
-        {/* Segmented Toggle Button */}
-        <div style={{ display: 'inline-flex', background: 'rgba(255, 255, 255, 0.05)', padding: 3, borderRadius: 10, border: '1px solid var(--border-color)' }}>
-          <button
-            type="button"
-            onClick={() => handleToggleLoansUtilization(false)}
-            style={{
-              padding: '7px 15px',
-              borderRadius: 8,
-              border: 'none',
-              background: !includeLoansInUtilization ? 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)' : 'transparent',
-              color: !includeLoansInUtilization ? '#FFF' : 'var(--text-secondary)',
-              fontWeight: 700,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.2s'
-            }}
-          >
-            <span>💳 Only Credit Card Transactions</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleToggleLoansUtilization(true)}
-            style={{
-              padding: '7px 15px',
-              borderRadius: 8,
-              border: 'none',
-              background: includeLoansInUtilization ? 'linear-gradient(135deg, #7C3AED 0%, #6366F1 100%)' : 'transparent',
-              color: includeLoansInUtilization ? '#FFF' : 'var(--text-secondary)',
-              fontWeight: 700,
-              fontSize: 12,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 6,
-              transition: 'all 0.2s'
-            }}
-          >
-            <span>🏦 With Credit Card Loan &amp; EMI</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 3. KPI Overview Cards */}
-      <div className="kpi-grid" style={{ marginBottom: 24 }}>
+      {/* 1. KPI Overview Cards (Positioned FIRST at the very top as requested) */}
+      <div className="kpi-grid" style={{ marginBottom: 16 }}>
         {/* Total Credit Limit */}
         <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -1784,18 +1533,18 @@ export const CreditCardsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Current Outstanding Spends (Reduced by payments) */}
+        {/* Current Outstanding Spends */}
         <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">CURRENT OUTSTANDING</span>
-            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444' }}>
+            <span className="kpi-title kpi-title-wrap">CURRENT OUTSTANDING</span>
+            <div style={{ width: 34, height: 34, borderRadius: 8, background: 'rgba(239, 68, 68, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#EF4444', flexShrink: 0 }}>
               <TrendingUp size={18} />
             </div>
           </div>
           <div className="kpi-value" style={{ marginTop: 8, color: totalOutstanding > 0 ? '#EF4444' : '#10B981' }}>
             {currencyService.format(totalOutstanding)}
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+          <div className="kpi-desc-wrap" style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
             Net balance (Total Spends minus Bill Payments)
           </div>
         </div>
@@ -1819,15 +1568,16 @@ export const CreditCardsView: React.FC = () => {
         {/* Credit Utilization Gauge */}
         <div className="kpi-card" style={{ position: 'relative', overflow: 'hidden' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <span className="kpi-title">CREDIT UTILIZATION</span>
+            <span className="kpi-title kpi-title-wrap">CREDIT UTILIZATION</span>
             <span
               style={{
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: 700,
-                padding: '2px 8px',
+                padding: '2px 6px',
                 borderRadius: 999,
                 background: utilizationRatio <= 30 ? 'rgba(16, 185, 129, 0.15)' : utilizationRatio <= 50 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                color: utilizationRatio <= 30 ? '#10B981' : utilizationRatio <= 50 ? '#F59E0B' : '#EF4444'
+                color: utilizationRatio <= 30 ? '#10B981' : utilizationRatio <= 50 ? '#F59E0B' : '#EF4444',
+                flexShrink: 0
               }}
             >
               {utilizationRatio <= 30 ? 'EXCELLENT' : utilizationRatio <= 50 ? 'MODERATE' : 'HIGH'}
@@ -1846,7 +1596,7 @@ export const CreditCardsView: React.FC = () => {
               }}
             />
           </div>
-<div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="kpi-desc-wrap kpi-util-footer" style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span>Recommended: &lt;30%</span>
             <span style={{ color: includeLoansInUtilization ? '#A78BFA' : '#60A5FA', fontWeight: 700 }}>
               {includeLoansInUtilization ? '• Mode: With Loans & EMI' : '• Mode: Card Only'}
@@ -1855,22 +1605,262 @@ export const CreditCardsView: React.FC = () => {
         </div>
       </div>
 
+      {/* 2. Section Header: Title */}
+      <div className="page-header credit-cards-page-header" style={{ marginBottom: 10, padding: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(99, 102, 241, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366F1' }}>
+            <CreditCard size={19} />
+          </div>
+          <div>
+            <h1 className="page-title" style={{ margin: 0, fontSize: 19, fontWeight: 800 }}>Credit Cards &amp; Statements</h1>
+            <p className="page-subtitle hide-on-mobile" style={{ margin: '2px 0 0', fontSize: 12, color: 'var(--text-secondary)' }}>
+              Track real credit expenditures, utilization %, statements &amp; live payments in real-time
+            </p>
+          </div>
+        </div>
+      </div>
 
+      {/* Dedicated Single Row: Current Year, Add Card, Add Spend */}
+      <div className="credit-cards-actions-container" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6, width: '100%', marginBottom: 12 }}>
+        <button
+          type="button"
+          className="btn-secondary credit-cards-current-year-btn"
+          onClick={() => changeYear(new Date().getFullYear())}
+          title={`Go to current year (${new Date().getFullYear()})`}
+          style={{ width: '100%', justifyContent: 'center', padding: '7px 4px', fontSize: 10.5, whiteSpace: 'nowrap' }}
+        >
+          <CalendarDays size={13} />
+          <span>Current Year</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-secondary credit-cards-add-card-btn"
+          onClick={() => {
+            if (!isEnterprise && cards.length >= cardLimit) {
+              setIsCardLimitModalOpen(true);
+            } else {
+              setIsAddCardOpen(true);
+            }
+          }}
+          style={{ display: isViewOnly ? 'none' : 'inline-flex', width: '100%', justifyContent: 'center', padding: '7px 4px', fontSize: 10.5, whiteSpace: 'nowrap' }}
+          title={!isEnterprise && cards.length >= cardLimit ? `Card limit reached (${cards.length}/${cardLimit}). Click to request increase.` : 'Add new credit card'}
+        >
+          <Plus size={14} />
+          <span>Add Card</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn-primary credit-cards-add-spend-btn"
+          onClick={() => {
+            if (cards.length === 0) {
+              setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
+              setTimeout(() => setBannerMsg(null), 3500);
+              setIsAddCardOpen(true);
+              return;
+            }
+            setSpendCard(cards[0]?.name || '');
+            setIsAddSpendOpen(true);
+          }}
+          style={{ display: isViewOnly ? 'none' : 'inline-flex', width: '100%', justifyContent: 'center', padding: '7px 4px', fontSize: 10.5, whiteSpace: 'nowrap' }}
+        >
+          <Plus size={14} />
+          <span>Add Spend</span>
+        </button>
+      </div>
+
+      {/* 3. Year & Month Selection (Both heights increased equally as requested) */}
+      <div className="credit-cards-year-month-row" style={{ display: 'flex', gap: 8, alignItems: 'stretch', marginBottom: 14 }}>
+        {/* Left: Smooth Scrolling Wheel Year Picker */}
+        <YearWheelPicker selectedYear={selectedYear} onYearChange={changeYear} />
+
+        {/* Right: Month Selector Grid (6x2 with Active Spend and Full Year) */}
+        <div className="dashboard-month-selector-bar credit-cards-month-bar" style={{ flex: 1, margin: 0 }}>
+          <div className="dashboard-month-bar-header cc-month-bar-header">
+            <div className="cc-month-active-group" style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+              <span className="hide-on-mobile" style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Month:
+              </span>
+              <span className="cc-month-active-text" style={{ fontSize: 10, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                Active: <strong style={{ color: 'var(--text-primary)' }}>{activeMonthStatusText}</strong>
+              </span>
+            </div>
+
+            <div className="cc-month-spend-group" style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+              <div className="cc-month-spend-text" style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                Spend: <strong style={{ color: 'var(--accent-indigo)' }}>{currencyService.format(activePeriodSpend)}</strong> ({activePeriodUsagePct.toFixed(0)}%)
+              </div>
+
+              {(() => {
+                const annualUsagePct = totalCreditLimit > 0 ? (annualTotalSpent / totalCreditLimit) * 100 : 0;
+                const isFullYear = selectedMonths.length === 12;
+
+                return (
+                  <button
+                    type="button"
+                    onClick={selectFullYear}
+                    className="dashboard-full-year-btn cc-full-year-btn"
+                    style={{
+                      background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                      border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                      color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                      fontWeight: isFullYear ? 700 : 500,
+                      padding: '2px 6px',
+                      borderRadius: 5,
+                      cursor: 'pointer',
+                      fontSize: 10,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 3
+                    }}
+                    title={`Full Year ${selectedYear}: ${currencyService.format(annualTotalSpent)} (${annualUsagePct.toFixed(1)}%)`}
+                  >
+                    <span>Full Year</span>
+                    {isFullYear && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                    <span style={{ fontSize: 8.5, color: annualTotalSpent > 0 ? '#EF4444' : 'var(--text-muted)', fontWeight: 700 }}>
+                      {annualTotalSpent > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(annualTotalSpent / 1000)}k` : '0'}
+                    </span>
+                  </button>
+                );
+              })()}
+            </div>
+          </div>
+
+          <div className="dashboard-months-grid no-scrollbar">
+            {MONTH_NAMES.map((mName, idx) => {
+              const isSelected = selectedMonths.includes(idx);
+              const monthSpend = monthlySpendingValues[idx] || 0;
+              const monthUsagePct = totalCreditLimit > 0 ? (monthSpend / totalCreditLimit) * 100 : 0;
+              const utilColor = monthUsagePct > 50 ? '#EF4444' : monthUsagePct > 30 ? '#F59E0B' : '#10B981';
+              const compactSpend = monthSpend > 0 ? `${currencyService.getActiveCurrencyConfig().symbol}${Math.round(monthSpend / 1000)}k` : '—';
+
+              return (
+                <button
+                  key={mName}
+                  type="button"
+                  className="dashboard-month-btn"
+                  onMouseDown={(e) => handleMonthMouseDown(idx, e)}
+                  onMouseEnter={() => handleMonthMouseEnter(idx)}
+                  onClick={(e) => e.preventDefault()}
+                  style={{
+                    background: isSelected ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                    border: isSelected ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                    color: isSelected ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                    fontWeight: isSelected ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.18s ease'
+                  }}
+                  title={`${mName} ${selectedYear}: ${currencyService.format(monthSpend)} (${monthUsagePct.toFixed(1)}%)`}
+                >
+                  <div className="month-name-row" style={{ fontWeight: isSelected ? 800 : 600 }}>
+                    {mName}
+                  </div>
+                  <div className="month-net-row" style={{ color: utilColor, fontWeight: 700 }}>
+                    {compactSpend}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Calculation Mode Bar (No background, title & toggle side-by-side in single line) */}
+      <div
+        className="credit-cards-calc-mode-bar"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 8,
+          padding: '2px 0',
+          background: 'transparent',
+          border: 'none',
+          marginBottom: 12,
+          width: '100%',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+          <CreditCard size={13} style={{ color: 'var(--accent-indigo)' }} />
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
+            Calculation Mode:
+          </div>
+        </div>
+
+        <div
+          className="credit-cards-calc-mode-buttons"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            background: 'transparent',
+            padding: 0,
+            border: 'none',
+            flexShrink: 0
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => handleToggleLoansUtilization(false)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: !includeLoansInUtilization ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+              background: !includeLoansInUtilization ? 'var(--accent-indigo)' : 'transparent',
+              color: !includeLoansInUtilization ? '#FFFFFF' : 'var(--text-secondary)',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span>💳 Spends Only</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleToggleLoansUtilization(true)}
+            style={{
+              padding: '4px 8px',
+              borderRadius: 6,
+              border: includeLoansInUtilization ? '1px solid var(--accent-indigo)' : '1px solid var(--border-color)',
+              background: includeLoansInUtilization ? 'var(--accent-indigo)' : 'transparent',
+              color: includeLoansInUtilization ? '#FFFFFF' : 'var(--text-secondary)',
+              fontSize: 10,
+              fontWeight: 700,
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              whiteSpace: 'nowrap',
+              transition: 'all 0.15s ease'
+            }}
+          >
+            <span>🏦 With Loans &amp; EMI</span>
+          </button>
+        </div>
+      </div>
 
       {/* 4. Visual Credit Cards Section with Expandable Details & Category Usage Tray */}
       <div style={{ marginBottom: 32 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
           <div>
-            <h2 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
               Your Active Cards ({cards.length})
             </h2>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span className="hide-on-mobile" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Front shows available limit, used %, due & bill dates • Hover over any card to view category spending & total limits
             </span>
           </div>
 
           {cards.length > 0 && (
-          <div className="no-scrollbar" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: '100%' }}>
+          <div className="no-scrollbar hide-on-mobile" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, maxWidth: '100%' }}>
             <button
               type="button"
               onClick={() => setSelectedCardId('all')}
@@ -1913,6 +1903,33 @@ export const CreditCardsView: React.FC = () => {
           </div>
           )}
         </div>
+
+        {cards.length > 0 && (
+          <div className="hide-on-desktop" style={{ marginBottom: 12 }}>
+            <select
+              value={selectedCardId}
+              onChange={e => setSelectedCardId(e.target.value)}
+              className="modal-select"
+              style={{
+                width: '100%',
+                padding: '7px 10px',
+                fontSize: 12,
+                fontWeight: 600,
+                borderRadius: 8,
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                color: 'var(--text-primary)'
+              }}
+            >
+              <option value="all">💳 All Cards ({cards.length})</option>
+              {cards.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.bank} - {c.name} (•• {c.last4})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div>
           {/* Cards Grid */}
@@ -1968,7 +1985,7 @@ export const CreditCardsView: React.FC = () => {
             const cardUtil = cardStats.util;
             const isSelected = selectedCardId === c.id;
             const isRevealed = Boolean(revealedCards[c.id]);
-            const isExpanded = hoveredCardId === c.id;
+            const isExpanded = expandedCardId === c.id || hoveredCardId === c.id;
 
             // Sensitive data formatting
             let displayedNumber = `•••• •••• •••• ${c.last4}`;
@@ -1995,11 +2012,16 @@ export const CreditCardsView: React.FC = () => {
               <div key={c.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div
                 className={`credit-card-container ${isExpanded ? 'is-hovered' : ''}`}
+                onClick={() => {
+                  setSelectedCardId(prev => (prev === c.id ? 'all' : c.id));
+                  setExpandedCardId(prev => (prev === c.id ? null : c.id));
+                }}
                 onMouseEnter={() => handleCardMouseEnter(c.id)}
                 onMouseLeave={() => handleCardMouseLeave(c.id)}
                 style={{
                   position: 'relative',
                   overflow: 'hidden',
+                  cursor: 'pointer',
                   boxShadow: isSelected ? '0 14px 34px rgba(99, 102, 241, 0.45)' : '0 8px 24px rgba(0, 0, 0, 0.35)',
                   border: isSelected ? '2px solid #818CF8' : '1px solid rgba(255, 255, 255, 0.14)'
                 }}
@@ -2068,21 +2090,16 @@ export const CreditCardsView: React.FC = () => {
                 )}
                 {/* Physical Card Front Frame */}
                 <div
+                  className="credit-card-front-frame"
                   onClick={() => {
                     setSelectedCardId(isSelected ? 'all' : c.id);
-                    setHoveredCardId(prev => (prev === c.id ? null : c.id));
+                    setExpandedCardId(prev => (prev === c.id ? null : c.id));
                   }}
                   style={{
                     background: c.gradient,
-                    padding: '22px 24px 16px',
                     color: '#FFFFFF',
                     position: 'relative',
                     cursor: 'pointer',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    minHeight: 228,
-                    height: '100%',
                     boxSizing: 'border-box'
                   }}
                 >
@@ -2090,41 +2107,41 @@ export const CreditCardsView: React.FC = () => {
                   <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255, 255, 255, 0.05)', pointerEvents: 'none' }} />
                   <div style={{ position: 'absolute', bottom: -40, right: 30, width: 120, height: 120, borderRadius: '50%', background: 'rgba(255, 255, 255, 0.03)', pointerEvents: 'none' }} />
 
-                  {/* Card Top: Bank, Network & Action Icons */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div>
+                  {/* 1. Card Top: Bank, Network & Action Icons */}
+                  <div className="cc-front-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div className="cc-front-brand">
                       {c.isAddon && (
-                        <div style={{ marginBottom: 4 }}>
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(99, 102, 241, 0.4)', border: '1px solid rgba(165, 180, 252, 0.5)', padding: '2px 8px', borderRadius: 4, fontSize: 10, fontWeight: 800, color: '#FFF' }}>
-                            🔗 ADD-ON CARD {c.holderName ? `(${c.holderName})` : ''} • SHARED LIMIT
+                        <div style={{ marginBottom: 2 }}>
+                          <span className="credit-card-addon-badge">
+                            <span className="hide-on-mobile">🔗 ADD-ON CARD {c.holderName ? `(${c.holderName})` : ''} • SHARED LIMIT</span>
+                            <span className="hide-on-desktop">🔗 Add-on</span>
                           </span>
                         </div>
                       )}
-                      <span style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.9)' }}>
+                      <span className="credit-card-bank-label">
                         {c.bank}
                       </span>
-                      <div style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.7)', marginTop: 2 }}>
+                      <div className="credit-card-name-label">
                         {c.name}
                       </div>
                     </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 15, fontWeight: 800, fontStyle: 'italic', letterSpacing: '0.05em', color: '#FFF' }}>
+                    <div className="cc-front-actions" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span className="credit-card-network-logo">
                         {c.network}
                       </span>
 
-                      {/* Eye Icon: Mask / Unmask Sensitive Card Data */}
+                      {/* Eye Icon */}
                       <button
                         type="button"
                         onClick={(e) => toggleCardVisibility(c.id, e)}
                         title={isRevealed ? 'Hide sensitive card details' : 'Reveal card number, CVV & expiry'}
+                        className="cc-action-btn"
                         style={{
                           background: 'rgba(255, 255, 255, 0.12)',
                           border: '1px solid rgba(255, 255, 255, 0.2)',
                           color: isRevealed ? '#FDE047' : 'rgba(255, 255, 255, 0.75)',
                           cursor: 'pointer',
-                          padding: 5,
-                          borderRadius: 6,
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'center'
@@ -2139,13 +2156,12 @@ export const CreditCardsView: React.FC = () => {
                           type="button"
                           onClick={(e) => handleOpenEditCard(c, e)}
                           title="Edit card details"
+                          className="cc-action-btn"
                           style={{
                             background: 'rgba(255, 255, 255, 0.12)',
                             border: '1px solid rgba(255, 255, 255, 0.2)',
                             color: 'rgba(255, 255, 255, 0.75)',
                             cursor: 'pointer',
-                            padding: 5,
-                            borderRadius: 6,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center'
@@ -2164,12 +2180,12 @@ export const CreditCardsView: React.FC = () => {
                             setCardToDelete(c);
                           }}
                           title="Delete card"
+                          className="cc-action-btn"
                           style={{
                             background: 'transparent',
                             border: 'none',
                             color: 'rgba(255, 255, 255, 0.45)',
-                            cursor: 'pointer',
-                            padding: 4
+                            cursor: 'pointer'
                           }}
                         >
                           <Trash2 size={14} />
@@ -2178,68 +2194,53 @@ export const CreditCardsView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Chip, Contactless Icon and 16-Digit Number aligned side-by-side */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, margin: '14px 0 8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 34, height: 26, borderRadius: 5, background: 'linear-gradient(135deg, #FDE68A 0%, #D97706 100%)', border: '1px solid #B45309', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
-                        <div style={{ position: 'absolute', top: 6, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
-                        <div style={{ position: 'absolute', top: 12, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
-                        <div style={{ position: 'absolute', top: 18, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                  {/* 2. Chip, Contactless Icon and 16-Digit Number */}
+                  <div className="cc-front-chip-number-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <div className="cc-sim-chip" style={{ borderRadius: 4, background: 'linear-gradient(135deg, #FDE68A 0%, #D97706 100%)', border: '1px solid #B45309', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
+                        <div style={{ position: 'absolute', top: '25%', left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                        <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
+                        <div style={{ position: 'absolute', top: '75%', left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.3)' }} />
                       </div>
-                      <div style={{ fontSize: 13, color: 'rgba(255, 255, 255, 0.75)' }}>
+                      <div className="cc-contactless-wave" style={{ color: 'rgba(255, 255, 255, 0.75)' }}>
                         <span style={{ transform: 'rotate(90deg)', display: 'inline-block' }}>)))</span>
                       </div>
                     </div>
 
-                    {/* 16-Digit Card Number right next to SIM Chip */}
-                    <div style={{ fontSize: 15, letterSpacing: '0.14em', fontFamily: 'monospace', fontWeight: 700, color: '#FFF', textShadow: '0 2px 4px rgba(0,0,0,0.5)', whiteSpace: 'nowrap' }}>
-                      {displayedNumber}
+                    <div className="cc-number-wrap">
+                      <span className="credit-card-number-full">{displayedNumber}</span>
                     </div>
                   </div>
 
-                  {/* Cardholder, Expiry & CVV */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 12 }}>
-                    <div>
-                      <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.6)', letterSpacing: '0.05em', display: 'block' }}>
-                        CARDHOLDER
-                      </span>
-                      <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {user?.name || 'CARDMEMBER'}
-                      </span>
+                  {/* 3. Cardholder, Expiry & CVV */}
+                  <div className="cc-front-holder-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                    <div className="cc-holder-col">
+                      <span className="cc-micro-label">CARDHOLDER</span>
+                      <span className="cc-holder-name">{user?.name || 'CARDMEMBER'}</span>
                     </div>
 
-                    <div style={{ display: 'flex', gap: 18 }}>
-                      <div>
-                        <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.6)', letterSpacing: '0.05em', display: 'block' }}>
-                          EXPIRES
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
-                          {displayedExpiry}
-                        </span>
+                    <div className="cc-expiry-col" style={{ display: 'flex' }}>
+                      <div className="cc-exp-sub">
+                        <span className="cc-micro-label">EXPIRES</span>
+                        <span className="cc-mono-val">{displayedExpiry}</span>
                       </div>
-
-                      <div>
-                        <span style={{ fontSize: 9, textTransform: 'uppercase', color: 'rgba(255, 255, 255, 0.6)', letterSpacing: '0.05em', display: 'block' }}>
-                          CVV
-                        </span>
-                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'monospace' }}>
-                          {displayedCvv}
-                        </span>
+                      <div className="cc-cvv-sub">
+                        <span className="cc-micro-label">CVV</span>
+                        <span className="cc-mono-val">{displayedCvv}</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Front-of-Card Stats: Available Limit, Used Percentage, Bill & Due Date */}
-                  <div style={{ marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(255, 255, 255, 0.15)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                      <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.9)' }}>
-                        Available Limit: <strong style={{ color: '#10B981' }}>{currencyService.format(availOnCard)}</strong>
+                  {/* 4 & 5. Front-of-Card Stats: Available Limit, Used Percentage & Progress Bar */}
+                  <div className="cc-front-stats-wrap">
+                    <div className="cc-limit-line" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span className="cc-avail-limit-text">
+                        Avail: <strong style={{ color: '#10B981' }}>{currencyService.format(availOnCard)}</strong>
                       </span>
                       <span
+                        className="cc-used-badge"
                         style={{
-                          fontSize: 10,
                           fontWeight: 800,
-                          padding: '1px 7px',
                           borderRadius: 999,
                           background: cardUtil <= 30 ? 'rgba(16, 185, 129, 0.25)' : cardUtil <= 50 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(239, 68, 68, 0.25)',
                           color: cardUtil <= 30 ? '#34D399' : cardUtil <= 50 ? '#FBBF24' : '#F87171'
@@ -2250,8 +2251,9 @@ export const CreditCardsView: React.FC = () => {
                     </div>
 
                     {/* Utilization Progress bar */}
-                    <div style={{ width: '100%', height: 5, background: 'rgba(255, 255, 255, 0.2)', borderRadius: 999, overflow: 'hidden' }}>
+                    <div className="cc-progress-bar-track" style={{ width: '100%', background: 'rgba(255, 255, 255, 0.2)', borderRadius: 999, overflow: 'hidden' }}>
                       <div
+                        className="cc-progress-bar-fill"
                         style={{
                           width: `${Math.min(100, cardUtil)}%`,
                           height: '100%',
@@ -2260,81 +2262,78 @@ export const CreditCardsView: React.FC = () => {
                         }}
                       />
                     </div>
+                  </div>
 
-                    {/* Card Due Day, Bill Day & Pay Bill Action */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 10, minHeight: 32 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 11, color: 'rgba(255, 255, 255, 0.8)' }}>
-                          Bill: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
+                  {/* 6. Card Due Day, Bill Day & Pay Bill Action */}
+                  <div className="cc-front-due-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="cc-due-info" style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span className="cc-due-text">
+                        Bill: <strong>{c.billingDay}th</strong> • Due: <strong>{c.dueDay}th</strong>
+                      </span>
+                      {cardStats.activeLoanEmis > 0 && (
+                        <span
+                          className="cc-emi-badge"
+                          style={{
+                            fontWeight: 800,
+                            color: '#38BDF8',
+                            background: 'rgba(56, 189, 248, 0.22)',
+                            border: '1px solid rgba(56, 189, 248, 0.45)',
+                            display: 'inline-flex',
+                            alignItems: 'center'
+                          }}
+                          title={`Active Loan EMI: ${currencyService.format(cardStats.activeLoanEmis)}/month`}
+                        >
+                          💳 EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
                         </span>
-                        {cardStats.activeLoanEmis > 0 && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              fontWeight: 800,
-                              color: '#38BDF8',
-                              background: 'rgba(56, 189, 248, 0.22)',
-                              border: '1px solid rgba(56, 189, 248, 0.45)',
-                              padding: '2px 8px',
-                              borderRadius: 5,
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4
-                            }}
-                            title={`Active Loan EMI: ${currencyService.format(cardStats.activeLoanEmis)}/month`}
-                          >
-                            💳 EMI: {currencyService.format(cardStats.activeLoanEmis)}/mo
-                          </span>
-                        )}
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPayCardName(c.name);
-                          setPayAmount(cardStats.netOutstanding > 0 ? String(cardStats.netOutstanding) : '');
-                          setIsPayBillOpen(true);
-                        }}
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.22)',
-                          border: '1px solid rgba(255, 255, 255, 0.35)',
-                          color: '#FFF',
-                          padding: '4px 12px',
-                          borderRadius: 6,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          cursor: 'pointer',
-                          letterSpacing: '0.02em',
-                          whiteSpace: 'nowrap',
-                          transition: 'all 0.2s'
-                        }}
-                      >
-                        Pay Bill
-                      </button>
+                      )}
                     </div>
+
+                    <button
+                      type="button"
+                      className="cc-pay-bill-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPayCardName(c.name);
+                        setPayAmount(cardStats.netOutstanding > 0 ? String(cardStats.netOutstanding) : '');
+                        setIsPayBillOpen(true);
+                      }}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.22)',
+                        border: '1px solid rgba(255, 255, 255, 0.35)',
+                        color: '#FFF',
+                        cursor: 'pointer',
+                        letterSpacing: '0.02em',
+                        whiteSpace: 'nowrap',
+                        transition: 'all 0.2s'
+                      }}
+                    >
+                      Pay Bill
+                    </button>
                   </div>
                 </div>
 
                 {/* Expandable Tray: Hardware-Accelerated Fluid CSS Drawer */}
-                <div className={`credit-card-drawer ${isExpanded ? 'is-open' : ''}`}>
+                <div
+                  className={`credit-card-drawer ${isExpanded ? 'is-open' : ''}`}
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="credit-card-drawer-inner">
-                    <div style={{ padding: '16px 20px', fontSize: 12 }}>
+                    <div className="credit-card-drawer-content" style={{ padding: '16px 20px', fontSize: 12 }}>
                       {/* Header Limits Strip */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px dashed var(--border-color)', marginBottom: 12 }}>
+                      <div className="cc-drawer-limits-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px dashed var(--border-color)', marginBottom: 12 }}>
                         <div>
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
+                          <span className="cc-drawer-micro-label" style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                             Total Limit
                           </span>
-                          <strong style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+                          <strong className="cc-drawer-limit-value" style={{ fontSize: 14, color: 'var(--text-primary)' }}>
                             {currencyService.format(c.limit)}
                           </strong>
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
+                          <span className="cc-drawer-micro-label" style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'block' }}>
                             Spend Limit / Total Spent
                           </span>
-                          <strong style={{ fontSize: 14, color: '#EF4444' }}>
+                          <strong className="cc-drawer-spent-value" style={{ fontSize: 14, color: '#EF4444' }}>
                             {currencyService.format(cardStats.purchases)}
                           </strong>
                         </div>
@@ -2342,39 +2341,39 @@ export const CreditCardsView: React.FC = () => {
 
                       {/* Category Usage Breakdown for this card */}
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                        <div className="cc-drawer-cat-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
                           Category Spending Breakdown ({cardCatData.categories.length})
                         </div>
 
                         {cardCatData.categories.length === 0 ? (
                           c.isAddon ? (
-                            <div style={{ padding: '12px 14px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.25)', fontSize: 11, color: 'var(--text-secondary)' }}>
+                            <div className="cc-drawer-empty-addon" style={{ padding: '12px 14px', background: 'rgba(99, 102, 241, 0.08)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.25)', fontSize: 11, color: 'var(--text-secondary)' }}>
                               <div style={{ fontWeight: 800, color: '#818CF8', marginBottom: 3 }}>🔗 Independent Add-on Card Activity</div>
                               <div>No direct spending recorded on this add-on card. Transactions from the parent card do not mix here — only purchases made with this add-on card appear in its breakdown.</div>
                             </div>
                           ) : (
-                            <div style={{ padding: '8px 0', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 11 }}>
+                            <div className="cc-drawer-empty" style={{ padding: '8px 0', color: 'var(--text-muted)', fontStyle: 'italic', fontSize: 11 }}>
                               No spending recorded on this card for the selected period.
                             </div>
                           )
                         ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div className="cc-drawer-cat-list" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {cardCatData.categories.map(cat => (
-                              <div key={cat.name}>
+                              <div key={cat.name} className="cc-drawer-cat-item">
                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                                  <span className="cc-drawer-cat-name" style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
                                     {cat.name}
                                   </span>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', minWidth: 0 }}>
-                                    <span style={{ fontWeight: 700, color: '#EF4444' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span className="cc-drawer-cat-amount" style={{ fontWeight: 700, color: '#EF4444' }}>
                                       {currencyService.format(cat.amount)}
                                     </span>
-                                    <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                                    <span className="cc-drawer-cat-pct" style={{ fontSize: 10, color: 'var(--text-muted)' }}>
                                       ({cat.percentage.toFixed(1)}%)
                                     </span>
                                   </div>
                                 </div>
-                                <div style={{ width: '100%', height: 4, background: 'var(--border-color)', borderRadius: 999, overflow: 'hidden' }}>
+                                <div className="cc-drawer-cat-bar" style={{ width: '100%', height: 4, background: 'var(--border-color)', borderRadius: 999, overflow: 'hidden' }}>
                                   <div
                                     style={{
                                       width: `${Math.min(100, cat.percentage)}%`,
@@ -2394,9 +2393,9 @@ export const CreditCardsView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Simplified Linked Add-on Card Indicator */}
+                            {/* Simplified Linked Add-on Card Indicator */}
               {linkedAddons.length > 0 && (
-                <div style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div className="credit-card-addon-linked-strip" style={{ padding: '8px 12px', background: 'rgba(99, 102, 241, 0.1)', borderRadius: 10, border: '1px solid rgba(99, 102, 241, 0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: '#818CF8' }}>
                     <span>🔗 {linkedAddons.length} Add-on Card{linkedAddons.length > 1 ? 's' : ''} Linked</span>
                   </div>
@@ -2414,20 +2413,20 @@ export const CreditCardsView: React.FC = () => {
       </div>
 
       {/* 7. Actual Credit Card Transactions Ledger with Min/Max Height & Pagination Limits */}
-      <div className="summary-card" style={{ padding: 24, borderRadius: 16 }}>
-        {/* Table Controls & Segmented Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
+      <div className="summary-card cc-ledger-card" style={{ padding: 24, borderRadius: 16, marginBottom: 28 }}>
+        {/* Table Controls & Header */}
+        <div className="cc-ledger-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
           <div>
             <h3 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
               Credit Card Transactions Ledger ({creditTransactions.length})
             </h3>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span className="hide-on-mobile" style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
               Search, filter, and track credit card spends & bill payments with bounded scroll & pagination
             </span>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div className="segmented-control">
+          <div className="cc-ledger-top-actions" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="segmented-control cc-ledger-segmented hide-on-mobile">
               <button
                 type="button"
                 className={`segmented-btn ${ccFilterType === 'all' ? 'active' : ''}`}
@@ -2453,8 +2452,20 @@ export const CreditCardsView: React.FC = () => {
 
             <button
               type="button"
-              className="btn-primary"
-              style={{ padding: '7px 14px', fontSize: 12 }}
+              className="btn-primary cc-ledger-add-spend-btn"
+              style={{
+                width: 32,
+                height: 32,
+                minWidth: 32,
+                padding: 0,
+                borderRadius: 8,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+              title="Add Credit Spend"
+              aria-label="Add Credit Spend"
               onClick={() => {
                 if (cards.length === 0) {
                   setBannerMsg({ type: 'error', text: 'Please add a credit card first before recording card expenses.' });
@@ -2466,25 +2477,55 @@ export const CreditCardsView: React.FC = () => {
                 setIsAddSpendOpen(true);
               }}
             >
-              <Plus size={14} />
-              <span>Add Spend</span>
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile-only Segmented Control Row */}
+        <div className="hide-on-desktop" style={{ width: '100%', marginBottom: 10 }}>
+          <div className="segmented-control cc-ledger-segmented" style={{ width: '100%', display: 'flex' }}>
+            <button
+              type="button"
+              className={`segmented-btn ${ccFilterType === 'all' ? 'active' : ''}`}
+              onClick={() => setCcFilterType('all')}
+              style={{ flex: 1, textAlign: 'center', padding: '6px 4px', fontSize: 11 }}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${ccFilterType === 'spends' ? 'active' : ''}`}
+              onClick={() => setCcFilterType('spends')}
+              style={{ flex: 1, textAlign: 'center', padding: '6px 4px', fontSize: 11 }}
+            >
+              Card Spends
+            </button>
+            <button
+              type="button"
+              className={`segmented-btn ${ccFilterType === 'bills' ? 'active' : ''}`}
+              onClick={() => setCcFilterType('bills')}
+              style={{ flex: 1, textAlign: 'center', padding: '6px 4px', fontSize: 11 }}
+            >
+              Bill Payments
             </button>
           </div>
         </div>
 
         {/* Filter Toolbar (Search, Card, Category, Date Popover, Amount Popover, Reset) */}
         <div
-          className="transactions-filter-toolbar"
+          className="transactions-filter-toolbar cc-ledger-filter-toolbar hide-on-mobile"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: 10,
             flexWrap: 'wrap',
             marginBottom: 16
           }}
         >
-          {/* Fixed-width Search Input */}
+          {/* Search Input */}
           <div
+            className="cc-ledger-search-box"
             style={{
               width: 260,
               flexShrink: 0,
@@ -2492,9 +2533,10 @@ export const CreditCardsView: React.FC = () => {
               alignItems: 'center',
               background: 'var(--bg-input, var(--bg-secondary))',
               border: '1px solid var(--border-color)',
-              borderRadius: 12,
+              borderRadius: 10,
               padding: '8px 12px',
-              gap: 8
+              gap: 8,
+              boxSizing: 'border-box'
             }}
           >
             <Search size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
@@ -2530,58 +2572,64 @@ export const CreditCardsView: React.FC = () => {
             )}
           </div>
 
-          {/* Card Filter Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <CreditCard size={14} style={{ color: 'var(--text-secondary)' }} />
-            <select
-              value={selectedCardId}
-              onChange={e => setSelectedCardId(e.target.value)}
-              style={{
-                background: 'var(--bg-input, var(--bg-secondary))',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                padding: '8px 12px',
-                borderRadius: 12,
-                fontSize: 12,
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="all">All Cards ({cards.length})</option>
-              {cards.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name} (•••• {c.last4})
-                </option>
-              ))}
-            </select>
+          <div className="cc-ledger-dropdown-row">
+            {/* Card Filter Dropdown */}
+            <div className="cc-ledger-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <CreditCard size={14} style={{ color: 'var(--text-secondary)' }} />
+              <select
+                value={selectedCardId}
+                onChange={e => setSelectedCardId(e.target.value)}
+                style={{
+                  background: 'var(--bg-input, var(--bg-secondary))',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                <option value="all">All Cards ({cards.length})</option>
+                {cards.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} (•••• {c.last4})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Category Filter Dropdown */}
+            <div className="cc-ledger-select-wrapper" style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
+              <select
+                value={categoryFilter}
+                onChange={e => setCategoryFilter(e.target.value)}
+                style={{
+                  background: 'var(--bg-input, var(--bg-secondary))',
+                  border: '1px solid var(--border-color)',
+                  color: 'var(--text-primary)',
+                  padding: '8px 12px',
+                  borderRadius: 10,
+                  fontSize: 12,
+                  outline: 'none',
+                  cursor: 'pointer',
+                  width: '100%'
+                }}
+              >
+                <option value="all">All Categories</option>
+                {Object.keys(CREDIT_CATEGORIES).map(cat => (
+                  <option key={cat} value={cat}>{cat}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Category Filter Dropdown */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <Filter size={14} style={{ color: 'var(--text-secondary)' }} />
-            <select
-              value={categoryFilter}
-              onChange={e => setCategoryFilter(e.target.value)}
-              style={{
-                background: 'var(--bg-input, var(--bg-secondary))',
-                border: '1px solid var(--border-color)',
-                color: 'var(--text-primary)',
-                padding: '8px 12px',
-                borderRadius: 12,
-                fontSize: 12,
-                outline: 'none',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="all">All Categories</option>
-              {Object.keys(CREDIT_CATEGORIES).map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Date Filter Popover */}
-          <div style={{ position: 'relative', flexShrink: 0 }} ref={ccDateFilterRef}>
+          {/* Date & Amount Filter Popovers in 2-Column Row on Mobile */}
+          <div className="cc-ledger-popover-row">
+            {/* Date Filter Popover */}
+            <div style={{ position: 'relative', flexShrink: 0 }} ref={ccDateFilterRef}>
             <button
               type="button"
               onClick={() => {
@@ -2940,6 +2988,7 @@ export const CreditCardsView: React.FC = () => {
               </div>
             )}
           </div>
+          </div>
 
           {/* Right Actions: Reset & Count Badge */}
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
@@ -3024,17 +3073,17 @@ export const CreditCardsView: React.FC = () => {
           <div>
             {/* Scrollable table container with strict minHeight (no collapse on 1-2 lines) and maxHeight */}
             <div style={{ overflowX: 'auto', minHeight: 280, maxHeight: 460, overflowY: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 12 }}>
                 <thead className="sticky-table-header">
                   <tr>
-                    <th style={{ padding: '12px 14px' }}>Date</th>
-                    <th style={{ padding: '12px 14px' }}>Description / Merchant</th>
-                    <th style={{ padding: '12px 14px' }}>Card Used</th>
-                    <th style={{ padding: '12px 14px' }}>Category</th>
-                    <th style={{ padding: '12px 14px' }}>Subcategory</th>
-                    <th style={{ padding: '12px 14px' }}>Payment Mode</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'right' }}>Amount</th>
-                    <th style={{ padding: '12px 14px', textAlign: 'center' }}>Action</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Date</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Description / Merchant</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Card Used</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Category</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Subcategory</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Payment Mode</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Amount</th>
+                    <th style={{ padding: '9px 12px', textAlign: 'center' }}>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3278,7 +3327,7 @@ export const CreditCardsView: React.FC = () => {
 
       
       {/* 5. Monthly Spending Graph (TradeChart Flow like Dashboard) */}
-      <div className="summary-card" style={{ padding: '24px 28px', marginBottom: 24, borderRadius: 16 }}>
+      <div className="summary-card cc-monthly-flow-card" style={{ padding: '24px 28px', marginTop: 24, marginBottom: 24, borderRadius: 16 }}>
         {/* Chart Header with View Toggle (Flow Trend vs Bars) */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

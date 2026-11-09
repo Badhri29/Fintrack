@@ -1261,9 +1261,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         </div>
 
         {/* Right Header Controls: Dynamic Year Selector & New Transaction */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <div className="dashboard-header-controls" style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           {/* Dynamic 5-year carousel controls with Prev/Next arrows (Point 3) */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+          <div className="dashboard-year-selector" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
             <button
               type="button"
               onClick={() => changeYear(selectedYear - 1)}
@@ -1323,10 +1323,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             </button>
           </div>
 
-          {/* Quick Current Year button matching Budget & Transactions (Point 3) */}
-          <button
-            type="button"
-            className="btn-secondary"
+          <div className="dashboard-header-actions-row">
+            {/* Quick Current Year button matching Budget & Transactions (Point 3) */}
+            <button
+              type="button"
+              className="btn-secondary"
             onClick={() => changeYear(new Date().getFullYear())}
             style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, borderRadius: 8 }}
             title={`Go to current year (${new Date().getFullYear()})`}
@@ -1359,209 +1360,162 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <span>View-only Access</span>
             </div>
           )}
+          </div>
         </div>
       </div>
 
       {/* 2. Month Navigation Pills with Drag-to-Select Multi-Month Selection (Point 1) */}
-      <div
-        className="no-scrollbar"
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '6px 12px',
-          background: 'var(--bg-secondary)',
-          borderRadius: 12,
-          border: '1px solid var(--border-color)',
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          height: 52,
-          minHeight: 52,
-          maxHeight: 52,
-          boxSizing: 'border-box',
-          marginBottom: 16,
-          userSelect: 'none'
-        }}
-      >
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', marginRight: 6, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>
-          Month:
-        </span>
+      <div className="dashboard-month-selector-bar">
+        <div className="dashboard-month-bar-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Month:
+            </span>
+            <span style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              Active: <strong style={{ color: 'var(--text-primary)' }}>{getSelectedMonthLabel()}</strong>
+            </span>
+          </div>
 
-        {MONTH_NAMES.map((mName, idx) => {
-          const isSelected = selectedMonths.includes(idx);
-          const trade = monthlyTrades[idx] || { income: 0, expense: 0, net: 0, status: 'even' };
-          const isProfit = trade.status === 'profit';
-          const isLoss = trade.status === 'loss';
-          const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
-          const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
+          {/* Full Year Option */}
+          {(() => {
+            const isFullYear = selectedMonths.length === 12;
+            const isProfit = fullYearTrade.status === 'profit';
+            const isLoss = fullYearTrade.status === 'loss';
+            const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
+            const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
+            const compactNet = formatCompactCurrency(fullYearTrade.net);
 
-          const tooltip = isProfit
-            ? `${mName} ${selectedYear}: Up Trade (+${currencyService.format(trade.net)} Profit) • Inflow: ${currencyService.format(trade.income)} | Outflow: ${currencyService.format(trade.expense)}`
-            : isLoss
-            ? `${mName} ${selectedYear}: Down Trade (-${currencyService.format(Math.abs(trade.net))} Deficit) • Inflow: ${currencyService.format(trade.income)} | Outflow: ${currencyService.format(trade.expense)}`
-            : `${mName} ${selectedYear}: Balanced Trade (${currencyService.format(0)} Net) • Inflow: ${currencyService.format(trade.income)} | Outflow: ${currencyService.format(trade.expense)}`;
-
-          // Dynamic compact net formatted with active currency conversion & symbol
-          const compactNet = formatCompactCurrency(trade.net);
-
-          return (
-            <button
-              key={mName}
-              type="button"
-              onMouseDown={(e) => handleMonthMouseDown(idx, e)}
-              onMouseEnter={() => handleMonthMouseEnter(idx)}
-              onClick={(e) => e.preventDefault()}
-              style={{
-                minWidth: 68,
-                flexShrink: 0,
-                background: isSelected ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
-                border: isSelected ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
-                color: isSelected ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-                fontWeight: isSelected ? 700 : 500,
-                padding: '4px 8px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
-                display: 'inline-flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2,
-                boxShadow: isSelected ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
-              }}
-              title={tooltip}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1.2 }}>
-                <span>{mName}</span>
-                {/* Fixed reserved-width slot (12px) for the checkmark so button width NEVER shifts or expands/contracts */}
-                <span
-                  style={{
-                    width: 12,
-                    marginLeft: 2,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    display: 'inline-block',
-                    textAlign: 'center',
-                    opacity: isSelected ? 1 : 0,
-                    color: 'var(--accent-indigo)',
-                    transition: 'opacity 0.15s ease'
-                  }}
-                >
-                  ✓
-                </span>
-              </div>
-              <div
+            return (
+              <button
+                type="button"
+                onClick={selectFullYear}
+                className="dashboard-full-year-btn"
                 style={{
-                  display: 'flex',
+                  background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
+                  border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
+                  color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
+                  fontWeight: isFullYear ? 700 : 500,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontSize: 11,
+                  display: 'inline-flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 2,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: tradeColor,
-                  lineHeight: 1
+                  gap: 4
                 }}
+                title={isProfit ? `Full Year: +${currencyService.format(fullYearTrade.net)} Profit` : isLoss ? `Full Year: -${currencyService.format(Math.abs(fullYearTrade.net))} Deficit` : 'Full Year'}
               >
-                <span style={{ fontSize: 8 }}>{tradeIcon}</span>
-                <span>{compactNet}</span>
-              </div>
-            </button>
-          );
-        })}
-
-        {/* Full Year Option with Stable Width & Profit/Loss Trade Indicator */}
-        {(() => {
-          const isFullYear = selectedMonths.length === 12;
-          const isProfit = fullYearTrade.status === 'profit';
-          const isLoss = fullYearTrade.status === 'loss';
-          const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
-          const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
-
-          const tooltip = isProfit
-            ? `Full Year ${selectedYear}: Up Trade (+${currencyService.format(fullYearTrade.net)} Profit) • Inflow: ${currencyService.format(fullYearTrade.income)} | Outflow: ${currencyService.format(fullYearTrade.expense)}`
-            : isLoss
-            ? `Full Year ${selectedYear}: Down Trade (-${currencyService.format(Math.abs(fullYearTrade.net))} Deficit) • Inflow: ${currencyService.format(fullYearTrade.income)} | Outflow: ${currencyService.format(fullYearTrade.expense)}`
-            : `Full Year ${selectedYear}: Balanced Trade (${currencyService.format(0)} Net) • Inflow: ${currencyService.format(fullYearTrade.income)} | Outflow: ${currencyService.format(fullYearTrade.expense)}`;
-
-          const compactNet = formatCompactCurrency(fullYearTrade.net);
-
-          return (
-            <button
-              type="button"
-              onClick={selectFullYear}
-              style={{
-                minWidth: 80,
-                flexShrink: 0,
-                background: isFullYear ? 'rgba(99, 102, 241, 0.18)' : 'rgba(255, 255, 255, 0.02)',
-                border: isFullYear ? '1px solid rgba(99, 102, 241, 0.5)' : '1px solid var(--border-color)',
-                color: isFullYear ? 'var(--accent-indigo)' : 'var(--text-secondary)',
-                fontWeight: isFullYear ? 700 : 500,
-                padding: '4px 10px',
-                borderRadius: 8,
-                cursor: 'pointer',
-                transition: 'all 0.18s ease',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
-                display: 'inline-flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 2,
-                marginLeft: 6,
-                boxShadow: isFullYear ? '0 2px 8px rgba(99, 102, 241, 0.2)' : 'none'
-              }}
-              title={tooltip}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, lineHeight: 1.2 }}>
                 <span>Full Year</span>
-                {/* Fixed reserved-width slot (12px) for the checkmark so button width NEVER shifts or expands/contracts */}
-                <span
-                  style={{
-                    width: 12,
-                    marginLeft: 2,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    display: 'inline-block',
-                    textAlign: 'center',
-                    opacity: isFullYear ? 1 : 0,
-                    color: 'var(--accent-indigo)',
-                    transition: 'opacity 0.15s ease'
-                  }}
-                >
-                  ✓
-                </span>
-              </div>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 2,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  color: tradeColor,
-                  lineHeight: 1
-                }}
-              >
-                <span style={{ fontSize: 8 }}>{tradeIcon}</span>
-                <span>{compactNet}</span>
-              </div>
-            </button>
-          );
-        })()}
+                {isFullYear && <span style={{ color: 'var(--accent-indigo)', fontWeight: 800 }}>✓</span>}
+                <span style={{ fontSize: 9, color: tradeColor, fontWeight: 700 }}>{tradeIcon}{compactNet}</span>
+              </button>
+            );
+          })()}
+        </div>
 
-        <div style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap', paddingRight: 6, flexShrink: 0 }}>
-          Active: <strong style={{ color: 'var(--text-primary)' }}>{getSelectedMonthLabel()}</strong>
+        <div className="dashboard-months-grid no-scrollbar">
+          {MONTH_NAMES.map((mName, idx) => {
+            const isSelected = selectedMonths.includes(idx);
+            const trade = monthlyTrades[idx] || { income: 0, expense: 0, net: 0, status: 'even' };
+            const isProfit = trade.status === 'profit';
+            const isLoss = trade.status === 'loss';
+            const tradeColor = isProfit ? '#10B981' : isLoss ? '#EF4444' : '#94A3B8';
+            const tradeIcon = isProfit ? '▲' : isLoss ? '▼' : '—';
+            const compactNet = formatCompactCurrency(trade.net);
+
+            return (
+              <button
+                key={mName}
+                type="button"
+                onMouseDown={(e) => handleMonthMouseDown(idx, e)}
+                onMouseEnter={() => handleMonthMouseEnter(idx)}
+                onClick={(e) => e.preventDefault()}
+                className={`dashboard-month-btn ${isSelected ? 'selected' : ''}`}
+                title={`${mName} ${selectedYear}: ${isProfit ? '+' : isLoss ? '-' : ''}${currencyService.format(Math.abs(trade.net))}`}
+              >
+                <div className="month-name-row">
+                  <span>{mName}</span>
+                  {isSelected && <span className="month-check">✓</span>}
+                </div>
+                <div className="month-net-row" style={{ color: tradeColor }}>
+                  <span style={{ fontSize: 8 }}>{tradeIcon}</span>
+                  <span>{compactNet}</span>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* 3. PERFORMANCE & NET WORTH SUMMARY (Moved above Financial Overview with compact height!) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 14, marginBottom: 18 }}>
-        {/* Dynamic KPI Card based on Toggle Mode with 4-level color coding */}
+      <div className="dashboard-kpi-grid">
+        {/* Card 1: COMPREHENSIVE NET WORTH (Moved to Top #1 Position as requested) */}
+        <div
+          className="kpi-card dashboard-net-worth-card"
+          style={{
+            padding: '13px 18px',
+            borderLeft: '4px solid #8B5CF6',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>TOTAL NET WORTH</span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#8B5CF6', lineHeight: 1.15 }}>
+                {currencyService.format(metrics.netWorth)}
+              </div>
+            </div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(139, 92, 246, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
+              <Landmark size={16} />
+            </div>
+          </div>
+          <div className="dashboard-kpi-footer-row" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Assets: <strong style={{ color: '#10B981' }}>{currencyService.format(metrics.totalAssets)}</strong>
+            </span>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Debts: <strong style={{ color: '#EF4444' }}>-{currencyService.format(metrics.totalLiabilities)}</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Card 2: AVAILABLE LIQUID FUNDS (BANK & CASH IN HAND) */}
+        <div
+          className="kpi-card"
+          style={{
+            padding: '13px 18px',
+            borderLeft: '4px solid #10B981',
+            background: 'var(--bg-secondary)',
+            borderRadius: 12,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                AVAILABLE LIQUID FUNDS
+              </span>
+              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#10B981', lineHeight: 1.15 }}>
+                {currencyService.format(metrics.totalLiquidAccountsBalance)}
+              </div>
+            </div>
+            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
+              <PiggyBank size={16} />
+            </div>
+          </div>
+          <div className="dashboard-kpi-footer-row" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Bank: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalBankBalance)}</strong>
+            </span>
+            <span style={{ color: 'var(--text-muted)' }}>
+              Cash: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalCashBalance)}</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* Card 3: Dynamic KPI Card based on Toggle Mode with 4-level color coding */}
         {dashboardMode === 'estimate' && (() => {
           const kpiPct = parseFloat(metrics.estimateAllocationPct);
           const kpiColor = getUtilizationColor(kpiPct);
@@ -1621,12 +1575,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                   }}
                 />
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+              <div className="dashboard-kpi-footer-row" style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
                 <span>{kpiPct <= 100 ? 'Within planned income' : 'Over-allocated income'}</span>
                 <span style={{ fontWeight: 600, color: kpiColor }}>
                   {kpiPct <= 100
-                    ? `+${currencyService.format(metrics.estimateIncome - metrics.totalEstimateAllocated)} unallocated (${Math.max(0, 100 - kpiPct).toFixed(1)}% remaining)`
-                    : `-${currencyService.format(metrics.totalEstimateAllocated - metrics.estimateIncome)} over-budgeted (${(kpiPct - 100).toFixed(1)}% over)`}
+                    ? `+${currencyService.format(metrics.estimateIncome - metrics.totalEstimateAllocated)} unallocated`
+                    : `-${currencyService.format(metrics.totalEstimateAllocated - metrics.estimateIncome)} over-budgeted`}
                 </span>
               </div>
             </div>
@@ -1693,27 +1647,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                   }}
                 />
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+              <div className="dashboard-kpi-footer-row" style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
                 {isIncomeBasis ? (
                   <>
                     <span>
                       {kpiPct <= 100
                         ? 'Within received income'
                         : metrics.totalLiquidAccountsBalance > 0
-                        ? 'Covered by Account Balance'
+                        ? 'Covered by Balance'
                         : 'Over-utilized income'}
                     </span>
                     <span style={{ fontWeight: 600, color: (kpiPct <= 100 || metrics.totalLiquidAccountsBalance > 0) ? '#10B981' : kpiColor }}>
                       {kpiPct <= 100
-                        ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent balance (${Math.max(0, 100 - kpiPct).toFixed(1)}% remaining)`
-                        : metrics.totalLiquidAccountsBalance > 0
-                        ? `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance before salary)`
-                        : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} overspent (${(kpiPct - 100).toFixed(1)}% excess)`}
+                        ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent`
+                        : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} excess`}
                     </span>
                   </>
                 ) : (
                   <>
-                    <span>{metrics.actualExpenses <= metrics.estimateExpenses ? 'Within estimate ceiling' : 'Over estimate ceiling'}</span>
+                    <span>{metrics.actualExpenses <= metrics.estimateExpenses ? 'Within ceiling' : 'Over ceiling'}</span>
                     <span style={{ fontWeight: 600, color: metrics.variance >= 0 ? '#10B981' : '#EF4444' }}>
                       {metrics.variance >= 0 ? `+${currencyService.format(metrics.variance)} saved` : `-${currencyService.format(Math.abs(metrics.variance))} over`}
                     </span>
@@ -1784,27 +1736,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                   }}
                 />
               </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
+              <div className="dashboard-kpi-footer-row" style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 6, display: 'flex', justifyContent: 'space-between' }}>
                 {isIncomeBasis ? (
                   <>
                     <span>
                       {kpiPct <= 100
                         ? 'Within received income'
                         : metrics.totalLiquidAccountsBalance > 0
-                        ? 'Covered by Account Balance'
+                        ? 'Covered by Balance'
                         : 'Over-utilized income'}
                     </span>
                     <span style={{ fontWeight: 600, color: (kpiPct <= 100 || metrics.totalLiquidAccountsBalance > 0) ? '#10B981' : kpiColor }}>
                       {kpiPct <= 100
-                        ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent balance (${Math.max(0, 100 - kpiPct).toFixed(1)}% remaining)`
-                        : metrics.totalLiquidAccountsBalance > 0
-                        ? `+${currencyService.format(metrics.totalLiquidAccountsBalance)} available in accounts (drawing from balance before salary)`
-                        : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} overspent (${(kpiPct - 100).toFixed(1)}% excess)`}
+                        ? `+${currencyService.format(metrics.actualIncome - metrics.totalActualUtilized)} unspent`
+                        : `-${currencyService.format(metrics.totalActualUtilized - metrics.actualIncome)} excess`}
                     </span>
                   </>
                 ) : (
                   <>
-                    <span>{metrics.actualExpenses <= metrics.estimateExpenses ? 'Within estimate ceiling' : 'Over estimate ceiling'}</span>
+                    <span>{metrics.actualExpenses <= metrics.estimateExpenses ? 'Within ceiling' : 'Over ceiling'}</span>
                     <span style={{ fontWeight: 600, color: metrics.variance >= 0 ? '#10B981' : '#EF4444' }}>
                       {metrics.variance >= 0 ? `+${currencyService.format(metrics.variance)} saved` : `-${currencyService.format(Math.abs(metrics.variance))} over`}
                     </span>
@@ -1815,87 +1765,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           );
         })()}
 
-        {/* Card 2: AVAILABLE LIQUID FUNDS (BANK & CASH IN HAND) */}
-        <div
-          className="kpi-card"
-          style={{
-            padding: '13px 18px',
-            borderLeft: '4px solid #10B981',
-            background: 'var(--bg-secondary)',
-            borderRadius: 12,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-                AVAILABLE LIQUID FUNDS
-              </span>
-              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#10B981', lineHeight: 1.15 }}>
-                {currencyService.format(metrics.totalLiquidAccountsBalance)}
+        {/* Card 4: NET SAVINGS & SURPLUS (Keeps all 4 card widths 100% equal and same size) */}
+        {(() => {
+          const isEstimate = dashboardMode === 'estimate';
+          const displaySavings = isEstimate ? metrics.estimateSavings : metrics.actualSavings;
+          const savingsRate = metrics.savingsRate;
+          return (
+            <div
+              className="kpi-card"
+              style={{
+                padding: '13px 18px',
+                borderLeft: '4px solid #3B82F6',
+                background: 'var(--bg-secondary)',
+                borderRadius: 12,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+                    {isEstimate ? 'PLANNED SAVINGS' : 'NET SAVINGS & SURPLUS'}
+                  </span>
+                  <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#3B82F6', lineHeight: 1.15 }}>
+                    {currencyService.format(displaySavings)}
+                  </div>
+                </div>
+                <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(59, 130, 246, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3B82F6' }}>
+                  <TrendingUp size={16} />
+                </div>
               </div>
-            </div>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10B981' }}>
-              <PiggyBank size={16} />
-            </div>
-          </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>
-              Bank Accounts: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalBankBalance)}</strong>
-            </span>
-            <span style={{ color: 'var(--text-muted)' }}>
-              Cash in Hand: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(metrics.totalCashBalance)}</strong>
-            </span>
-          </div>
-        </div>
-
-        {/* Card 3: COMPREHENSIVE NET WORTH */}
-        <div
-          className="kpi-card"
-          style={{
-            padding: '13px 18px',
-            borderLeft: '4px solid #8B5CF6',
-            background: 'var(--bg-secondary)',
-            borderRadius: 12,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.04)'
-          }}
-        >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span className="kpi-title" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>TOTAL NET WORTH</span>
-              <div className="kpi-value" style={{ marginTop: 2, fontSize: 24, fontWeight: 800, color: '#8B5CF6', lineHeight: 1.15 }}>
-                {currencyService.format(metrics.netWorth)}
-              </div>
-            </div>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(139, 92, 246, 0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8B5CF6' }}>
-              <Landmark size={16} />
-            </div>
-          </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
-            <span style={{ color: 'var(--text-muted)' }}>
-              Assets: <strong style={{ color: '#10B981' }}>{currencyService.format(metrics.totalAssets)}</strong>
-              {metrics.totalLiquidAccountsBalance > 0 && (
-                <span style={{ fontSize: 10.5, color: '#10B981', marginLeft: 4 }}>
-                  (incl. Accounts: {currencyService.format(metrics.totalLiquidAccountsBalance)})
+              <div className="dashboard-kpi-footer-row" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11.5, flexWrap: 'wrap', gap: 6 }}>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Savings Rate: <strong style={{ color: '#3B82F6' }}>{savingsRate}%</strong>
                 </span>
-              )}
-            </span>
-            <span style={{ color: 'var(--text-muted)' }}>
-              Total Debts & Loans: <strong style={{ color: '#EF4444' }}>-{currencyService.format(metrics.totalLiabilities)}</strong>
-            </span>
-          </div>
-        </div>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  Total Income: <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(isEstimate ? metrics.estimateIncome : metrics.actualIncome)}</strong>
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* 3.1 Portfolio & Liability Breakdown Quick Cards (Bank Accounts, Credit Cards, Active Loans, Monthly EMI) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))',
-          gap: 12,
-          marginBottom: 20
-        }}
-      >
+      <div className="dashboard-quick-cards-grid">
         {/* Card 1: Bank Accounts */}
         <div
           onClick={() => setActiveDrawer('bank_accounts')}
@@ -1928,7 +1841,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <Landmark size={18} />
             </div>
           </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+          <div className="quick-card-footer" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
             <span style={{ color: 'var(--text-muted)' }}>
               Total Balance: <strong style={{ color: '#10B981' }}>{currencyService.format(totalBankAccountsBalance)}</strong>
             </span>
@@ -1970,7 +1883,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <CreditCard size={18} />
             </div>
           </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+          <div className="quick-card-footer" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
             <span style={{ color: 'var(--text-muted)' }}>
               Available: <strong style={{ color: '#8B5CF6' }}>{currencyService.format(totalCreditAvailable)}</strong>
             </span>
@@ -2012,7 +1925,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <Building2 size={18} />
             </div>
           </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+          <div className="quick-card-footer" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
             <span style={{ color: 'var(--text-muted)' }}>
               Principal: <strong style={{ color: '#F59E0B' }}>{currencyService.format(totalActiveLoansPrincipal)}</strong>
             </span>
@@ -2054,7 +1967,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               <Clock size={18} />
             </div>
           </div>
-          <div style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
+          <div className="quick-card-footer" style={{ marginTop: 8, paddingTop: 6, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11.5 }}>
             <span style={{ color: 'var(--text-muted)' }}>
               Active EMIs: <strong style={{ color: '#EC4899' }}>{activeLoansWithEmiCount} {activeLoansWithEmiCount === 1 ? 'Loan' : 'Loans'}</strong>
             </span>
@@ -2067,8 +1980,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
 
       {/* 4. Dashboard View Mode Toggle & Expand/Collapse All Controls */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div className="dashboard-overview-header-container">
+        <div className="dashboard-overview-title-row">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Layers size={16} color="var(--accent-indigo)" />
             <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>
@@ -2087,6 +2000,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                 savings: !allExpanded
               });
             }}
+            className="dashboard-collapse-btn"
             style={{
               background: 'var(--bg-secondary)',
               border: '1px solid var(--border-color)',
@@ -2116,56 +2030,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           </button>
         </div>
 
-        {/* Mode Toggle: Estimate | Actual | Combined + % Basis Sub-Toggle for Combined & Actual */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {/* Mode Toggle: Estimate | Actual | Combined + % Basis Sub-Toggle */}
+        <div className="dashboard-overview-toggles-row">
           {(dashboardMode === 'combined' || dashboardMode === 'actual') && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--bg-secondary)', padding: '3px 6px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>% Basis:</span>
+            <div className="dashboard-pct-basis-control" style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+              <span className="dashboard-pct-label" style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>% Basis:</span>
               <button
                 type="button"
                 className={`segmented-btn ${pctBasis === 'estimate' ? 'active' : ''}`}
                 onClick={() => setPctBasis('estimate')}
-                style={{ padding: '3px 10px', fontSize: 11, fontWeight: pctBasis === 'estimate' ? 700 : 500, borderRadius: 6 }}
+                style={{ padding: '3px 8px', fontSize: 11, fontWeight: pctBasis === 'estimate' ? 700 : 500, borderRadius: 6 }}
                 title="Calculate percentage by comparing Actual vs Estimate"
               >
-                vs Estimate
+                <span className="desktop-text">vs Estimate</span>
+                <span className="mobile-text">vs Est</span>
               </button>
               <button
                 type="button"
                 className={`segmented-btn ${pctBasis === 'income' ? 'active' : ''}`}
                 onClick={() => setPctBasis('income')}
-                style={{ padding: '3px 10px', fontSize: 11, fontWeight: pctBasis === 'income' ? 700 : 500, borderRadius: 6 }}
+                style={{ padding: '3px 8px', fontSize: 11, fontWeight: pctBasis === 'income' ? 700 : 500, borderRadius: 6 }}
                 title="Calculate percentage relative to Income (Income Base)"
               >
-                vs Income
+                <span className="desktop-text">vs Income</span>
+                <span className="mobile-text">vs Inc</span>
               </button>
             </div>
           )}
 
-          <div className="segmented-control" style={{ background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+          <div className="segmented-control dashboard-mode-control" style={{ background: 'var(--bg-secondary)', padding: '3px 4px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
             <button
               type="button"
               className={`segmented-btn ${dashboardMode === 'estimate' ? 'active' : ''}`}
               onClick={() => setDashboardMode('estimate')}
-              style={{ padding: '6px 16px', fontSize: 12, fontWeight: dashboardMode === 'estimate' ? 700 : 500 }}
+              style={{ padding: '5px 12px', fontSize: 12, fontWeight: dashboardMode === 'estimate' ? 700 : 500 }}
             >
-              Estimate
+              <span className="desktop-text">Estimate</span>
+              <span className="mobile-text">Est</span>
             </button>
             <button
               type="button"
               className={`segmented-btn ${dashboardMode === 'actual' ? 'active' : ''}`}
               onClick={() => setDashboardMode('actual')}
-              style={{ padding: '6px 16px', fontSize: 12, fontWeight: dashboardMode === 'actual' ? 700 : 500 }}
+              style={{ padding: '5px 12px', fontSize: 12, fontWeight: dashboardMode === 'actual' ? 700 : 500 }}
             >
-              Actual
+              <span className="desktop-text">Actual</span>
+              <span className="mobile-text">Act</span>
             </button>
             <button
               type="button"
               className={`segmented-btn ${dashboardMode === 'combined' ? 'active' : ''}`}
               onClick={() => setDashboardMode('combined')}
-              style={{ padding: '6px 16px', fontSize: 12, fontWeight: dashboardMode === 'combined' ? 700 : 500 }}
+              style={{ padding: '5px 12px', fontSize: 12, fontWeight: dashboardMode === 'combined' ? 700 : 500 }}
             >
-              Combined
+              <span className="desktop-text">Combined</span>
+              <span className="mobile-text">Comb</span>
             </button>
           </div>
         </div>
@@ -2989,7 +2908,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             </p>
           </div>
         ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
+        <div className="dashboard-credit-cards-grid">
           {cardStats.map(card => {
             const accent = card.accent || '#3B82F6';
             return (
@@ -3003,25 +2922,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
                   display: 'flex',
                   flexDirection: 'column',
                   gap: 8,
-                  position: 'relative'
+                  position: 'relative',
+                  minWidth: 0,
+                  overflow: 'hidden'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, overflow: 'hidden' }}>
                     <div
                       style={{
                         width: 24,
                         height: 16,
                         borderRadius: 3,
                         background: accent,
-                        opacity: 0.9
+                        opacity: 0.9,
+                        flexShrink: 0
                       }}
                     />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>
+                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {card.name}
                       </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         •• {card.last4}
                       </div>
                     </div>
@@ -3146,14 +3068,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         </div>
 
         {/* High-Level Stat Summary Chips */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-            gap: 12,
-            marginBottom: 22
-          }}
-        >
+        <div className="dashboard-stat-chips-grid">
           <div
             style={{
               background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)',
@@ -3241,7 +3156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         </div>
 
         {/* Full-width Smooth Bezier Chart Canvas */}
-        <div style={{ height: 350, width: '100%', position: 'relative' }}>
+        <div className="dashboard-chart-canvas-container" style={{ width: '100%', position: 'relative' }}>
           <Line data={smoothTrendChartData} options={smoothChartOptions} />
         </div>
       </div>
