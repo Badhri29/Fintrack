@@ -53,11 +53,13 @@ export const AccountsView: React.FC = () => {
   // Quick Balance Edit Modal
   const [balanceEditAcc, setBalanceEditAcc] = useState<BankAccountModel | null>(null);
   const [newBalanceValue, setNewBalanceValue] = useState<string>('');
+  const [balanceRecordTransaction, setBalanceRecordTransaction] = useState<boolean>(true);
 
   // Cash Balance Edit Modal
   const [isCashModalOpen, setIsCashModalOpen] = useState(false);
   const [cashInputValue, setCashInputValue] = useState<string>('');
   const [cashNotes, setCashNotes] = useState<string>('');
+  const [cashRecordTransaction, setCashRecordTransaction] = useState<boolean>(true);
 
   // Add Debit Card Modal
   const [debitCardModalAcc, setDebitCardModalAcc] = useState<BankAccountModel | null>(null);
@@ -243,7 +245,7 @@ export const AccountsView: React.FC = () => {
     setAccounts(bankAccountService.getAccounts(user?.email));
     setBalanceEditAcc(null);
 
-    if (diff > 0) {
+    if (balanceRecordTransaction && diff > 0) {
       try {
         await api.post('/transactions', {
           date: new Date().toISOString().substring(0, 10),
@@ -258,7 +260,7 @@ export const AccountsView: React.FC = () => {
       } catch (err) {
         console.warn('Failed to record bank balance transaction:', err);
       }
-    } else if (diff < 0) {
+    } else if (balanceRecordTransaction && diff < 0) {
       try {
         await api.post('/transactions', {
           date: new Date().toISOString().substring(0, 10),
@@ -290,7 +292,7 @@ export const AccountsView: React.FC = () => {
     setIsCashModalOpen(false);
 
     // If cash balance was updated/added, record transaction as income/adjustment as requested
-    if (diff > 0) {
+    if (cashRecordTransaction && diff > 0) {
       try {
         await api.post('/transactions', {
           date: new Date().toISOString().substring(0, 10),
@@ -305,7 +307,7 @@ export const AccountsView: React.FC = () => {
       } catch (err) {
         console.warn('Failed to record cash update transaction:', err);
       }
-    } else if (diff < 0) {
+    } else if (cashRecordTransaction && diff < 0) {
       try {
         await api.post('/transactions', {
           date: new Date().toISOString().substring(0, 10),
@@ -370,40 +372,13 @@ export const AccountsView: React.FC = () => {
               <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: 'var(--text-primary)' }}>
                 Bank Accounts & Cash Reserve
               </h1>
-              <p className="page-subtitle hide-on-mobile" style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-secondary)' }}>
-                Manage your bank accounts, update real-time liquid balances, track linked debit cards, and maintain cash in hand.
-              </p>
+
             </div>
           </div>
         </div>
 
         {!isViewOnly && (
           <div className="accounts-header-actions hide-on-mobile" style={{ display: 'flex', gap: 10 }}>
-            <button
-              type="button"
-              onClick={() => {
-                setCashInputValue(String(cashWallet.balance || 0));
-                setCashNotes(cashWallet.notes || '');
-                setIsCashModalOpen(true);
-              }}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '10px 18px',
-                borderRadius: 10,
-                border: '1px solid rgba(16, 185, 129, 0.4)',
-                background: 'rgba(16, 185, 129, 0.12)',
-                color: '#34D399',
-                fontWeight: 700,
-                fontSize: 13,
-                cursor: 'pointer'
-              }}
-            >
-              <Wallet size={16} />
-              <span>Update Cash Balance</span>
-            </button>
-
             <button
               type="button"
               onClick={handleOpenAdd}
@@ -473,9 +448,36 @@ export const AccountsView: React.FC = () => {
             <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: 0.5 }}>
               Cash in Hand (Wallet)
             </span>
-            <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Wallet size={16} />
-            </div>
+            {!isViewOnly ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setCashInputValue(String(cashWallet.balance || 0));
+                  setCashNotes(cashWallet.notes || '');
+                  setCashRecordTransaction(true);
+                  setIsCashModalOpen(true);
+                }}
+                title="Update Cash Balance"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 8,
+                  background: 'rgba(16, 185, 129, 0.15)',
+                  color: '#34D399',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  cursor: 'pointer'
+                }}
+              >
+                <RefreshCw size={14} />
+              </button>
+            ) : (
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: 'rgba(16, 185, 129, 0.15)', color: '#34D399', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Wallet size={16} />
+              </div>
+            )}
           </div>
           <div style={{ fontSize: 24, fontWeight: 800, color: '#10B981' }}>
             {currencyService.format(cashWallet.balance || 0)}
@@ -504,82 +506,7 @@ export const AccountsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Cash Management Spotlight Banner */}
-      <div
-        style={{
-          background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%)',
-          border: '1px solid rgba(16, 185, 129, 0.25)',
-          borderRadius: 16,
-          padding: '20px 24px',
-          marginBottom: 32,
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: 16
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              background: 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-              color: '#FFF',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)'
-            }}
-          >
-            <Wallet size={26} />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: 'var(--text-primary)' }}>
-                Cash in Hand / Physical Cash Wallet
-              </h3>
-              <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.2)', color: '#10B981' }}>
-                CASH OPTION
-              </span>
-            </div>
-            <p style={{ margin: '4px 0 0', fontSize: 12.5, color: 'var(--text-secondary)' }}>
-              Current physical cash reserve: <strong style={{ color: '#10B981' }}>{currencyService.format(cashWallet.balance || 0)}</strong>
-              {cashWallet.notes && ` • Note: ${cashWallet.notes}`}
-            </p>
-          </div>
-        </div>
 
-        {!isViewOnly && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => {
-                setCashInputValue(String(cashWallet.balance || 0));
-                setCashNotes(cashWallet.notes || '');
-                setIsCashModalOpen(true);
-              }}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 8,
-                border: 'none',
-                background: '#10B981',
-                color: '#FFF',
-                fontWeight: 700,
-                fontSize: 12.5,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6
-              }}
-            >
-              <Edit2 size={13} />
-              <span>Edit Cash Amount</span>
-            </button>
-          </div>
-        )}
-      </div>
 
       {/* Bank Accounts Section */}
       <div style={{ marginBottom: 20 }}>
@@ -769,6 +696,7 @@ export const AccountsView: React.FC = () => {
                           onClick={() => {
                             setBalanceEditAcc(acc);
                             setNewBalanceValue(String(acc.balance || 0));
+                            setBalanceRecordTransaction(true);
                           }}
                           style={{
                             padding: '6px 12px',
@@ -1133,6 +1061,23 @@ export const AccountsView: React.FC = () => {
               />
             </div>
 
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12.5, color: '#94A3B8' }}>
+                <input
+                  type="checkbox"
+                  checked={balanceRecordTransaction}
+                  onChange={e => setBalanceRecordTransaction(e.target.checked)}
+                  style={{ width: 15, height: 15, accentColor: '#10B981', cursor: 'pointer' }}
+                />
+                <span>Record balance change as transaction</span>
+              </label>
+              <p style={{ margin: '4px 0 0 23px', fontSize: 11, color: '#64748B' }}>
+                {balanceRecordTransaction
+                  ? 'Balance difference will appear in Transactions.'
+                  : 'Balance will be updated silently — no transaction recorded.'}
+              </p>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
               <button
                 type="button"
@@ -1201,6 +1146,23 @@ export const AccountsView: React.FC = () => {
                   style={{ width: '100%', padding: '10px 14px', borderRadius: 8, background: '#1E2638', border: '1px solid #2A364F', color: '#FFF', fontSize: 13 }}
                 />
               </div>
+            </div>
+
+            <div style={{ marginBottom: 0 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12.5, color: '#94A3B8' }}>
+                <input
+                  type="checkbox"
+                  checked={cashRecordTransaction}
+                  onChange={e => setCashRecordTransaction(e.target.checked)}
+                  style={{ width: 15, height: 15, accentColor: '#10B981', cursor: 'pointer' }}
+                />
+                <span>Record balance change as transaction</span>
+              </label>
+              <p style={{ margin: '4px 0 0 23px', fontSize: 11, color: '#64748B' }}>
+                {cashRecordTransaction
+                  ? 'Cash difference will appear in Transactions.'
+                  : 'Cash balance will be updated silently — no transaction recorded.'}
+              </p>
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>

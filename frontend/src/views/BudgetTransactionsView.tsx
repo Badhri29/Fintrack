@@ -346,6 +346,12 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [searchQuery, setSearchQuery] = useState<string>(globalSearchQuery || '');
 
+  // Account balance summary state
+  const [accounts, setAccounts] = useState(() => bankAccountService.getAccounts(user?.email));
+  const [cashWallet, setCashWallet] = useState(() => bankAccountService.getCashBalance(user?.email));
+  const [showAccountSummary, setShowAccountSummary] = useState(false);
+  const [showMobileAccountSummary, setShowMobileAccountSummary] = useState(false);
+
   // Pagination state for transactions table
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
@@ -915,6 +921,23 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
       window.removeEventListener('fintrack-category-updated', onTxChange);
     };
   }, [selectedYear, user?.email]);
+
+  useEffect(() => {
+    setAccounts(bankAccountService.getAccounts(user?.email));
+    setCashWallet(bankAccountService.getCashBalance(user?.email));
+    const handleAccUpdate = () => {
+      setAccounts(bankAccountService.getAccounts(user?.email));
+      setCashWallet(bankAccountService.getCashBalance(user?.email));
+    };
+    window.addEventListener('fintrack-accounts-updated', handleAccUpdate);
+    window.addEventListener('fintrack-cash-updated', handleAccUpdate);
+    window.addEventListener('fintrack-transactions-changed', handleAccUpdate);
+    return () => {
+      window.removeEventListener('fintrack-accounts-updated', handleAccUpdate);
+      window.removeEventListener('fintrack-cash-updated', handleAccUpdate);
+      window.removeEventListener('fintrack-transactions-changed', handleAccUpdate);
+    };
+  }, [user?.email]);
 
   const isFetchingDataRef = useRef<boolean>(false);
   const loadAllData = async (force: boolean = false) => {
@@ -3847,6 +3870,127 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
           })()}
         </div>
 
+        {/* Mobile: Account Balance Quick View */}
+        <div style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowMobileAccountSummary(prev => !prev)}
+            style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              background: 'rgba(59, 130, 246, 0.08)',
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+              borderRadius: 10,
+              padding: '10px 14px',
+              color: '#60A5FA',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer'
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Building2 size={13} />
+              <span>Account Balances</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500 }}>
+                Total: {currencyService.format(accounts.reduce((s, a) => s + (a.balance || 0), 0) + (cashWallet.balance || 0))}
+              </span>
+              <ChevronDown size={12} style={{ transform: showMobileAccountSummary ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
+            </div>
+          </button>
+
+          {showMobileAccountSummary && (
+            <div style={{
+              background: '#0D1322',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: 10,
+              marginTop: 6,
+              padding: 12,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8
+            }}>
+              {accounts.map(acc => {
+                const curDate = new Date();
+                const curYear = curDate.getFullYear();
+                const curMonth = curDate.getMonth();
+                const isMonthSelected = typeof mobileSelectedMonth === 'number';
+                const isLive = selectedYear > curYear || (selectedYear === curYear && (!isMonthSelected || mobileSelectedMonth >= curMonth));
+                const balanceVal = isLive ? (acc.balance || 0) : 0;
+
+                return (
+                  <div key={acc.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: 'rgba(59, 130, 246, 0.07)', borderRadius: 8, border: '1px solid rgba(59, 130, 246, 0.12)' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>🏦 {acc.bankName}</div>
+                      <div style={{ fontSize: 10, color: '#64748B' }}>{acc.accountType} •••• {acc.accountNumberLast4}</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: isLive ? '#60A5FA' : 'var(--text-muted)' }}>
+                      {isLive ? currencyService.format(balanceVal) : '—'}
+                    </div>
+                  </div>
+                );
+              })}
+              {(() => {
+                const curDate = new Date();
+                const curYear = curDate.getFullYear();
+                const curMonth = curDate.getMonth();
+                const isMonthSelected = typeof mobileSelectedMonth === 'number';
+                const isLive = selectedYear > curYear || (selectedYear === curYear && (!isMonthSelected || mobileSelectedMonth >= curMonth));
+                const cashVal = isLive ? (cashWallet.balance || 0) : 0;
+
+                return (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: 'rgba(16, 185, 129, 0.07)', borderRadius: 8, border: '1px solid rgba(16, 185, 129, 0.12)' }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#F1F5F9' }}>💵 Cash in Hand</div>
+                      <div style={{ fontSize: 10, color: '#64748B' }}>Wallet / Physical Cash</div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: isLive ? '#10B981' : 'var(--text-muted)' }}>
+                      {isLive ? currencyService.format(cashVal) : '—'}
+                    </div>
+                  </div>
+                );
+              })()}
+              {/* Net cashflow & Total Available calculation */}
+              {(() => {
+                const inc = typeof mobileSelectedMonth === 'number' ? (sectionTotals('income')[mobileSelectedMonth] || 0) : total(sectionTotals('income'));
+                const exp = typeof mobileSelectedMonth === 'number' ? (sectionTotals('expense')[mobileSelectedMonth] || 0) : total(sectionTotals('expense'));
+                const sav = typeof mobileSelectedMonth === 'number' ? (sectionTotals('savings')[mobileSelectedMonth] || 0) : total(sectionTotals('savings'));
+                const net = inc - exp;
+                const netAfterSavings = inc - exp - sav;
+                const curDate = new Date();
+                const curYear = curDate.getFullYear();
+                const curMonth = curDate.getMonth();
+                const isMonthSelected = typeof mobileSelectedMonth === 'number';
+                const isLive = selectedYear > curYear || (selectedYear === curYear && (!isMonthSelected || mobileSelectedMonth >= curMonth));
+                const totalBankCash = accounts.reduce((s, a) => s + (a.balance || 0), 0) + (cashWallet.balance || 0);
+                const finalAvailable = isLive ? (totalBankCash + netAfterSavings) : netAfterSavings;
+
+                return (
+                  <div style={{ padding: '8px 10px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#94A3B8', marginBottom: 3 }}>
+                      <span>Net {typeof mobileSelectedMonth === 'number' ? MONTHS[mobileSelectedMonth] : 'Annual'} (Income – Expense)</span>
+                      <span style={{ color: net >= 0 ? '#10B981' : '#EF4444', fontWeight: 700 }}>{currencyService.format(net)}</span>
+                    </div>
+                    {sav > 0 && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#A78BFA', marginBottom: 3 }}>
+                        <span>Allocated to Savings</span>
+                        <span style={{ fontWeight: 700 }}>-{currencyService.format(sav)}</span>
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, marginTop: 4, paddingTop: 4, borderTop: '1px dashed rgba(255,255,255,0.08)' }}>
+                      <span style={{ color: '#F1F5F9' }}>Total Available (Reserves + Net - Savings)</span>
+                      <span style={{ color: finalAvailable >= 0 ? '#10B981' : '#EF4444' }}>{currencyService.format(finalAvailable)}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+
         {/* Category Cards: Income, Expense, Savings */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {sectionList.map(sec => {
@@ -6233,7 +6377,42 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
             </div>
           </div>
 
-          {/* Spreadsheet Table */}
+          {/* Account Balance Summary Dropdown Toggle Bar */}
+          <div style={{ margin: '0 28px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => setShowAccountSummary(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                background: showAccountSummary ? 'rgba(59, 130, 246, 0.18)' : 'rgba(59, 130, 246, 0.08)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: 8,
+                padding: '6px 14px',
+                color: '#60A5FA',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease'
+              }}
+            >
+              <Building2 size={14} />
+              <span>Bank & Cash Balances</span>
+              <span style={{ fontSize: 11, padding: '1px 6px', borderRadius: 999, background: 'rgba(59, 130, 246, 0.2)', color: '#93C5FD', fontWeight: 600 }}>
+                {accounts.length + 1}
+              </span>
+              <ChevronDown size={13} style={{ transform: showAccountSummary ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease' }} />
+            </button>
+
+            <div style={{ fontSize: 11.5, color: 'var(--text-secondary)' }}>
+              <span>Live Available Reserves: </span>
+              <strong style={{ color: '#10B981', fontWeight: 800 }}>
+                {currencyService.format(accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + (cashWallet.balance || 0))}
+              </strong>
+            </div>
+          </div>
+
           <div className="spreadsheet-container">
             <table className="spreadsheet-table budget-table-fit">
               <colgroup>
@@ -6257,6 +6436,111 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
               </thead>
 
               <tbody>
+                {/* Detailed Bank and Cash Accounts Breakdown (Toggled by Button) */}
+                {showAccountSummary && (
+                  <React.Fragment>
+                    <tr style={{ background: 'rgba(59, 130, 246, 0.12)', borderTop: '2px solid rgba(59, 130, 246, 0.4)', borderBottom: '1px solid rgba(59, 130, 246, 0.25)' }}>
+                      <td className="sticky-col" colSpan={14} style={{ padding: '6px 12px', textAlign: 'left', fontWeight: 800, color: '#93C5FD', fontSize: 11.5, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                        🏦 Live Bank & Cash Breakdown (Starting from {MONTHS[new Date().getMonth()]} {new Date().getFullYear()})
+                      </td>
+                    </tr>
+
+                    {accounts.map(acc => {
+                      const curDate = new Date();
+                      const curYear = curDate.getFullYear();
+                      const curMonth = curDate.getMonth();
+                      const isFutureYear = selectedYear > curYear;
+
+                      return (
+                        <tr key={acc.id} style={{ background: 'rgba(59, 130, 246, 0.04)', borderBottom: '1px solid rgba(47, 57, 81, 0.35)' }}>
+                          <td className="sticky-col" style={{ textAlign: 'left', padding: '6px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>🏦</span>
+                              <span style={{ fontWeight: 700 }}>{acc.bankName}</span>
+                              <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>({acc.accountType} •••• {acc.accountNumberLast4})</span>
+                            </div>
+                          </td>
+                          {MONTHS.map((_, mIdx) => {
+                            const isLive = isFutureYear || (selectedYear === curYear && mIdx >= curMonth);
+                            const val = isLive ? (acc.balance || 0) : 0;
+                            return (
+                              <td key={mIdx} style={{ color: isLive ? '#60A5FA' : 'var(--text-muted)', fontWeight: isLive ? 600 : 400, opacity: isLive ? 1 : 0.45 }}>
+                                {isLive ? currencyService.format(val) : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="col-year-total" style={{ color: '#60A5FA', fontWeight: 700 }}>
+                            {(isFutureYear || selectedYear === curYear) ? currencyService.format(acc.balance || 0) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {/* Cash in Hand Row */}
+                    {(() => {
+                      const curDate = new Date();
+                      const curYear = curDate.getFullYear();
+                      const curMonth = curDate.getMonth();
+                      const isFutureYear = selectedYear > curYear;
+
+                      return (
+                        <tr style={{ background: 'rgba(16, 185, 129, 0.05)', borderBottom: '1px solid rgba(47, 57, 81, 0.35)' }}>
+                          <td className="sticky-col" style={{ textAlign: 'left', padding: '6px 12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>💵</span>
+                              <span style={{ fontWeight: 700 }}>Cash in Hand</span>
+                              <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>(Physical Cash / Wallet)</span>
+                            </div>
+                          </td>
+                          {MONTHS.map((_, mIdx) => {
+                            const isLive = isFutureYear || (selectedYear === curYear && mIdx >= curMonth);
+                            const val = isLive ? (cashWallet.balance || 0) : 0;
+                            return (
+                              <td key={mIdx} style={{ color: isLive ? '#34D399' : 'var(--text-muted)', fontWeight: isLive ? 600 : 400, opacity: isLive ? 1 : 0.45 }}>
+                                {isLive ? currencyService.format(val) : '—'}
+                              </td>
+                            );
+                          })}
+                          <td className="col-year-total" style={{ color: '#34D399', fontWeight: 700 }}>
+                            {(isFutureYear || selectedYear === curYear) ? currencyService.format(cashWallet.balance || 0) : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })()}
+                  </React.Fragment>
+                )}
+
+                {/* Always-visible TOTAL BANK & CASH RESERVES Row */}
+                {(() => {
+                  const curDate = new Date();
+                  const curYear = curDate.getFullYear();
+                  const curMonth = curDate.getMonth();
+                  const isFutureYear = selectedYear > curYear;
+                  const totalReserves = accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + (cashWallet.balance || 0);
+
+                  return (
+                    <tr style={{ background: 'rgba(99, 102, 241, 0.12)', borderTop: '2px solid rgba(99, 102, 241, 0.4)', borderBottom: '2px solid rgba(99, 102, 241, 0.4)' }}>
+                      <td className="sticky-col" style={{ textAlign: 'left', padding: '7px 12px', fontWeight: 800, color: '#A5B4FC' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>🏦</span>
+                          <span>TOTAL BANK & CASH RESERVES</span>
+                        </div>
+                      </td>
+                      {MONTHS.map((_, mIdx) => {
+                        const isLive = isFutureYear || (selectedYear === curYear && mIdx >= curMonth);
+                        return (
+                          <td key={mIdx} style={{ color: isLive ? '#A5B4FC' : 'var(--text-muted)', fontWeight: isLive ? 800 : 400, opacity: isLive ? 1 : 0.45 }}>
+                            {isLive ? currencyService.format(totalReserves) : '—'}
+                          </td>
+                        );
+                      })}
+                      <td className="col-year-total" style={{ color: '#A5B4FC', fontWeight: 800 }}>
+                        {(isFutureYear || selectedYear === curYear) ? currencyService.format(totalReserves) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })()}
+
                 {drawSection('income', 'INCOME', <TrendingUp size={15} />)}
                 {drawSection('expense', 'EXPENSES', <TrendingDown size={15} />)}
 
@@ -6279,20 +6563,37 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
 
                 {drawSection('savings', 'SAVINGS & INVESTMENTS ALLOCATION', <PiggyBank size={15} />)}
 
-                <tr className="net-cashflow-row" style={{ background: 'rgba(99, 102, 241, 0.05)' }}>
-                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: 600 }}>
-                    REMAINING CASH SURPLUS
+                {/* Final TOTAL AVAILABLE = Bank + Cash Reserves + Net (Income - Expenses) - Savings */}
+                <tr className="net-cashflow-row total-liquid-available-row" style={{ background: 'rgba(59, 130, 246, 0.12)', borderTop: '2px solid rgba(59, 130, 246, 0.35)', borderBottom: '2px solid rgba(59, 130, 246, 0.35)' }}>
+                  <td className="sticky-col" style={{ textAlign: 'center', verticalAlign: 'middle', fontWeight: 800, color: '#93C5FD' }}>
+                    TOTAL AVAILABLE (RESERVES + NET - SAVINGS)
                   </td>
                   {MONTHS.map((_, month) => {
-                    const value = incomeTotals[month] - expenseTotals[month] - savingsTotals[month];
+                    const curDate = new Date();
+                    const curYear = curDate.getFullYear();
+                    const curMonth = curDate.getMonth();
+                    const isLive = selectedYear > curYear || (selectedYear === curYear && month >= curMonth);
+                    const netAfterSavings = incomeTotals[month] - expenseTotals[month] - savingsTotals[month];
+                    const totalReserves = accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + (cashWallet.balance || 0);
+                    const finalVal = isLive ? (totalReserves + netAfterSavings) : netAfterSavings;
+
                     return (
-                      <td key={month} className={value >= 0 ? 'positive' : 'negative'}>
-                        {cell(value)}
+                      <td key={month} className={finalVal >= 0 ? 'positive' : 'negative'} style={{ fontWeight: 800, color: finalVal >= 0 ? '#34D399' : '#F87171' }}>
+                        {cell(finalVal)}
                       </td>
                     );
                   })}
-                  <td className="col-year-total" style={{ fontWeight: 700 }}>
-                    {currency(total(incomeTotals) - total(expenseTotals) - total(savingsTotals))}
+                  <td className="col-year-total" style={{ fontWeight: 800, color: (() => {
+                    const annualNetAfterSavings = total(incomeTotals) - total(expenseTotals) - total(savingsTotals);
+                    const totalReserves = accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + (cashWallet.balance || 0);
+                    const finalVal = (selectedYear >= new Date().getFullYear()) ? (totalReserves + annualNetAfterSavings) : annualNetAfterSavings;
+                    return finalVal >= 0 ? '#34D399' : '#F87171';
+                  })() }}>
+                    {currency((() => {
+                      const annualNetAfterSavings = total(incomeTotals) - total(expenseTotals) - total(savingsTotals);
+                      const totalReserves = accounts.reduce((sum, a) => sum + (a.balance || 0), 0) + (cashWallet.balance || 0);
+                      return (selectedYear >= new Date().getFullYear()) ? (totalReserves + annualNetAfterSavings) : annualNetAfterSavings;
+                    })())}
                   </td>
                 </tr>
               </tbody>
