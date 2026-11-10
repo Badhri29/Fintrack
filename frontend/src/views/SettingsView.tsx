@@ -74,7 +74,7 @@ export const SettingsView: React.FC = () => {
     logoutMail: false,
     pwdResetSoftware: true,
     pwdResetMail: true,
-    eodMail: true,
+    eodMail: false,
     eodFrequency: 'DAILY',
     eodTime: '20:00',
     accessSoftware: true,
@@ -279,9 +279,50 @@ export const SettingsView: React.FC = () => {
   useEffect(() => {
     fetchProfile();
     fetchNotificationSettings();
+    fetchUserPreferences();
     fetchSubscriptionPlans();
     fetchMyAccessRequests();
   }, []);
+
+  const fetchUserPreferences = async () => {
+    try {
+      const res = await api.get('/user/preferences');
+      if (res.data?.success && res.data.data) {
+        const p = res.data.data;
+        if (p.currency) {
+          setCurrencyCode(p.currency);
+          currencyService.setActiveCurrency(p.currency, false);
+        }
+        if (p.currencyFormat) {
+          setNumberFormat(p.currencyFormat);
+          localStorage.setItem('fintrack_number_format', p.currencyFormat);
+        }
+        if (p.theme) {
+          setTheme(p.theme as any);
+        }
+        if (p.defaultType) {
+          setDefaultType(p.defaultType);
+          localStorage.setItem('fintrack-default-transaction-type', p.defaultType);
+        }
+        if (p.defaultPaymentMode) {
+          setDefaultPaymentMode(p.defaultPaymentMode);
+          localStorage.setItem('fintrack-default-payment-mode', p.defaultPaymentMode);
+        }
+        if (p.defaultCategory) {
+          setDefaultCategory(p.defaultCategory);
+          localStorage.setItem('fintrack-default-category', p.defaultCategory);
+        }
+        if (p.soundEffects !== undefined) {
+          setSoundEffects(Boolean(p.soundEffects));
+          localStorage.setItem('fintrack_notif_sound', p.soundEffects ? 'true' : 'false');
+        }
+        if (p.soundTone) {
+          setSoundTone(p.soundTone);
+          setActiveSoundTone(p.soundTone);
+        }
+      }
+    } catch {}
+  };
 
   const fetchNotificationSettings = async () => {
     try {

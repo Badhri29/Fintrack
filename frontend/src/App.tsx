@@ -24,6 +24,7 @@ import { AlertTriangle, Lock, Wallet } from 'lucide-react';
 import api from './services/api';
 import { bankAccountService } from './services/bankAccountService';
 import { cardService } from './services/cardService';
+import { currencyService } from './services/currencyService';
 import { loanService } from './services/loanService';
 import { budgetService } from './services/budgetService';
 
@@ -97,6 +98,7 @@ function AppContent() {
     const syncAllUserData = async () => {
       try {
         await Promise.allSettled([
+          currencyService.syncWithBackend(),
           cardService.fetchCardsFromServer(user.email),
           loanService.fetchLoansFromServer(user.email),
           bankAccountService.fetchAccountsFromServer(user.email),

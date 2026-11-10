@@ -48,6 +48,9 @@ public class AdminController {
     @Autowired
     private UserNotificationSettingRepository userNotificationSettingRepository;
 
+    @Autowired(required = false)
+    private UserPreferenceRepository userPreferenceRepository;
+
     @Autowired
     private TransactionRepository transactionRepository;
 
@@ -290,7 +293,7 @@ public class AdminController {
         Map<String, Object> res = new HashMap<>();
         res.put("loginMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_LOGIN_MAIL").map(SystemSetting::getSettingValue).orElse("true")));
         res.put("requestMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_REQUEST_MAIL").map(SystemSetting::getSettingValue).orElse("true")));
-        res.put("eodMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_EOD_MAIL").map(SystemSetting::getSettingValue).orElse("true")));
+        res.put("eodMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_EOD_MAIL").map(SystemSetting::getSettingValue).orElse("false")));
         res.put("eodFrequency", systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_EOD_FREQ").map(SystemSetting::getSettingValue).orElse("daily"));
         res.put("softwareSound", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_SOUND").map(SystemSetting::getSettingValue).orElse("true")));
         return ResponseEntity.ok(Map.of("success", true, "data", res));
@@ -1358,4 +1361,295 @@ public class AdminController {
         }
         return ResponseEntity.ok(Map.of("success", true, "online", true));
     }
+    // =========================================================================
+    // SYSTEM DEFAULTS & USER PREFERENCES
+    // =========================================================================
+
+    @GetMapping("/system/public-defaults")
+    public ResponseEntity<?> getPublicSystemDefaults() {
+        String defaultCurrency = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY")
+                .map(SystemSetting::getSettingValue).orElse("INR");
+        String defaultFormat = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY_FORMAT")
+                .map(SystemSetting::getSettingValue).orElse("indian");
+        String defaultTheme = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_THEME")
+                .map(SystemSetting::getSettingValue).orElse("dark");
+        String version = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULTS_VERSION")
+                .map(SystemSetting::getSettingValue).orElse("1");
+
+        String symbol = "₹";
+        if ("USD".equalsIgnoreCase(defaultCurrency)) symbol = "$";
+        else if ("EUR".equalsIgnoreCase(defaultCurrency)) symbol = "€";
+        else if ("GBP".equalsIgnoreCase(defaultCurrency)) symbol = "£";
+        else if ("JPY".equalsIgnoreCase(defaultCurrency) || "CNY".equalsIgnoreCase(defaultCurrency)) symbol = "¥";
+        else if ("AED".equalsIgnoreCase(defaultCurrency)) symbol = "د.إ";
+        else if ("CAD".equalsIgnoreCase(defaultCurrency)) symbol = "CA$";
+        else if ("SGD".equalsIgnoreCase(defaultCurrency)) symbol = "S$";
+        else if ("AUD".equalsIgnoreCase(defaultCurrency)) symbol = "A$";
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("defaultCurrency", defaultCurrency);
+        data.put("defaultCurrencySymbol", symbol);
+        data.put("defaultCurrencyFormat", defaultFormat);
+        data.put("defaultTheme", defaultTheme);
+        data.put("version", version);
+        return ResponseEntity.ok(Map.of("success", true, "data", data, "defaultCurrency", defaultCurrency, "defaultCurrencySymbol", symbol));
+    }
+
+    @GetMapping("/user/preferences")
+    public ResponseEntity<?> getUserPreferences(@AuthenticationPrincipal UserPrincipal principal) {
+        if (principal == null || principal.getId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        Long userId = principal.getId();
+        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElseGet(() -> {
+            String sysCurrency = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY").map(SystemSetting::getSettingValue).orElse("INR");
+            String sysFormat = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY_FORMAT").map(SystemSetting::getSettingValue).orElse("indian");
+            String sysTheme = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_THEME").map(SystemSetting::getSettingValue).orElse("dark");
+            String sysType = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_TX_TYPE").map(SystemSetting::getSettingValue).orElse("expense");
+            String sysMode = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_PAYMENT_MODE").map(SystemSetting::getSettingValue).orElse("upi");
+            String sysCat = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CATEGORY").map(SystemSetting::getSettingValue).orElse("Food & Groceries");
+            boolean sysFocus = "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_AUTOFOCUS").map(SystemSetting::getSettingValue).orElse("true"));
+            boolean sysSound = "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_EFFECTS").map(SystemSetting::getSettingValue).orElse("true"));
+            String sysTone = systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_TONE").map(SystemSetting::getSettingValue).orElse("chime");
+            int sysVol = 80;
+            try {
+                sysVol = Integer.parseInt(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_VOLUME").map(SystemSetting::getSettingValue).orElse("80"));
+            } catch (Exception ignored) {}
+
+            UserPreference newPref = UserPreference.builder()
+                    .userId(userId)
+                    .currency(sysCurrency)
+                    .currencyFormat(sysFormat)
+                    .theme(sysTheme)
+                    .defaultType(sysType)
+                    .defaultPaymentMode(sysMode)
+                    .defaultCategory(sysCat)
+                    .defaultCard("")
+                    .defaultNote("")
+                    .autoFocusAmount(sysFocus)
+                    .soundEffects(sysSound)
+                    .soundTone(sysTone)
+                    .soundVolume(sysVol)
+                    .build();
+            return userPreferenceRepository.save(newPref);
+        });
+
+        return ResponseEntity.ok(Map.of("success", true, "data", pref));
+    }
+
+    @PutMapping("/user/preferences")
+    public ResponseEntity<?> updateUserPreferences(@AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
+        if (principal == null || principal.getId() == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("success", false));
+        }
+        Long userId = principal.getId();
+        UserPreference pref = userPreferenceRepository.findByUserId(userId).orElseGet(() ->
+                UserPreference.builder().userId(userId).build()
+        );
+
+        if (body.containsKey("currency") && body.get("currency") != null) {
+            pref.setCurrency(body.get("currency").toString().toUpperCase());
+        }
+        if (body.containsKey("currencyFormat") && body.get("currencyFormat") != null) {
+            pref.setCurrencyFormat(body.get("currencyFormat").toString());
+        }
+        if (body.containsKey("theme") && body.get("theme") != null) {
+            pref.setTheme(body.get("theme").toString());
+        }
+        if (body.containsKey("defaultType") && body.get("defaultType") != null) {
+            pref.setDefaultType(body.get("defaultType").toString());
+        }
+        if (body.containsKey("defaultPaymentMode") && body.get("defaultPaymentMode") != null) {
+            pref.setDefaultPaymentMode(body.get("defaultPaymentMode").toString());
+        }
+        if (body.containsKey("defaultCategory") && body.get("defaultCategory") != null) {
+            pref.setDefaultCategory(body.get("defaultCategory").toString());
+        }
+        if (body.containsKey("defaultCard") && body.get("defaultCard") != null) {
+            pref.setDefaultCard(body.get("defaultCard").toString());
+        }
+        if (body.containsKey("defaultNote") && body.get("defaultNote") != null) {
+            pref.setDefaultNote(body.get("defaultNote").toString());
+        }
+        if (body.containsKey("autoFocusAmount") && body.get("autoFocusAmount") != null) {
+            pref.setAutoFocusAmount(Boolean.valueOf(body.get("autoFocusAmount").toString()));
+        }
+        if (body.containsKey("soundEffects") && body.get("soundEffects") != null) {
+            pref.setSoundEffects(Boolean.valueOf(body.get("soundEffects").toString()));
+        }
+        if (body.containsKey("soundTone") && body.get("soundTone") != null) {
+            pref.setSoundTone(body.get("soundTone").toString());
+        }
+        if (body.containsKey("soundVolume") && body.get("soundVolume") != null) {
+            try {
+                pref.setSoundVolume(Integer.parseInt(body.get("soundVolume").toString()));
+            } catch (Exception ignored) {}
+        }
+
+        userPreferenceRepository.save(pref);
+        return ResponseEntity.ok(Map.of("success", true, "data", pref, "message", "User preferences updated successfully."));
+    }
+
+    @GetMapping("/admin/system-defaults")
+    public ResponseEntity<?> getAdminSystemDefaults(@AuthenticationPrincipal UserPrincipal principal) {
+        if (!checkIsAdmin(principal)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "error", "Super admin access required."));
+        }
+        Map<String, Object> data = new HashMap<>();
+        data.put("theme", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_THEME").map(SystemSetting::getSettingValue).orElse("dark"));
+        data.put("currency", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY").map(SystemSetting::getSettingValue).orElse("INR"));
+        data.put("currencyFormat", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CURRENCY_FORMAT").map(SystemSetting::getSettingValue).orElse("indian"));
+        data.put("defaultType", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_TX_TYPE").map(SystemSetting::getSettingValue).orElse("expense"));
+        data.put("defaultPaymentMode", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_PAYMENT_MODE").map(SystemSetting::getSettingValue).orElse("upi"));
+        data.put("defaultCategory", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CATEGORY").map(SystemSetting::getSettingValue).orElse("Food & Groceries"));
+        data.put("defaultCard", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_CARD").map(SystemSetting::getSettingValue).orElse(""));
+        data.put("defaultNote", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_NOTE").map(SystemSetting::getSettingValue).orElse(""));
+        data.put("autoFocusAmount", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_AUTOFOCUS").map(SystemSetting::getSettingValue).orElse("true")));
+        data.put("loginMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_LOGIN_MAIL").map(SystemSetting::getSettingValue).orElse("true")));
+        data.put("requestMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_REQUEST_MAIL").map(SystemSetting::getSettingValue).orElse("true")));
+        data.put("eodMail", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_EOD_MAIL").map(SystemSetting::getSettingValue).orElse("false")));
+        data.put("eodFrequency", systemSettingRepository.findBySettingKey("NOTIF_DEFAULT_EOD_FREQ").map(SystemSetting::getSettingValue).orElse("daily"));
+        data.put("soundEffects", "true".equalsIgnoreCase(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_EFFECTS").map(SystemSetting::getSettingValue).orElse("true")));
+        data.put("soundTone", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_TONE").map(SystemSetting::getSettingValue).orElse("chime"));
+        int soundVol = 80;
+        try {
+            soundVol = Integer.parseInt(systemSettingRepository.findBySettingKey("SYSTEM_DEFAULT_SOUND_VOLUME").map(SystemSetting::getSettingValue).orElse("80"));
+        } catch (Exception ignored) {}
+        data.put("soundVolume", soundVol);
+        data.put("version", systemSettingRepository.findBySettingKey("SYSTEM_DEFAULTS_VERSION").map(SystemSetting::getSettingValue).orElse("1"));
+
+        return ResponseEntity.ok(Map.of("success", true, "data", data));
+    }
+
+    @PostMapping("/admin/set-system-defaults")
+    public ResponseEntity<?> setAdminSystemDefaults(@AuthenticationPrincipal UserPrincipal principal, @RequestBody Map<String, Object> body) {
+        if (!checkIsAdmin(principal)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("success", false, "error", "Super admin access required."));
+        }
+
+        if (body.containsKey("theme") && body.get("theme") != null) {
+            saveSetting("SYSTEM_DEFAULT_THEME", body.get("theme").toString());
+        }
+        if (body.containsKey("currency") && body.get("currency") != null) {
+            saveSetting("SYSTEM_DEFAULT_CURRENCY", body.get("currency").toString().toUpperCase());
+        }
+        if (body.containsKey("currencyFormat") && body.get("currencyFormat") != null) {
+            saveSetting("SYSTEM_DEFAULT_CURRENCY_FORMAT", body.get("currencyFormat").toString());
+        }
+        if (body.containsKey("defaultType") && body.get("defaultType") != null) {
+            saveSetting("SYSTEM_DEFAULT_TX_TYPE", body.get("defaultType").toString());
+        }
+        if (body.containsKey("defaultPaymentMode") && body.get("defaultPaymentMode") != null) {
+            saveSetting("SYSTEM_DEFAULT_PAYMENT_MODE", body.get("defaultPaymentMode").toString());
+        }
+        if (body.containsKey("defaultCategory") && body.get("defaultCategory") != null) {
+            saveSetting("SYSTEM_DEFAULT_CATEGORY", body.get("defaultCategory").toString());
+        }
+        if (body.containsKey("defaultCard") && body.get("defaultCard") != null) {
+            saveSetting("SYSTEM_DEFAULT_CARD", body.get("defaultCard").toString());
+        }
+        if (body.containsKey("defaultNote") && body.get("defaultNote") != null) {
+            saveSetting("SYSTEM_DEFAULT_NOTE", body.get("defaultNote").toString());
+        }
+        if (body.containsKey("autoFocusAmount") && body.get("autoFocusAmount") != null) {
+            saveSetting("SYSTEM_DEFAULT_AUTOFOCUS", body.get("autoFocusAmount").toString());
+        }
+        if (body.containsKey("loginMail") && body.get("loginMail") != null) {
+            saveSetting("NOTIF_DEFAULT_LOGIN_MAIL", body.get("loginMail").toString());
+        }
+        if (body.containsKey("requestMail") && body.get("requestMail") != null) {
+            saveSetting("NOTIF_DEFAULT_REQUEST_MAIL", body.get("requestMail").toString());
+        }
+        if (body.containsKey("eodMail") && body.get("eodMail") != null) {
+            saveSetting("NOTIF_DEFAULT_EOD_MAIL", body.get("eodMail").toString());
+        }
+        if (body.containsKey("eodFrequency") && body.get("eodFrequency") != null) {
+            saveSetting("NOTIF_DEFAULT_EOD_FREQ", body.get("eodFrequency").toString());
+        }
+        if (body.containsKey("soundEffects") && body.get("soundEffects") != null) {
+            saveSetting("SYSTEM_DEFAULT_SOUND_EFFECTS", body.get("soundEffects").toString());
+            saveSetting("NOTIF_DEFAULT_SOUND", body.get("soundEffects").toString());
+        }
+        if (body.containsKey("soundTone") && body.get("soundTone") != null) {
+            saveSetting("SYSTEM_DEFAULT_SOUND_TONE", body.get("soundTone").toString());
+        }
+        if (body.containsKey("soundVolume") && body.get("soundVolume") != null) {
+            saveSetting("SYSTEM_DEFAULT_SOUND_VOLUME", body.get("soundVolume").toString());
+        }
+
+        saveSetting("SYSTEM_DEFAULTS_VERSION", String.valueOf(System.currentTimeMillis()));
+
+        List<User> allUsers = userRepository.findAll();
+        for (User u : allUsers) {
+            UserPreference pref = userPreferenceRepository.findByUserId(u.getId()).orElseGet(() ->
+                    UserPreference.builder().userId(u.getId()).build()
+            );
+
+            if (body.containsKey("currency") && body.get("currency") != null) {
+                pref.setCurrency(body.get("currency").toString().toUpperCase());
+            }
+            if (body.containsKey("currencyFormat") && body.get("currencyFormat") != null) {
+                pref.setCurrencyFormat(body.get("currencyFormat").toString());
+            }
+            if (body.containsKey("theme") && body.get("theme") != null) {
+                pref.setTheme(body.get("theme").toString());
+            }
+            if (body.containsKey("defaultType") && body.get("defaultType") != null) {
+                pref.setDefaultType(body.get("defaultType").toString());
+            }
+            if (body.containsKey("defaultPaymentMode") && body.get("defaultPaymentMode") != null) {
+                pref.setDefaultPaymentMode(body.get("defaultPaymentMode").toString());
+            }
+            if (body.containsKey("defaultCategory") && body.get("defaultCategory") != null) {
+                pref.setDefaultCategory(body.get("defaultCategory").toString());
+            }
+            if (body.containsKey("defaultCard") && body.get("defaultCard") != null) {
+                pref.setDefaultCard(body.get("defaultCard").toString());
+            }
+            if (body.containsKey("defaultNote") && body.get("defaultNote") != null) {
+                pref.setDefaultNote(body.get("defaultNote").toString());
+            }
+            if (body.containsKey("autoFocusAmount") && body.get("autoFocusAmount") != null) {
+                pref.setAutoFocusAmount(Boolean.valueOf(body.get("autoFocusAmount").toString()));
+            }
+            if (body.containsKey("soundEffects") && body.get("soundEffects") != null) {
+                pref.setSoundEffects(Boolean.valueOf(body.get("soundEffects").toString()));
+            }
+            if (body.containsKey("soundTone") && body.get("soundTone") != null) {
+                pref.setSoundTone(body.get("soundTone").toString());
+            }
+            if (body.containsKey("soundVolume") && body.get("soundVolume") != null) {
+                try {
+                    pref.setSoundVolume(Integer.parseInt(body.get("soundVolume").toString()));
+                } catch (Exception ignored) {}
+            }
+            userPreferenceRepository.save(pref);
+
+            Optional<UserNotificationSetting> unsOpt = userNotificationSettingRepository.findByUserId(u.getId());
+            UserNotificationSetting uns = unsOpt.orElseGet(() -> UserNotificationSetting.builder().userId(u.getId()).build());
+            if (body.containsKey("loginMail") && body.get("loginMail") != null) {
+                uns.setLoginMail(Boolean.valueOf(body.get("loginMail").toString()));
+            }
+            if (body.containsKey("requestMail") && body.get("requestMail") != null) {
+                uns.setAccessMail(Boolean.valueOf(body.get("requestMail").toString()));
+            }
+            if (body.containsKey("eodMail") && body.get("eodMail") != null) {
+                uns.setEodMail(Boolean.valueOf(body.get("eodMail").toString()));
+            }
+            if (body.containsKey("eodFrequency") && body.get("eodFrequency") != null) {
+                uns.setEodFrequency(body.get("eodFrequency").toString());
+            }
+            userNotificationSettingRepository.save(uns);
+        }
+
+        userActivityLogRepository.save(UserActivityLog.builder()
+                .userId(principal.getId())
+                .userEmail(principal.getEmail())
+                .action("SET_SYSTEM_DEFAULTS")
+                .details("Admin set global system defaults and applied across all " + allUsers.size() + " user accounts")
+                .build());
+
+        return ResponseEntity.ok(Map.of("success", true, "message", "System defaults updated and successfully applied to all users!"));
+    }
+
 }

@@ -66,10 +66,10 @@ public class ScheduledReportService {
             }
 
             // Verify notification setting if present
-            boolean enabled = true;
+            boolean enabled = false;
             Optional<UserNotificationSetting> settingOpt = userNotificationSettingRepository.findByUserId(user.getId());
             if (settingOpt.isPresent()) {
-                enabled = settingOpt.get().getEodMail() != null ? settingOpt.get().getEodMail() : true;
+                enabled = Boolean.TRUE.equals(settingOpt.get().getEodMail());
             }
 
             if (!enabled) {

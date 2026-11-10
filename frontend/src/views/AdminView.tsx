@@ -23,9 +23,16 @@ import {
   Sun,
   Moon,
   Laptop,
-  Clock
+  Clock,
+  Sparkles,
+  Volume2,
+  Bell,
+  Coins,
+  Play
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { SUPPORTED_CURRENCIES, currencyService } from '../services/currencyService';
+import { NOTIFICATION_SOUNDS, playNotificationChime } from '../services/soundService';
 
 export interface SubscriptionPlanItem {
   id: number;
@@ -78,7 +85,7 @@ export const AdminView: React.FC<AdminViewProps> = () => {
   const isLight = effectiveTheme === 'light';
 
   // Navigation
-  const [activeTab, setActiveTab] = useState<'accounts' | 'plans' | 'requests' | 'maintenance' | 'logs' | 'deepdive'>('accounts');
+  const [activeTab, setActiveTab] = useState<'accounts' | 'plans' | 'requests' | 'defaults' | 'maintenance' | 'logs' | 'deepdive'>('accounts');
 
   // Subscription plans state
   const [plans, setPlans] = useState<SubscriptionPlanItem[]>([]);
@@ -97,6 +104,85 @@ export const AdminView: React.FC<AdminViewProps> = () => {
   } | null>(null);
 
   // User list state
+  
+  // System Defaults State
+  const [sysDefaults, setSysDefaults] = useState<{
+    theme: string;
+    currency: string;
+    currencyFormat: string;
+    defaultType: string;
+    defaultPaymentMode: string;
+    defaultCategory: string;
+    defaultCard: string;
+    defaultNote: string;
+    autoFocusAmount: boolean;
+    loginMail: boolean;
+    requestMail: boolean;
+    eodMail: boolean;
+    eodFrequency: string;
+    soundEffects: boolean;
+    soundTone: string;
+    soundVolume: number;
+  }>({
+    theme: 'dark',
+    currency: 'INR',
+    currencyFormat: 'indian',
+    defaultType: 'expense',
+    defaultPaymentMode: 'upi',
+    defaultCategory: 'Food & Groceries',
+    defaultCard: '',
+    defaultNote: '',
+    autoFocusAmount: true,
+    loginMail: true,
+    requestMail: true,
+    eodMail: false, // Default is OFF by default
+    eodFrequency: 'daily',
+    soundEffects: true,
+    soundTone: 'crystal',
+    soundVolume: 80,
+  });
+  const [sysDefaultsLoading, setSysDefaultsLoading] = useState<boolean>(false);
+  const [sysDefaultsSaving, setSysDefaultsSaving] = useState<boolean>(false);
+  const [sysDefaultsMsg, setSysDefaultsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    fetchSystemDefaults();
+  }, []);
+
+  const fetchSystemDefaults = async () => {
+    setSysDefaultsLoading(true);
+    try {
+      const res = await api.get('/admin/system-defaults');
+      if (res.data?.success && res.data.data) {
+        setSysDefaults(prev => ({
+          ...prev,
+          ...res.data.data
+        }));
+      }
+    } catch {}
+    finally {
+      setSysDefaultsLoading(false);
+    }
+  };
+
+  const handleSaveSystemDefaults = async () => {
+    setSysDefaultsSaving(true);
+    setSysDefaultsMsg(null);
+    try {
+      const res = await api.post('/admin/set-system-defaults', sysDefaults);
+      if (res.data?.success) {
+        setSysDefaultsMsg({ type: 'success', text: res.data.message || 'System defaults successfully applied to all users!' });
+        // Also update local currency service if admin changed currency
+        currencyService.setActiveCurrency(sysDefaults.currency, false);
+        setTimeout(() => setSysDefaultsMsg(null), 6000);
+      }
+    } catch (err: any) {
+      setSysDefaultsMsg({ type: 'error', text: err.response?.data?.error || 'Failed to apply system defaults.' });
+    } finally {
+      setSysDefaultsSaving(false);
+    }
+  };
+
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -837,6 +923,7 @@ export const AdminView: React.FC<AdminViewProps> = () => {
             { id: 'accounts', label: 'User accounts', icon: Users },
             { id: 'plans', label: `Subscription Packages (${plans.length || 3})`, icon: CreditCard },
             { id: 'requests', label: `Access Requests (${pendingRequestsCount})`, icon: Mail },
+            { id: 'defaults', label: 'System Settings & Defaults', icon: Sliders },
             { id: 'maintenance', label: 'Scheduled Maintenance', icon: AlertTriangle },
             { id: 'logs', label: 'Activity & Audit Logs', icon: Activity }
           ].map(tab => {
@@ -1673,6 +1760,631 @@ export const AdminView: React.FC<AdminViewProps> = () => {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+
+        {/* =========================================================================
+            TAB: SYSTEM SETTINGS & GLOBAL DEFAULTS
+            ========================================================================= */}
+        {activeTab === 'defaults' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+            {/* Top Header Card */}
+            <div
+              style={{
+                background: cardBg,
+                border: `1px solid ${borderColor}`,
+                borderRadius: 20,
+                padding: '24px 28px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 16,
+                boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div
+                  style={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: 14,
+                    background: 'linear-gradient(135deg, rgba(124, 58, 237, 0.2) 0%, rgba(99, 102, 241, 0.2) 100%)',
+                    border: '1px solid rgba(124, 58, 237, 0.4)',
+                    color: '#A78BFA',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                  }}
+                >
+                  <Sliders size={26} />
+                </div>
+                <div>
+                  <h2 style={{ fontSize: 20, fontWeight: 800, color: textColor, margin: '0 0 4px' }}>
+                    System Settings & Global Defaults
+                  </h2>
+                  <p style={{ fontSize: 13, color: mutedText, margin: 0 }}>
+                    Configure system-wide defaults for Theme, Real-time Currency, Transactions, Notifications & Audio. Clicking <strong style={{ color: '#A78BFA' }}>"Set Default"</strong> propagates these settings to all existing user accounts and new registrations.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveSystemDefaults}
+                disabled={sysDefaultsSaving || sysDefaultsLoading}
+                style={{
+                  background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
+                  color: '#FFF',
+                  border: 'none',
+                  padding: '12px 24px',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: sysDefaultsSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 8px 24px rgba(124, 58, 237, 0.35)',
+                  opacity: sysDefaultsSaving ? 0.7 : 1,
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                <Sparkles size={16} />
+                <span>{sysDefaultsLoading ? 'Loading Defaults...' : (sysDefaultsSaving ? 'Propagating Defaults...' : 'Set Default (Apply to All Users)')}</span>
+              </button>
+            </div>
+
+            {sysDefaultsMsg && (
+              <div
+                style={{
+                  padding: '14px 20px',
+                  borderRadius: 12,
+                  background: sysDefaultsMsg.type === 'success' ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)',
+                  border: `1px solid ${sysDefaultsMsg.type === 'success' ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'}`,
+                  color: sysDefaultsMsg.type === 'success' ? '#10B981' : '#EF4444',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10
+                }}
+              >
+                <CheckCircle size={18} />
+                <span>{sysDefaultsMsg.text}</span>
+              </div>
+            )}
+
+            {/* Grid of Setting Sections */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(460px, 1fr))', gap: 20 }}>
+              
+              {/* 1. Theme Configuration */}
+              <div
+                style={{
+                  background: cardBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 18,
+                  padding: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Sun size={20} style={{ color: '#F59E0B' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: textColor }}>
+                    1. System Appearance & Default Theme
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: mutedText }}>
+                  Choose the default theme mode applied across all user interfaces. Users can still toggle their personal mode in Settings.
+                </p>
+
+                <div style={{ display: 'flex', gap: 12 }}>
+                  {[
+                    { id: 'dark', label: 'Dark Mode', icon: Moon },
+                    { id: 'light', label: 'Light Mode', icon: Sun },
+                    { id: 'system', label: 'System Match', icon: Laptop }
+                  ].map(t => {
+                    const TIcon = t.icon;
+                    const isSelected = sysDefaults.theme === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setSysDefaults(p => ({ ...p, theme: t.id }))}
+                        style={{
+                          flex: 1,
+                          padding: '12px 14px',
+                          borderRadius: 12,
+                          border: isSelected ? '2px solid #7C3AED' : `1px solid ${borderColor}`,
+                          background: isSelected ? 'rgba(124, 58, 237, 0.15)' : (isLight ? '#F8FAFC' : '#111726'),
+                          color: isSelected ? '#A78BFA' : textColor,
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: 8,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <TIcon size={16} />
+                        <span>{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. Real-Time Currency Configuration */}
+              <div
+                style={{
+                  background: cardBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 18,
+                  padding: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Coins size={20} style={{ color: '#10B981' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: textColor }}>
+                    2. Real-time Currency Section (All Options)
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: mutedText }}>
+                  Select the system-wide default currency and number grouping format. When Admin selects a currency (e.g. INR) and clicks "Set Default", User A, User B, and all others update to this currency. Users can then customize their currency individually afterwards.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: mutedText }}>Default Currency Code</label>
+                  <select
+                    value={sysDefaults.currency}
+                    onChange={e => setSysDefaults(p => ({ ...p, currency: e.target.value }))}
+                    style={{
+                      background: isLight ? '#F8FAFC' : '#111726',
+                      border: `1px solid ${borderColor}`,
+                      color: textColor,
+                      padding: '10px 14px',
+                      borderRadius: 10,
+                      fontSize: 14,
+                      fontWeight: 700,
+                      outline: 'none'
+                    }}
+                  >
+                    {SUPPORTED_CURRENCIES.map(c => (
+                      <option key={c.code} value={c.code}>
+                        {c.flag} {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label style={{ fontSize: 12, fontWeight: 700, color: mutedText }}>Number Grouping Format</label>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    {[
+                      { id: 'indian', label: 'Indian (Lakhs: 1,00,000)' },
+                      { id: 'international', label: 'International (Millions: 100,000)' }
+                    ].map(f => {
+                      const isSelected = sysDefaults.currencyFormat === f.id;
+                      return (
+                        <button
+                          key={f.id}
+                          type="button"
+                          onClick={() => setSysDefaults(p => ({ ...p, currencyFormat: f.id }))}
+                          style={{
+                            flex: 1,
+                            padding: '10px 12px',
+                            borderRadius: 10,
+                            border: isSelected ? '2px solid #10B981' : `1px solid ${borderColor}`,
+                            background: isSelected ? 'rgba(16, 185, 129, 0.15)' : (isLight ? '#F8FAFC' : '#111726'),
+                            color: isSelected ? '#10B981' : textColor,
+                            fontWeight: 700,
+                            fontSize: 12,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {f.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div
+                    style={{
+                      background: isLight ? '#F1F5F9' : '#0B0F19',
+                      border: `1px solid ${borderColor}`,
+                      borderRadius: 10,
+                      padding: '10px 14px',
+                      fontSize: 12,
+                      color: mutedText,
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 8
+                    }}
+                  >
+                    <Sparkles size={14} style={{ color: '#10B981' }} />
+                    <span>
+                      Active Default: <strong style={{ color: textColor }}>{sysDefaults.currency}</strong> (Preview: 1,000 INR = {currencyService.getRate(sysDefaults.currency) > 0 ? (1000 * currencyService.getRate(sysDefaults.currency)).toFixed(2) : '1000.00'} {sysDefaults.currency})
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Default Transaction Preference Section */}
+              <div
+                style={{
+                  background: cardBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 18,
+                  padding: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Sliders size={20} style={{ color: '#6366F1' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: textColor }}>
+                    3. Default Transaction Preferences (All Options)
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: mutedText }}>
+                  Global default pre-fill values when users open the "Add Transaction" modal dialog.
+                </p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: mutedText, display: 'block', marginBottom: 4 }}>
+                      Default Type
+                    </label>
+                    <select
+                      value={sysDefaults.defaultType}
+                      onChange={e => setSysDefaults(p => ({ ...p, defaultType: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: isLight ? '#F8FAFC' : '#111726',
+                        border: `1px solid ${borderColor}`,
+                        color: textColor,
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value="expense">Expense</option>
+                      <option value="income">Income</option>
+                      <option value="savings">Savings / Investment</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 700, color: mutedText, display: 'block', marginBottom: 4 }}>
+                      Payment Mode
+                    </label>
+                    <select
+                      value={sysDefaults.defaultPaymentMode}
+                      onChange={e => setSysDefaults(p => ({ ...p, defaultPaymentMode: e.target.value }))}
+                      style={{
+                        width: '100%',
+                        background: isLight ? '#F8FAFC' : '#111726',
+                        border: `1px solid ${borderColor}`,
+                        color: textColor,
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontWeight: 600
+                      }}
+                    >
+                      <option value="upi">UPI (GPay, PhonePe, Paytm)</option>
+                      <option value="card">Credit / Debit Card</option>
+                      <option value="netbanking">Net Banking</option>
+                      <option value="cash">Cash</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 700, color: mutedText, display: 'block', marginBottom: 4 }}>
+                    Default Category
+                  </label>
+                  <input
+                    type="text"
+                    value={sysDefaults.defaultCategory}
+                    onChange={e => setSysDefaults(p => ({ ...p, defaultCategory: e.target.value }))}
+                    placeholder="e.g. Food & Groceries"
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      background: isLight ? '#F8FAFC' : '#111726',
+                      border: `1px solid ${borderColor}`,
+                      color: textColor,
+                      padding: '9px 12px',
+                      borderRadius: 8,
+                      fontSize: 13,
+                      fontWeight: 600
+                    }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                  <input
+                    type="checkbox"
+                    id="sys_autofocus"
+                    checked={sysDefaults.autoFocusAmount}
+                    onChange={e => setSysDefaults(p => ({ ...p, autoFocusAmount: e.target.checked }))}
+                    style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#7C3AED' }}
+                  />
+                  <label htmlFor="sys_autofocus" style={{ fontSize: 13, fontWeight: 600, color: textColor, cursor: 'pointer' }}>
+                    Auto-focus Amount Input Field when opening Modal
+                  </label>
+                </div>
+              </div>
+
+              {/* 4. Notification Controls Section */}
+              <div
+                style={{
+                  background: cardBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 18,
+                  padding: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Bell size={20} style={{ color: '#EC4899' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: textColor }}>
+                    4. Notification Controls (All Options)
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: mutedText }}>
+                  System defaults for email notifications. As per policy, <strong style={{ color: '#EF4444' }}>EOD Financial Digest is OFF by default</strong> so no daily emails go out unless explicitly turned on.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {/* Login Email */}
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: textColor }}>Login Notification Mail</div>
+                      <div style={{ fontSize: 11, color: mutedText }}>Send email alert on every successful login session</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={sysDefaults.loginMail}
+                      onChange={e => setSysDefaults(p => ({ ...p, loginMail: e.target.checked }))}
+                      style={{ width: 18, height: 18, accentColor: '#7C3AED', cursor: 'pointer' }}
+                    />
+                  </label>
+
+                  {/* Access Request Email */}
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: textColor }}>Access Request Email</div>
+                      <div style={{ fontSize: 11, color: mutedText }}>Email when user requests dashboard unlock or upgrade</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={sysDefaults.requestMail}
+                      onChange={e => setSysDefaults(p => ({ ...p, requestMail: e.target.checked }))}
+                      style={{ width: 18, height: 18, accentColor: '#7C3AED', cursor: 'pointer' }}
+                    />
+                  </label>
+
+                  {/* EOD Digest Email - OFF by default */}
+                  <div
+                    style={{
+                      padding: 12,
+                      borderRadius: 12,
+                      background: sysDefaults.eodMail ? 'rgba(239, 68, 68, 0.08)' : (isLight ? '#F1F5F9' : '#111726'),
+                      border: sysDefaults.eodMail ? '1px solid rgba(239, 68, 68, 0.3)' : `1px solid ${borderColor}`
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: textColor, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>Daily End-of-Day (EOD) Financial Digest</span>
+                          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: sysDefaults.eodMail ? '#10B981' : '#EF4444', color: '#FFF' }}>
+                            {sysDefaults.eodMail ? 'ENABLED' : 'DEFAULT: OFF'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: mutedText, marginTop: 2 }}>
+                          {sysDefaults.eodMail
+                            ? 'Users will receive automated daily financial summaries.'
+                            : 'Disabled by default. Users can turn it on individually in Settings.'}
+                        </div>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={sysDefaults.eodMail}
+                        onChange={e => setSysDefaults(p => ({ ...p, eodMail: e.target.checked }))}
+                        style={{ width: 18, height: 18, accentColor: '#EF4444', cursor: 'pointer' }}
+                      />
+                    </label>
+
+                    {sysDefaults.eodMail && (
+                      <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ fontSize: 12, color: mutedText }}>Digest Frequency:</span>
+                        <select
+                          value={sysDefaults.eodFrequency}
+                          onChange={e => setSysDefaults(p => ({ ...p, eodFrequency: e.target.value }))}
+                          style={{
+                            background: isLight ? '#FFF' : '#1E2638',
+                            border: `1px solid ${borderColor}`,
+                            color: textColor,
+                            padding: '4px 8px',
+                            borderRadius: 6,
+                            fontSize: 12
+                          }}
+                        >
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 5. Notification Audio Section */}
+              <div
+                style={{
+                  background: cardBg,
+                  border: `1px solid ${borderColor}`,
+                  borderRadius: 18,
+                  padding: 24,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 16,
+                  boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Volume2 size={20} style={{ color: '#06B6D4' }} />
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: textColor }}>
+                    5. Notification Audio (All Options)
+                  </h3>
+                </div>
+                <p style={{ margin: 0, fontSize: 13, color: mutedText }}>
+                  Configure synthesized Web Audio chimes triggered on user interactions and alerts.
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: textColor }}>Software Sound Effects</div>
+                      <div style={{ fontSize: 11, color: mutedText }}>Enable sound chimes for app notifications and toasts</div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={sysDefaults.soundEffects}
+                      onChange={e => setSysDefaults(p => ({ ...p, soundEffects: e.target.checked }))}
+                      style={{ width: 18, height: 18, accentColor: '#06B6D4', cursor: 'pointer' }}
+                    />
+                  </label>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <label style={{ fontSize: 12, fontWeight: 700, color: mutedText }}>Default Sound Chime Tone</label>
+                      <button
+                        type="button"
+                        onClick={() => playNotificationChime(sysDefaults.soundTone, true)}
+                        style={{
+                          background: 'rgba(6, 182, 212, 0.15)',
+                          border: '1px solid rgba(6, 182, 212, 0.4)',
+                          color: '#06B6D4',
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 4
+                        }}
+                      >
+                        <Play size={10} />
+                        <span>Play Sample</span>
+                      </button>
+                    </div>
+
+                    <select
+                      value={sysDefaults.soundTone}
+                      onChange={e => {
+                        const tone = e.target.value;
+                        setSysDefaults(p => ({ ...p, soundTone: tone }));
+                        playNotificationChime(tone, true);
+                      }}
+                      style={{
+                        width: '100%',
+                        background: isLight ? '#F8FAFC' : '#111726',
+                        border: `1px solid ${borderColor}`,
+                        color: textColor,
+                        padding: '9px 12px',
+                        borderRadius: 8,
+                        fontSize: 13,
+                        fontWeight: 600
+                      }}
+                    >
+                      {NOTIFICATION_SOUNDS.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} - {s.description}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: mutedText, marginBottom: 4 }}>
+                      <span>Default Sound Volume</span>
+                      <span style={{ color: '#06B6D4' }}>{sysDefaults.soundVolume}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={sysDefaults.soundVolume}
+                      onChange={e => setSysDefaults(p => ({ ...p, soundVolume: Number(e.target.value) }))}
+                      style={{ width: '100%', accentColor: '#06B6D4', cursor: 'pointer' }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Bottom Floating Bar */}
+            <div
+              style={{
+                background: cardBg,
+                border: `1px solid ${borderColor}`,
+                borderRadius: 16,
+                padding: '16px 24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                flexWrap: 'wrap',
+                gap: 12,
+                boxShadow: isLight ? '0 4px 14px rgba(0,0,0,0.04)' : 'none'
+              }}
+            >
+              <div style={{ fontSize: 13, color: mutedText }}>
+                <strong style={{ color: textColor }}>Ready to enforce defaults?</strong> Clicking button below will update all existing users to these settings immediately.
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveSystemDefaults}
+                disabled={sysDefaultsSaving}
+                style={{
+                  background: 'linear-gradient(135deg, #7C3AED 0%, #6D28D9 100%)',
+                  color: '#FFF',
+                  border: 'none',
+                  padding: '12px 28px',
+                  borderRadius: 12,
+                  fontSize: 14,
+                  fontWeight: 800,
+                  cursor: sysDefaultsSaving ? 'not-allowed' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  boxShadow: '0 8px 24px rgba(124, 58, 237, 0.35)',
+                  opacity: sysDefaultsSaving ? 0.7 : 1
+                }}
+              >
+                <Sparkles size={16} />
+                <span>{sysDefaultsSaving ? 'Applying to All Accounts...' : 'Set Default (Apply to All Users)'}</span>
+              </button>
+            </div>
           </div>
         )}
 

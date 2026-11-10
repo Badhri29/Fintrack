@@ -206,5 +206,59 @@ public class DatabaseMigrationRunner implements CommandLineRunner {
         } catch (Exception e) {
             logger.warn("DatabaseMigrationRunner: Error creating budgets table: {}", e.getMessage());
         }
+
+        // 7. User Preferences table
+        try {
+            jdbcTemplate.execute("""
+                CREATE TABLE IF NOT EXISTS user_preferences (
+                    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                    userId BIGINT NOT NULL UNIQUE,
+                    currency VARCHAR(20) DEFAULT 'INR',
+                    currencyFormat VARCHAR(50) DEFAULT 'indian',
+                    theme VARCHAR(50) DEFAULT 'dark',
+                    defaultType VARCHAR(50) DEFAULT 'expense',
+                    defaultPaymentMode VARCHAR(50) DEFAULT 'upi',
+                    defaultCategory VARCHAR(100) DEFAULT 'Food & Groceries',
+                    defaultCard VARCHAR(100) DEFAULT '',
+                    defaultNote VARCHAR(255) DEFAULT '',
+                    autoFocusAmount BOOLEAN DEFAULT TRUE,
+                    soundEffects BOOLEAN DEFAULT TRUE,
+                    soundTone VARCHAR(50) DEFAULT 'chime',
+                    soundVolume INT DEFAULT 80,
+                    createdAt DATETIME NULL,
+                    updatedAt DATETIME NULL,
+                    INDEX idx_user_preferences_user (userId)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            """);
+            logger.info("DatabaseMigrationRunner: Initialized user_preferences table");
+        } catch (Exception e) {
+            logger.warn("DatabaseMigrationRunner: Error creating user_preferences table: {}", e.getMessage());
+        }
+
+        // 8. Ensure EOD mail is turned OFF for all existing users by default
+        try {
+            jdbcTemplate.execute("UPDATE user_notification_settings SET eodMail = FALSE WHERE eodMail IS TRUE");
+            logger.info("DatabaseMigrationRunner: Turned off eodMail by default for all existing users");
+        } catch (Exception e) {
+            logger.debug("DatabaseMigrationRunner: eodMail migration check: {}", e.getMessage());
+        }
+
+        // 9. Seed default system notification settings if missing
+        try {
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('NOTIF_DEFAULT_EOD_MAIL', 'false', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_CURRENCY', 'INR', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_CURRENCY_FORMAT', 'indian', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_THEME', 'dark', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_TX_TYPE', 'expense', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_PAYMENT_MODE', 'upi', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_CATEGORY', 'Food & Groceries', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_AUTOFOCUS', 'true', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_SOUND_EFFECTS', 'true', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_SOUND_TONE', 'chime', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULT_SOUND_VOLUME', '80', NOW())");
+            jdbcTemplate.execute("INSERT IGNORE INTO system_settings (settingKey, settingValue, updatedAt) VALUES ('SYSTEM_DEFAULTS_VERSION', '1', NOW())");
+        } catch (Exception e) {
+            logger.debug("DatabaseMigrationRunner: System settings seeding check: {}", e.getMessage());
+        }
     }
 }

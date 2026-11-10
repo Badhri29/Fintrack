@@ -45,7 +45,7 @@ public class UserNotificationSetting {
 
     @Column(name = "eodMail")
     @Builder.Default
-    private Boolean eodMail = true;
+    private Boolean eodMail = false;
 
     @Column(name = "eodFrequency")
     @Builder.Default

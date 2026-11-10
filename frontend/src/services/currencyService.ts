@@ -1,3 +1,5 @@
+import api from './api';
+
 // Real-time Currency Conversion Service
 
 export interface CurrencyConfig {
@@ -14,20 +16,24 @@ export const SUPPORTED_CURRENCIES: CurrencyConfig[] = [
   { code: 'EUR', symbol: '€', name: 'EUR (€ - Euro)', flag: '🇪🇺', decimals: 2 },
   { code: 'GBP', symbol: '£', name: 'GBP (£ - British Pound)', flag: '🇬🇧', decimals: 2 },
   { code: 'JPY', symbol: '¥', name: 'JPY (¥ - Japanese Yen)', flag: '🇯🇵', decimals: 0 },
+  { code: 'CNY', symbol: '¥', name: 'CNY (¥ - Chinese Yuan)', flag: '🇨🇳', decimals: 2 },
   { code: 'AED', symbol: 'د.إ', name: 'AED (د.إ - UAE Dirham)', flag: '🇦🇪', decimals: 2 },
   { code: 'CAD', symbol: 'CA$', name: 'CAD (CA$ - Canadian Dollar)', flag: '🇨🇦', decimals: 2 },
+  { code: 'SGD', symbol: 'S$', name: 'SGD (S$ - Singapore Dollar)', flag: '🇸🇬', decimals: 2 },
   { code: 'AUD', symbol: 'A$', name: 'AUD (A$ - Australian Dollar)', flag: '🇦🇺', decimals: 2 },
 ];
 
 // Fallback real-world exchange rates base INR (1 INR = X target currency)
 const DEFAULT_RATES: Record<string, number> = {
   INR: 1.0,
-  USD: 0.01053, // 1000 INR = 10.53 USD
+  USD: 0.01053,
   EUR: 0.00939,
   GBP: 0.00791,
   JPY: 1.582,
+  CNY: 0.0762,
   AED: 0.03867,
   CAD: 0.01452,
+  SGD: 0.01412,
   AUD: 0.01594,
 };
 
@@ -117,16 +123,42 @@ class CurrencyService {
     return this.rates[targetCode] || DEFAULT_RATES[targetCode] || 1;
   }
 
-  public setActiveCurrency(code: string) {
+  public setActiveCurrency(code: string, persistToBackend = true) {
     const cfg = this.getCurrencyConfig(code);
+    const oldCode = localStorage.getItem('fintrack_currency');
     localStorage.setItem('fintrack_currency', cfg.code);
     localStorage.setItem('fintrack_currency_symbol', cfg.symbol);
     this.fetchLiveRates();
+
+    if (persistToBackend && oldCode !== cfg.code) {
+      api.put('/user/preferences', { currency: cfg.code }).catch(() => {});
+    }
+
     window.dispatchEvent(
       new CustomEvent('fintrack-currency-change', {
         detail: { code: cfg.code, symbol: cfg.symbol },
       })
     );
+  }
+
+  public async syncWithBackend(): Promise<string> {
+    try {
+      const res = await api.get('/user/preferences');
+      if (res.data?.success && res.data.data?.currency) {
+        const serverCur = res.data.data.currency;
+        const localCur = this.getActiveCurrencyCode();
+        if (serverCur !== localCur) {
+          this.setActiveCurrency(serverCur, false);
+        }
+        if (res.data.data.currencyFormat) {
+          localStorage.setItem('fintrack_number_format', res.data.data.currencyFormat);
+        }
+        return serverCur;
+      }
+    } catch {
+      // User not logged in or offline
+    }
+    return this.getActiveCurrencyCode();
   }
 
   /**
