@@ -4062,83 +4062,17 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   justify-content: space-between;
   width: 78px;
   min-width: 78px;
-  height: 88px;
-  max-height: 88px;
+  min-height: 104px;
+  height: auto;
+  align-self: stretch;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 2px 2px;
+  padding: 4px 2px;
   position: relative;
   overflow: hidden;
   user-select: none;
   box-sizing: border-box;
-}
-
-.credit-cards-vertical-year-picker .picker-blur-top {
-  position: absolute;
-  top: 16px;
-  left: 0;
-  right: 0;
-  height: 16px;
-  background: linear-gradient(to bottom, var(--bg-card) 20%, transparent);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.credit-cards-vertical-year-picker .picker-blur-bottom {
-  position: absolute;
-  bottom: 16px;
-  left: 0;
-  right: 0;
-  height: 16px;
-  background: linear-gradient(to top, var(--bg-card) 20%, transparent);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.credit-cards-vertical-year-picker .picker-wheel-scroll {
-  scroll-behavior: smooth;
-  scroll-snap-type: y mandatory;
-  overflow-y: scroll;
-}
-
-.credit-cards-vertical-year-picker .picker-year-item {
-  font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.45;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.credit-cards-vertical-year-picker .picker-year-item.active {
-  font-size: 13.5px;
-  font-weight: 800;
-  color: #FFFFFF;
-  background: var(--accent-indigo);
-  border-radius: 6px;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
-  opacity: 1;
-}
-
-.credit-cards-vertical-year-picker .picker-blur-top {
-  position: absolute;
-  top: 24px;
-  left: 0;
-  right: 0;
-  height: 18px;
-  background: linear-gradient(to bottom, var(--bg-card), transparent);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.credit-cards-vertical-year-picker .picker-blur-bottom {
-  position: absolute;
-  bottom: 24px;
-  left: 0;
-  right: 0;
-  height: 18px;
-  background: linear-gradient(to top, var(--bg-card), transparent);
-  pointer-events: none;
-  z-index: 2;
 }
 
 .credit-cards-vertical-year-picker .picker-arrow-btn {
@@ -4146,17 +4080,25 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   border: none;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 3px 0;
+  padding: 2px 0;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
+  height: 16px;
+  min-height: 16px;
   z-index: 3;
   transition: color 0.15s ease;
+  flex-shrink: 0;
 }
 
-.credit-cards-vertical-year-picker .picker-arrow-btn:hover {
+.credit-cards-vertical-year-picker .picker-arrow-btn:hover:not(:disabled) {
   color: var(--accent-indigo);
+}
+
+.credit-cards-vertical-year-picker .picker-arrow-btn:disabled {
+  opacity: 0.25;
+  cursor: not-allowed;
 }
 
 .credit-cards-vertical-year-picker .picker-years-stack {
@@ -4164,8 +4106,9 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   width: 100%;
+  flex: 1;
   z-index: 1;
 }
 
@@ -4175,29 +4118,42 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
   font-family: inherit;
   font-size: 11px;
   color: var(--text-muted);
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: pointer;
   padding: 2px 0;
+  height: 22px;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  box-sizing: border-box;
   line-height: 1;
   transition: all 0.15s ease;
 }
 
+.credit-cards-vertical-year-picker .picker-year-item.placeholder {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .credit-cards-vertical-year-picker .picker-year-item.active {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 800;
   color: #FFFFFF;
   background: var(--accent-indigo);
-  padding: 3px 8px;
+  padding: 2px 8px;
   border-radius: 6px;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
   opacity: 1;
   cursor: default;
-  line-height: 1.1;
+  line-height: 1;
   letter-spacing: 0.02em;
+  width: 88%;
 }
 
-.credit-cards-vertical-year-picker .picker-year-item:not(.active):hover {
-  opacity: 0.85;
+.credit-cards-vertical-year-picker .picker-year-item:not(.active):not(.placeholder):hover {
+  opacity: 0.9;
   color: var(--text-primary);
 }
 
@@ -4801,24 +4757,48 @@ input[type="date"]::-webkit-calendar-picker-indicator:hover {
     flex-shrink: 0 !important;
   }
 
-  .credit-cards-vertical-year-picker .picker-wheel-scroll {
-    height: 72px !important;
+  .credit-cards-vertical-year-picker .picker-arrow-btn:disabled {
+    opacity: 0.25 !important;
+    cursor: not-allowed !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-years-stack {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 2px !important;
     width: 100% !important;
-    margin: auto 0 !important;
+    flex: 1 !important;
   }
 
   .credit-cards-vertical-year-picker .picker-year-item {
     font-size: 9.5px !important;
-    height: 24px !important;
+    height: 20px !important;
+    min-height: 20px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
+    width: 100% !important;
+    padding: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    box-sizing: border-box !important;
   }
 
   .credit-cards-vertical-year-picker .picker-year-item.active {
-    font-size: 12px !important;
-    padding: 1px 5px !important;
+    font-size: 11.5px !important;
+    height: 22px !important;
+    min-height: 22px !important;
+    padding: 1px 4px !important;
     font-weight: 800 !important;
+    width: 90% !important;
+    border-radius: 5px !important;
+  }
+
+  .credit-cards-vertical-year-picker .picker-year-item.placeholder {
+    visibility: hidden !important;
+    pointer-events: none !important;
   }
 
   .credit-cards-vertical-year-picker .picker-blur-top,
