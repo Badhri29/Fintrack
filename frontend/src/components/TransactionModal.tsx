@@ -123,11 +123,19 @@ export const evaluateMathExpression = (expr: string): number | null => {
   return null;
 };
 
+export const getTodayLocalDate = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 /**
  * Ensures any date representation (YYYY-MM-DD or DD-MM-YYYY) is converted to YYYY-MM-DD
  */
 export const toInputDate = (d?: string): string => {
-  if (!d) return new Date().toISOString().substring(0, 10);
+  if (!d) return getTodayLocalDate();
   const str = String(d).trim();
   const dmyMatch = str.match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
   if (dmyMatch) {
@@ -165,7 +173,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   );
 
   const [type, setType] = useState<TransactionType>('expense');
-  const [date, setDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [date, setDate] = useState<string>(() => getTodayLocalDate());
   const [amount, setAmount] = useState<string>('');
   const [category, setCategory] = useState<string>('Food & Dining');
   const [subcategory, setSubcategory] = useState<string>('Groceries');
@@ -349,7 +357,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       const defaultDesc = localStorage.getItem('fintrack-default-note') || '';
       setDescription(defaultDesc);
 
-      setDate(new Date().toISOString().substring(0, 10));
+      setDate(getTodayLocalDate());
       setAmount('');
       setError(null);
     }

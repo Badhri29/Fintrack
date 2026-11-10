@@ -216,6 +216,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (currentUser.email === 'demo@fintrack.io') {
           seedDemoBudgetData();
         }
+        yearService.resetToCurrentYear();
         localStorage.setItem('fintrack_user_cache', JSON.stringify(currentUser));
         setUser(currentUser);
       } else {

@@ -663,6 +663,20 @@ export const CalendarView: React.FC<CalendarViewProps> = ({
     };
   }, [user?.email]);
 
+  // Synchronize year changes with shared yearService
+  useEffect(() => {
+    const handleYearChange = (e: any) => {
+      if (e.detail) {
+        setSelectedYears([e.detail]);
+        if (e.detail === todayYear) {
+          setSelectedMonths([todayMonth]);
+        }
+      }
+    };
+    window.addEventListener('fintrack-year-changed', handleYearChange);
+    return () => window.removeEventListener('fintrack-year-changed', handleYearChange);
+  }, [todayYear, todayMonth]);
+
   // Global mouseup release listener
   useEffect(() => {
     const handleGlobalMouseUp = () => {

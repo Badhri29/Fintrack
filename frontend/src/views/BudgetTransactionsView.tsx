@@ -328,6 +328,9 @@ export const BudgetTransactionsView: React.FC<BudgetTransactionsViewProps> = ({
     const onYearChange = (e: any) => {
       if (e.detail && e.detail !== selectedYear) {
         setSelectedYear(e.detail);
+        if (e.detail === new Date().getFullYear()) {
+          setMobileSelectedMonth(new Date().getMonth());
+        }
       }
     };
     window.addEventListener('fintrack-year-changed', onYearChange);

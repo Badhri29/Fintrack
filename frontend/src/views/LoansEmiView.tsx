@@ -46,6 +46,14 @@ import { bankAccountService } from '../services/bankAccountService';
 export type { LoanModel, MonthEmiScheduleItem };
 export { calculateEMI, calculateLoanTenureMonths, calculateLoanInterestAmount, calculateLoanEMIs, generateEmiSchedule, DEFAULT_LOANS };
 
+const getTodayLocalDate = (): string => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 
 // Helper to render formatted loan descriptions (bold tags and color spans)
 const renderFormattedDescription = (desc: string) => {
@@ -196,7 +204,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
   const [loanAmount, setLoanAmount] = useState<string>('');
   const [loanEmi, setLoanEmi] = useState<string>('');
   const [loanRemaining, setLoanRemaining] = useState<string>('');
-  const [loanStartDate, setLoanStartDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [loanStartDate, setLoanStartDate] = useState<string>(() => getTodayLocalDate());
   const [loanEndDate, setLoanEndDate] = useState<string>('');
   const [loanDescription, setLoanDescription] = useState<string>('');
   const [loanIncludeNetWorth, setLoanIncludeNetWorth] = useState<boolean>(true);
@@ -266,7 +274,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
   const [loanToDelete, setLoanToDelete] = useState<LoanModel | null>(null);
   const [payingLoan, setPayingLoan] = useState<LoanModel | null>(null);
   const [payEmiAmount, setPayEmiAmount] = useState<string>('');
-  const [payEmiDate, setPayEmiDate] = useState<string>(new Date().toISOString().substring(0, 10));
+  const [payEmiDate, setPayEmiDate] = useState<string>(() => getTodayLocalDate());
   const [recordTransaction, setRecordTransaction] = useState<boolean>(true);
   const [payEmiMode, setPayEmiMode] = useState<string>('upi');
   const [paySaving, setPaySaving] = useState<boolean>(false);
@@ -669,7 +677,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
     setLoanAmount('');
     setLoanEmi('');
     setLoanRemaining('');
-    setLoanStartDate(new Date().toISOString().substring(0, 10));
+    setLoanStartDate(getTodayLocalDate());
     setLoanEndDate('');
     setLoanDescription('');
     setLoanIncludeNetWorth(true);
@@ -1008,7 +1016,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
         const baseAmount = currencyService.convertToBase(amt);
 
         const payload = {
-          date: payEmiDate || new Date().toISOString().substring(0, 10),
+          date: payEmiDate || getTodayLocalDate(),
           type: 'expense',
           category: 'Debt Repayment',
           subcategory: `${payingLoan.type || 'Loan'} EMI`,
@@ -2377,7 +2385,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                                       onClick={() => {
                                         setPayingLoan(selectedLoan);
                                         setPayEmiAmount(String(s.emiAmount));
-                                        const todayStr = new Date().toISOString().substring(0, 10);
+                                        const todayStr = getTodayLocalDate();
                                         setPayEmiDate(s.dateStr <= todayStr ? todayStr : s.dateStr);
                                         setRecordTransaction(true);
                                         setIsPayEmiOpen(true);
@@ -2451,7 +2459,7 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                         onClick={() => {
                           setPayingLoan(selectedLoan);
                           setPayEmiAmount(String(selectedLoanMetrics.emi));
-                          setPayEmiDate(new Date().toISOString().substring(0, 10));
+                          setPayEmiDate(getTodayLocalDate());
                           setRecordTransaction(true);
                           setIsPayEmiOpen(true);
                         }}

@@ -27,6 +27,7 @@ import { cardService } from './services/cardService';
 import { currencyService } from './services/currencyService';
 import { loanService } from './services/loanService';
 import { budgetService } from './services/budgetService';
+import { yearService } from './services/yearService';
 
 function AppContent() {
   const { user, loading, maintenanceInfo, isAdmin, refreshUserData, logout } = useAuth();
@@ -40,6 +41,11 @@ function AppContent() {
   const [pendingRequests, setPendingRequests] = useState<string[]>([]);
   const [requestingUpgrade, setRequestingUpgrade] = useState<boolean>(false);
   const [selectedLoanIdForView, setSelectedLoanIdForView] = useState<string | null>(null);
+
+  // Guarantee that on initial app load, refresh, or login, the date/year selection defaults to current year & month
+  useEffect(() => {
+    yearService.resetToCurrentYear();
+  }, []);
 
   // Keep-alive state: retains mounted tabs so tab navigation is instantaneous (<10ms)
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => new Set([activeTab]));

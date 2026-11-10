@@ -206,6 +206,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     const handleYearChange = (e: any) => {
       if (e.detail && e.detail !== selectedYear) {
         setSelectedYear(e.detail);
+        if (e.detail === new Date().getFullYear()) {
+          setSelectedMonths([new Date().getMonth()]);
+        }
       }
     };
     window.addEventListener('fintrack-year-changed', handleYearChange);
