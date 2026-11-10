@@ -395,7 +395,14 @@ function AppContent() {
               )}
             </div>
           ) : (
-            <DashboardView key={refreshKey} onOpenNewTransaction={() => openTransactionModal()} />
+            <DashboardView
+              key={refreshKey}
+              onOpenNewTransaction={() => openTransactionModal()}
+              onNavigateToLoan={(loanId) => {
+                setSelectedLoanIdForView(loanId);
+                setActiveTab('Loans & EMI');
+              }}
+            />
           )}
         </div>
       )}

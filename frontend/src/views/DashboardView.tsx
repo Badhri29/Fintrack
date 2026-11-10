@@ -17,7 +17,9 @@ import {
   X,
   Building2,
   Clock,
-  CheckCircle2
+  CheckCircle2,
+  Printer,
+  ArrowLeft
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -39,6 +41,7 @@ import { seedDemoBudgetData } from '../services/demoBudgetSeed';
 import { cardService } from '../services/cardService';
 import { bankAccountService, type BankAccountModel } from '../services/bankAccountService';
 import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
+import { printLoanDetailsPdf } from '../services/loanPrintService';
 import { getUserStorageKey } from '../services/storageHelper';
 import { yearService } from '../services/yearService';
 import { currencyService } from '../services/currencyService';
@@ -59,6 +62,7 @@ ChartJS.register(
 
 interface DashboardViewProps {
   onOpenNewTransaction: () => void;
+  onNavigateToLoan?: (loanId: string) => void;
 }
 
 const MONTH_NAMES = [
@@ -148,7 +152,7 @@ export const formatCompactCurrency = (amountInr: number): string => {
   return `${sign}${cfg.symbol}${Math.round(abs)}`;
 };
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransaction }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransaction, onNavigateToLoan }) => {
   const { user } = useAuth();
   const isViewOnly = Boolean(user?.isReadOnly || (user?.isMember && user?.memberPermission === 'VIEW_ONLY'));
   const { effectiveTheme } = useTheme();
@@ -787,6 +791,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
   // Right-Side Portfolio Inspector Drawer State
   const [activeDrawer, setActiveDrawer] = useState<'bank_accounts' | 'credit_cards' | 'active_loans' | 'monthly_emi' | null>(null);
+  const [selectedLoanDetail, setSelectedLoanDetail] = useState<any | null>(null);
 
   // Bank Accounts State
   const [bankAccountsList, setBankAccountsList] = useState<BankAccountModel[]>(() => {
@@ -822,16 +827,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     } catch {}
   }, [user, accountsVersion, loansVersion]);
 
-  // Handle ESC key to close drawer
+  // Handle ESC key to close drawer or return from loan detail
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && activeDrawer) {
-        setActiveDrawer(null);
+        if (selectedLoanDetail) {
+          setSelectedLoanDetail(null);
+        } else {
+          setActiveDrawer(null);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeDrawer]);
+  }, [activeDrawer, selectedLoanDetail]);
 
   const totalBankAccountsBalance = useMemo(() => {
     return bankAccountsList.reduce((sum, acc) => sum + (Number(acc.balance) || 0), 0);
@@ -3161,7 +3170,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         >
           {/* Backdrop */}
           <div
-            onClick={() => setActiveDrawer(null)}
+            onClick={() => { setActiveDrawer(null); setSelectedLoanDetail(null); }}
             style={{
               position: 'fixed',
               inset: 0,
@@ -3201,69 +3210,122 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 10,
-                      background:
-                        activeDrawer === 'bank_accounts'
-                          ? 'rgba(14, 165, 233, 0.15)'
-                          : activeDrawer === 'credit_cards'
-                          ? 'rgba(139, 92, 246, 0.15)'
-                          : activeDrawer === 'active_loans'
-                          ? 'rgba(245, 158, 11, 0.15)'
-                          : 'rgba(236, 72, 153, 0.15)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      color:
-                        activeDrawer === 'bank_accounts'
-                          ? '#0EA5E9'
-                          : activeDrawer === 'credit_cards'
-                          ? '#8B5CF6'
-                          : activeDrawer === 'active_loans'
-                          ? '#F59E0B'
-                          : '#EC4899'
-                    }}
-                  >
-                    {activeDrawer === 'bank_accounts' && <Landmark size={20} />}
-                    {activeDrawer === 'credit_cards' && <CreditCard size={20} />}
-                    {activeDrawer === 'active_loans' && <Building2 size={20} />}
-                    {activeDrawer === 'monthly_emi' && <Clock size={20} />}
-                  </div>
+                  {selectedLoanDetail ? (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedLoanDetail(null)}
+                      style={{
+                        background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.08)',
+                        border: 'none',
+                        color: 'var(--text-primary)',
+                        cursor: 'pointer',
+                        borderRadius: 8,
+                        width: 32,
+                        height: 32,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                      title="Back to Loans List"
+                    >
+                      <ArrowLeft size={16} />
+                    </button>
+                  ) : (
+                    <div
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 10,
+                        background:
+                          activeDrawer === 'bank_accounts'
+                            ? 'rgba(14, 165, 233, 0.15)'
+                            : activeDrawer === 'credit_cards'
+                            ? 'rgba(139, 92, 246, 0.15)'
+                            : activeDrawer === 'active_loans'
+                            ? 'rgba(245, 158, 11, 0.15)'
+                            : 'rgba(236, 72, 153, 0.15)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color:
+                          activeDrawer === 'bank_accounts'
+                            ? '#0EA5E9'
+                            : activeDrawer === 'credit_cards'
+                            ? '#8B5CF6'
+                            : activeDrawer === 'active_loans'
+                            ? '#F59E0B'
+                            : '#EC4899'
+                      }}
+                    >
+                      {activeDrawer === 'bank_accounts' && <Landmark size={20} />}
+                      {activeDrawer === 'credit_cards' && <CreditCard size={20} />}
+                      {activeDrawer === 'active_loans' && <Building2 size={20} />}
+                      {activeDrawer === 'monthly_emi' && <Clock size={20} />}
+                    </div>
+                  )}
                   <div>
                     <h3 style={{ fontSize: 16, fontWeight: 800, margin: 0, color: 'var(--text-primary)' }}>
-                      {activeDrawer === 'bank_accounts' && 'Bank Accounts Inspector'}
-                      {activeDrawer === 'credit_cards' && 'Credit Cards Inspector'}
-                      {activeDrawer === 'active_loans' && 'Active Loans Inspector'}
-                      {activeDrawer === 'monthly_emi' && 'Monthly EMI Obligations'}
+                      {selectedLoanDetail ? selectedLoanDetail.name : (
+                        activeDrawer === 'bank_accounts' ? 'Bank Accounts Inspector' :
+                        activeDrawer === 'credit_cards' ? 'Credit Cards Inspector' :
+                        activeDrawer === 'active_loans' ? 'Active Loans Inspector' :
+                        'Monthly EMI Obligations'
+                      )}
                     </h3>
                     <p style={{ fontSize: 12, margin: 0, color: 'var(--text-muted)' }}>
-                      Detailed asset & liability audit breakdown
+                      {selectedLoanDetail
+                        ? `${selectedLoanDetail.lender}${selectedLoanDetail.loanNumber ? ' • Acc: ' + selectedLoanDetail.loanNumber : ''}`
+                        : 'Detailed asset & liability audit breakdown'}
                     </p>
                   </div>
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setActiveDrawer(null)}
-                  style={{
-                    border: 'none',
-                    background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.08)',
-                    borderRadius: 8,
-                    width: 32,
-                    height: 32,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    color: 'var(--text-secondary)'
-                  }}
-                  title="Close (Esc)"
-                >
-                  <X size={18} />
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {selectedLoanDetail && (
+                    <button
+                      type="button"
+                      onClick={() => printLoanDetailsPdf(selectedLoanDetail, user?.name, user?.email)}
+                      style={{
+                        background: '#6366F1',
+                        border: 'none',
+                        color: '#FFFFFF',
+                        borderRadius: 8,
+                        padding: '6px 12px',
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)'
+                      }}
+                      title="Print / Save Loan Details as PDF"
+                    >
+                      <Printer size={13} />
+                      <span>Print PDF</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={() => { setActiveDrawer(null); setSelectedLoanDetail(null); }}
+                    style={{
+                      border: 'none',
+                      background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.08)',
+                      borderRadius: 8,
+                      width: 32,
+                      height: 32,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      color: 'var(--text-secondary)'
+                    }}
+                    title="Close (Esc)"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
 
               {/* Inspector Sub-Tabs Switcher */}
@@ -3280,7 +3342,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               >
                 <button
                   type="button"
-                  onClick={() => setActiveDrawer('bank_accounts')}
+                  onClick={() => { setActiveDrawer('bank_accounts'); setSelectedLoanDetail(null); }}
                   style={{
                     padding: '7px 4px',
                     borderRadius: 7,
@@ -3303,7 +3365,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
                 <button
                   type="button"
-                  onClick={() => setActiveDrawer('credit_cards')}
+                  onClick={() => { setActiveDrawer('credit_cards'); setSelectedLoanDetail(null); }}
                   style={{
                     padding: '7px 4px',
                     borderRadius: 7,
@@ -3326,7 +3388,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
                 <button
                   type="button"
-                  onClick={() => setActiveDrawer('active_loans')}
+                  onClick={() => { setActiveDrawer('active_loans'); setSelectedLoanDetail(null); }}
                   style={{
                     padding: '7px 4px',
                     borderRadius: 7,
@@ -3349,7 +3411,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
 
                 <button
                   type="button"
-                  onClick={() => setActiveDrawer('monthly_emi')}
+                  onClick={() => { setActiveDrawer('monthly_emi'); setSelectedLoanDetail(null); }}
                   style={{
                     padding: '7px 4px',
                     borderRadius: 7,
@@ -3810,185 +3872,495 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               {/* TAB 3: ACTIVE LOANS */}
               {activeDrawer === 'active_loans' && (
                 <>
-                  {/* Summary Metric Header */}
-                  <div
-                    style={{
-                      background: isLight ? '#FFFBEB' : 'rgba(245, 158, 11, 0.08)',
-                      border: '1px solid rgba(245, 158, 11, 0.25)',
-                      borderRadius: 12,
-                      padding: '14px 16px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: 10
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Total Active Loans Principal ({activeLoansList.length} Active)
-                      </div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
-                        {currencyService.format(totalActiveLoansPrincipal)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
-                        Outstanding Remaining
-                      </div>
-                      <div style={{ fontSize: 16, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
-                        {currencyService.format(totalActiveLoansRemaining)}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active Loans List */}
-                  {activeLoansDetails.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '40px 20px',
-                        textAlign: 'center',
-                        color: 'var(--text-muted)',
-                        background: 'var(--bg-secondary)',
-                        borderRadius: 12,
-                        border: '1px dashed var(--border-color)'
-                      }}
-                    >
-                      <Building2 size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
-                      <div style={{ fontWeight: 600 }}>No Active Loans</div>
-                      <div style={{ fontSize: 12, marginTop: 4 }}>All loans are either closed or you have no active loan accounts.</div>
-                    </div>
-                  ) : (
-                    activeLoansDetails.map((loan, index) => (
-                      <div
-                        key={loan.id || index}
-                        style={{
-                          background: 'var(--bg-secondary)',
-                          border: '1px solid var(--border-color)',
-                          borderRadius: 14,
-                          padding: 16,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          gap: 12
-                        }}
-                      >
-                        {/* Top Row: Loan Name, Lender, Status */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                              {loan.name}
-                            </div>
-                            <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                              Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
-                            </div>
-                          </div>
-
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span
-                              style={{
-                                fontSize: 10,
-                                fontWeight: 800,
-                                padding: '2px 8px',
-                                borderRadius: 999,
-                                background: 'rgba(16, 185, 129, 0.15)',
-                                color: '#10B981',
-                                textTransform: 'uppercase'
-                              }}
-                            >
-                              Active
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 10.5,
-                                fontWeight: 700,
-                                padding: '2px 8px',
-                                borderRadius: 999,
-                                background: 'rgba(245, 158, 11, 0.15)',
-                                color: '#F59E0B'
-                              }}
-                            >
-                              {loan.type || 'Loan'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Loan ID / Account Number */}
-                        <div
+                  {selectedLoanDetail ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {/* Top Action Bar: Back Button & Print PDF Button */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px solid var(--border-color)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLoanDetail(null)}
                           style={{
-                            padding: '6px 10px',
-                            background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
-                            borderRadius: 8,
-                            fontSize: 11.5,
-                            fontFamily: 'monospace',
+                            background: 'transparent',
+                            border: 'none',
                             color: 'var(--text-secondary)',
+                            cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
-                            justifyContent: 'space-between'
+                            gap: 6,
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            padding: '4px 0'
                           }}
                         >
-                          <span>Loan ID: <strong style={{ color: 'var(--text-primary)' }}>{loan.loanNumber || loan.id}</strong></span>
-                          <span>Interest: <strong>{loan.interestRate || 0}% p.a.</strong></span>
-                        </div>
+                          <ArrowLeft size={16} />
+                          <span>Back to Loans List</span>
+                        </button>
 
-                        {/* Middle Row: Principal, Monthly EMI, Remaining */}
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center' }}>
-                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>PRINCIPAL</div>
-                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
-                              {currencyService.format(loan.principal)}
+                        <button
+                          type="button"
+                          onClick={() => printLoanDetailsPdf(selectedLoanDetail, user?.name, user?.email)}
+                          style={{
+                            background: '#6366F1',
+                            border: 'none',
+                            color: '#FFFFFF',
+                            borderRadius: 8,
+                            padding: '7px 14px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)'
+                          }}
+                          title="Print and download complete Loan Statement as PDF"
+                        >
+                          <Printer size={14} />
+                          <span>Print PDF</span>
+                        </button>
+                      </div>
+
+                      {/* Loan Title & Badges */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+                              {selectedLoanDetail.name}
+                            </h3>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Lender: <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.lender}</strong>
+                              {selectedLoanDetail.loanNumber && ` • Acc: ${selectedLoanDetail.loanNumber}`}
                             </div>
                           </div>
-
-                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>MONTHLY EMI</div>
-                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
-                              {currencyService.format(loan.emiMetrics.emi)}
-                            </div>
-                          </div>
-
-                          <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
-                            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>REMAINING</div>
-                            <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EF4444', marginTop: 2 }}>
-                              {currencyService.format(loan.emiMetrics.remaining)}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Loan Repayment Progress Bar */}
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-                            <span style={{ color: 'var(--text-muted)' }}>
-                              Repayment ({loan.emiMetrics.completedEmis} of {loan.emiMetrics.totalEmis} EMIs Paid)
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', textTransform: 'uppercase' }}>
+                              Active
                             </span>
-                            <span style={{ fontWeight: 700, color: '#10B981' }}>{loan.emiMetrics.paidPct}%</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
+                              {selectedLoanDetail.type || 'Loan'}
+                            </span>
                           </div>
-                          <div style={{ height: 6, borderRadius: 999, background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
-                            <div
-                              style={{
-                                height: '100%',
-                                width: Math.min(100, Math.max(2, loan.emiMetrics.paidPct)) + '%',
-                                background: '#10B981',
-                                borderRadius: 999,
-                                transition: 'width 0.3s ease'
-                              }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Footer Details: Repayment Source, Due Day */}
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-muted)', paddingTop: 4, borderTop: '1px solid var(--border-color)' }}>
-                          <span>
-                            Source:{' '}
-                            <strong style={{ color: 'var(--text-secondary)' }}>
-                              {loan.repaymentSource === 'credit_card'
-                                ? '💳 Credit Card (' + (loan.linkedCardName || 'Linked') + ')'
-                                : '🏦 Direct Bank Auto-Debit'}
-                            </strong>
-                          </span>
-                          <span>Due Day: <strong style={{ color: '#F59E0B' }}>{loan.dueDay || 5}th of month</strong></span>
                         </div>
                       </div>
-                    ))
+
+                      {/* 4 Key Figures */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>PRINCIPAL AMOUNT</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.principal)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>MONTHLY EMI</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.emi)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>OUTSTANDING BALANCE</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#EF4444', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.remaining)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL INTEREST</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#8B5CF6', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.totalInterest)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Critical EMI & Outstanding Breakdown (Explicitly requested by user) */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
+                          📊 EMI Settlement &amp; Outstanding Breakdown
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>TOTAL EMIs COMPLETED</span>
+                            <strong style={{ fontSize: 13.5, color: '#10B981', fontWeight: 800 }}>
+                              {selectedLoanDetail.emiMetrics.completedEmis} of {selectedLoanDetail.emiMetrics.totalEmis} EMIs
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Completion: <strong>{selectedLoanDetail.emiMetrics.paidPct}%</strong>
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>TOTAL AMOUNT PAID</span>
+                            <strong style={{ fontSize: 13.5, color: '#10B981', fontWeight: 800 }}>
+                              {currencyService.format(selectedLoanDetail.emiMetrics.completedEmis * selectedLoanDetail.emiMetrics.emi)}
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Paid to date
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMIs</span>
+                            <strong style={{ fontSize: 13.5, color: '#F59E0B', fontWeight: 800 }}>
+                              {selectedLoanDetail.emiMetrics.remainingEmis} Months
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Installments remaining
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMI AMOUNT</span>
+                            <strong style={{ fontSize: 13.5, color: '#EC4899', fontWeight: 800 }}>
+                              {currencyService.format(selectedLoanDetail.emiMetrics.remainingEmis * selectedLoanDetail.emiMetrics.emi)}
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Future EMI obligation
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Remaining Amount Outstanding:</span>
+                          <strong style={{ fontSize: 15, color: selectedLoanDetail.emiMetrics.remaining > 0 ? '#EF4444' : '#10B981', fontWeight: 800 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.remaining)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Loan Details Specifications */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Interest Rate:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.interestRate || 0}% p.a.</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Monthly Due Date:</span>
+                          <strong style={{ color: '#F59E0B' }}>{selectedLoanDetail.dueDay || 5}th of every month</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Repayment Source:</span>
+                          <strong style={{ color: 'var(--text-secondary)' }}>
+                            {selectedLoanDetail.repaymentSource === 'credit_card'
+                              ? '💳 Credit Card (' + (selectedLoanDetail.linkedCardName || 'Linked Card') + ')'
+                              : '🏦 Direct Bank Auto-Debit'}
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Period:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.startDate || 'N/A'} &rarr; {selectedLoanDetail.endDate || 'N/A'}</strong>
+                        </div>
+                      </div>
+
+                      {/* Repayment Schedule */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>
+                          Repayment Schedule ({selectedLoanDetail.schedule.length} Months)
+                        </div>
+                        <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {selectedLoanDetail.schedule.map((s: any) => (
+                            <div
+                              key={s.index}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                background: s.isCurrentMonth ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-primary)',
+                                border: s.isCurrentMonth ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid var(--border-color)',
+                                fontSize: 11.5
+                              }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 700, color: s.isCurrentMonth ? '#6366F1' : 'var(--text-primary)' }}>
+                                  #{s.index} {s.monthStr}
+                                </span>
+                                {s.isCurrentMonth && <span style={{ marginLeft: 6, fontSize: 10, color: '#6366F1', fontWeight: 700 }}>(Current)</span>}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(s.emiAmount)}</strong>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
+                                    background: s.status === 'paid' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                    color: s.status === 'paid' ? '#10B981' : '#F59E0B'
+                                  }}
+                                >
+                                  {s.status === 'paid' ? 'PAID' : 'PENDING'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => printLoanDetailsPdf(selectedLoanDetail, user?.name, user?.email)}
+                          style={{
+                            width: '100%',
+                            padding: '11px',
+                            borderRadius: 10,
+                            background: '#6366F1',
+                            border: 'none',
+                            color: '#FFFFFF',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)'
+                          }}
+                        >
+                          <Printer size={16} />
+                          <span>Print Loan Statement (PDF)</span>
+                        </button>
+
+                        {onNavigateToLoan && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveDrawer(null);
+                              setSelectedLoanDetail(null);
+                              onNavigateToLoan(selectedLoanDetail.id);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '9px',
+                              borderRadius: 10,
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-color)',
+                              color: 'var(--text-primary)',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Open in Loans &amp; EMI Manager &rarr;
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary Metric Header */}
+                      <div
+                        style={{
+                          background: isLight ? '#FFFBEB' : 'rgba(245, 158, 11, 0.08)',
+                          border: '1px solid rgba(245, 158, 11, 0.25)',
+                          borderRadius: 12,
+                          padding: '14px 16px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 10
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#F59E0B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Total Active Loans Principal ({activeLoansList.length} Active)
+                          </div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                            {currencyService.format(totalActiveLoansPrincipal)}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                            Outstanding Remaining
+                          </div>
+                          <div style={{ fontSize: 16, fontWeight: 700, color: '#EF4444', marginTop: 2 }}>
+                            {currencyService.format(totalActiveLoansRemaining)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Active Loans List */}
+                      {activeLoansDetails.length === 0 ? (
+                        <div
+                          style={{
+                            padding: '40px 20px',
+                            textAlign: 'center',
+                            color: 'var(--text-muted)',
+                            background: 'var(--bg-secondary)',
+                            borderRadius: 12,
+                            border: '1px dashed var(--border-color)'
+                          }}
+                        >
+                          <Building2 size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                          <div style={{ fontWeight: 600 }}>No Active Loans</div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>All loans are either closed or you have no active loan accounts.</div>
+                        </div>
+                      ) : (
+                        activeLoansDetails.map((loan, index) => (
+                          <div
+                            key={loan.id || index}
+                            onClick={() => setSelectedLoanDetail(loan)}
+                            style={{
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-color)',
+                              borderRadius: 14,
+                              padding: 16,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 12,
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease'
+                            }}
+                            title="Click to view complete details & print PDF"
+                          >
+                            {/* Top Row: Loan Name, Lender, Status & Print Button */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                  {loan.name}
+                                </div>
+                                <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                  Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
+                                </div>
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    printLoanDetailsPdf(loan, user?.name, user?.email);
+                                  }}
+                                  style={{
+                                    background: 'rgba(99, 102, 241, 0.12)',
+                                    border: '1px solid rgba(99, 102, 241, 0.25)',
+                                    color: '#6366F1',
+                                    borderRadius: 6,
+                                    padding: '4px 8px',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    cursor: 'pointer',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4
+                                  }}
+                                  title="Print / Save Loan Details as PDF"
+                                >
+                                  <Printer size={12} />
+                                  <span>Print PDF</span>
+                                </button>
+
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 800,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: 'rgba(16, 185, 129, 0.15)',
+                                    color: '#10B981',
+                                    textTransform: 'uppercase'
+                                  }}
+                                >
+                                  Active
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 10.5,
+                                    fontWeight: 700,
+                                    padding: '2px 8px',
+                                    borderRadius: 999,
+                                    background: 'rgba(245, 158, 11, 0.15)',
+                                    color: '#F59E0B'
+                                  }}
+                                >
+                                  {loan.type || 'Loan'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Loan ID / Account Number */}
+                            <div
+                              style={{
+                                padding: '6px 10px',
+                                background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                                borderRadius: 8,
+                                fontSize: 11.5,
+                                fontFamily: 'monospace',
+                                color: 'var(--text-secondary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between'
+                              }}
+                            >
+                              <span>Loan ID: <strong style={{ color: 'var(--text-primary)' }}>{loan.loanNumber || loan.id}</strong></span>
+                              <span>Interest: <strong>{loan.interestRate || 0}% p.a.</strong></span>
+                            </div>
+
+                            {/* Middle Row: Principal, Monthly EMI, Remaining */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, textAlign: 'center' }}>
+                              <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>PRINCIPAL</div>
+                                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                                  {currencyService.format(loan.principal)}
+                                </div>
+                              </div>
+
+                              <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>MONTHLY EMI</div>
+                                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                                  {currencyService.format(loan.emiMetrics.emi)}
+                                </div>
+                              </div>
+
+                              <div style={{ background: isLight ? '#F8FAFC' : 'rgba(255, 255, 255, 0.03)', padding: '8px 6px', borderRadius: 8 }}>
+                                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)' }}>REMAINING</div>
+                                <div style={{ fontSize: 13.5, fontWeight: 800, color: '#EF4444', marginTop: 2 }}>
+                                  {currencyService.format(loan.emiMetrics.remaining)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Loan Repayment Progress Bar */}
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                                <span style={{ color: 'var(--text-muted)' }}>
+                                  Repayment ({loan.emiMetrics.completedEmis} of {loan.emiMetrics.totalEmis} EMIs Paid)
+                                </span>
+                                <span style={{ fontWeight: 700, color: '#10B981' }}>{loan.emiMetrics.paidPct}%</span>
+                              </div>
+                              <div style={{ height: 6, borderRadius: 999, background: isLight ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' }}>
+                                <div
+                                  style={{
+                                    height: '100%',
+                                    width: Math.min(100, Math.max(2, loan.emiMetrics.paidPct)) + '%',
+                                    background: '#10B981',
+                                    borderRadius: 999,
+                                    transition: 'width 0.3s ease'
+                                  }}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Footer Details: Repayment Source, Due Day & View details hint */}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-muted)', paddingTop: 4, borderTop: '1px solid var(--border-color)' }}>
+                              <span>
+                                Source:{' '}
+                                <strong style={{ color: 'var(--text-secondary)' }}>
+                                  {loan.repaymentSource === 'credit_card'
+                                    ? '💳 Credit Card (' + (loan.linkedCardName || 'Linked') + ')'
+                                    : '🏦 Direct Bank Auto-Debit'}
+                                </strong>
+                              </span>
+                              <span style={{ color: '#6366F1', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                View Details &rarr;
+                              </span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -3996,191 +4368,502 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
               {/* TAB 4: MONTHLY EMI */}
               {activeDrawer === 'monthly_emi' && (
                 <>
-                  {/* Summary Metric Header */}
-                  <div
-                    style={{
-                      background: isLight ? '#FDF2F8' : 'rgba(236, 72, 153, 0.08)',
-                      border: '1px solid rgba(236, 72, 153, 0.25)',
-                      borderRadius: 12,
-                      padding: '14px 16px',
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      flexWrap: 'wrap',
-                      gap: 10
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#EC4899', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                        Total Monthly EMI Outflow ({activeLoansWithEmiCount} Active EMIs)
-                      </div>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
-                        {currencyService.format(totalMonthlyEmi)}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
-                        Monthly Obligation
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginTop: 2 }}>
-                        Due Every Month
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active EMIs List */}
-                  {activeLoansDetails.filter(l => l.emiMetrics.emi > 0).length === 0 ? (
-                    <div
-                      style={{
-                        padding: '40px 20px',
-                        textAlign: 'center',
-                        color: 'var(--text-muted)',
-                        background: 'var(--bg-secondary)',
-                        borderRadius: 12,
-                        border: '1px dashed var(--border-color)'
-                      }}
-                    >
-                      <Clock size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
-                      <div style={{ fontWeight: 600 }}>No Active Monthly EMIs</div>
-                      <div style={{ fontSize: 12, marginTop: 4 }}>You have no recurring loan EMI obligations.</div>
-                    </div>
-                  ) : (
-                    activeLoansDetails
-                      .filter(l => l.emiMetrics.emi > 0)
-                      .map((loan, index) => (
-                        <div
-                          key={loan.id || index}
+                  {selectedLoanDetail ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                      {/* Top Action Bar: Back Button & Print PDF Button */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: 10, borderBottom: '1px solid var(--border-color)' }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedLoanDetail(null)}
                           style={{
-                            background: 'var(--bg-secondary)',
-                            border: '1px solid var(--border-color)',
-                            borderRadius: 14,
-                            padding: 16,
+                            background: 'transparent',
+                            border: 'none',
+                            color: 'var(--text-secondary)',
+                            cursor: 'pointer',
                             display: 'flex',
-                            flexDirection: 'column',
-                            gap: 12
+                            alignItems: 'center',
+                            gap: 6,
+                            fontSize: 12.5,
+                            fontWeight: 700,
+                            padding: '4px 0'
                           }}
                         >
-                          {/* Top Row: Loan Name & Status Badge */}
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
-                                {loan.name}
-                              </div>
-                              <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
-                                Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
-                              </div>
-                            </div>
+                          <ArrowLeft size={16} />
+                          <span>Back to Monthly EMIs</span>
+                        </button>
 
-                            <div>
-                              {loan.isCurrentMonthPaid ? (
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 10.5,
-                                    fontWeight: 800,
-                                    padding: '3px 8px',
-                                    borderRadius: 999,
-                                    background: 'rgba(16, 185, 129, 0.15)',
-                                    color: '#10B981'
-                                  }}
-                                >
-                                  <CheckCircle2 size={12} />
-                                  PAID THIS MONTH
-                                </span>
-                              ) : (
-                                <span
-                                  style={{
-                                    display: 'inline-flex',
-                                    alignItems: 'center',
-                                    gap: 4,
-                                    fontSize: 10.5,
-                                    fontWeight: 800,
-                                    padding: '3px 8px',
-                                    borderRadius: 999,
-                                    background: 'rgba(245, 158, 11, 0.15)',
-                                    color: '#F59E0B'
-                                  }}
-                                >
-                                  <Clock size={12} />
-                                  PENDING DUE
-                                </span>
-                              )}
+                        <button
+                          type="button"
+                          onClick={() => printLoanDetailsPdf(selectedLoanDetail, user?.name, user?.email)}
+                          style={{
+                            background: '#6366F1',
+                            border: 'none',
+                            color: '#FFFFFF',
+                            borderRadius: 8,
+                            padding: '7px 14px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            boxShadow: '0 2px 8px rgba(99, 102, 241, 0.35)'
+                          }}
+                          title="Print and download complete Loan Statement as PDF"
+                        >
+                          <Printer size={14} />
+                          <span>Print PDF</span>
+                        </button>
+                      </div>
+
+                      {/* Loan Title & Badges */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div>
+                            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: 'var(--text-primary)' }}>
+                              {selectedLoanDetail.name}
+                            </h3>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Lender: <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.lender}</strong>
+                              {selectedLoanDetail.loanNumber && ` • Acc: ${selectedLoanDetail.loanNumber}`}
                             </div>
                           </div>
-
-                          {/* EMI Details Box: EMI Amount & Due Date */}
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              alignItems: 'center',
-                              padding: '12px 14px',
-                              background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
-                              borderRadius: 10,
-                              border: '1px solid var(--border-color)'
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
-                                MONTHLY EMI AMOUNT
-                              </div>
-                              <div style={{ fontSize: 20, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
-                                {currencyService.format(loan.emiMetrics.emi)}
-                              </div>
-                            </div>
-
-                            <div style={{ textAlign: 'right' }}>
-                              <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
-                                DUE SCHEDULE
-                              </div>
-                              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
-                                Due on {loan.currentMonthDueDay}th of month
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Repayment Channel & Remaining Tenures */}
-                          <div
-                            style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              fontSize: 11.5,
-                              color: 'var(--text-muted)',
-                              flexWrap: 'wrap',
-                              gap: 6
-                            }}
-                          >
-                            <span>
-                              Payment Mode:{' '}
-                              <strong style={{ color: 'var(--text-secondary)' }}>
-                                {loan.repaymentSource === 'credit_card'
-                                  ? '💳 ' + (loan.linkedCardName || 'Credit Card')
-                                  : '🏦 Auto-Debit Bank Account'}
-                              </strong>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 999, background: 'rgba(16, 185, 129, 0.15)', color: '#10B981', textTransform: 'uppercase' }}>
+                              Active
                             </span>
-                            <span>
-                              Remaining: <strong style={{ color: '#F59E0B' }}>{loan.emiMetrics.remainingEmis} of {loan.emiMetrics.totalEmis} months</strong>
+                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(245, 158, 11, 0.15)', color: '#F59E0B' }}>
+                              {selectedLoanDetail.type || 'Loan'}
                             </span>
-                          </div>
-
-                          {/* Principal vs Remaining mini row */}
-                          <div
-                            style={{
-                              paddingTop: 8,
-                              borderTop: '1px dashed var(--border-color)',
-                              display: 'flex',
-                              justifyContent: 'space-between',
-                              fontSize: 11,
-                              color: 'var(--text-muted)'
-                            }}
-                          >
-                            <span>Principal: <strong>{currencyService.format(loan.principal)}</strong></span>
-                            <span>Remaining Balance: <strong style={{ color: '#EF4444' }}>{currencyService.format(loan.emiMetrics.remaining)}</strong></span>
                           </div>
                         </div>
-                      ))
+                      </div>
+
+                      {/* 4 Key Figures */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>PRINCIPAL AMOUNT</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#F59E0B', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.principal)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>MONTHLY EMI</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.emi)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>OUTSTANDING BALANCE</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#EF4444', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.remaining)}
+                          </div>
+                        </div>
+                        <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 10, padding: 12 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 600 }}>TOTAL INTEREST</span>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: '#8B5CF6', marginTop: 2 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.totalInterest)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Critical EMI & Outstanding Breakdown (Explicitly requested by user) */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>
+                          📊 EMI Settlement &amp; Outstanding Breakdown
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>TOTAL EMIs COMPLETED</span>
+                            <strong style={{ fontSize: 13.5, color: '#10B981', fontWeight: 800 }}>
+                              {selectedLoanDetail.emiMetrics.completedEmis} of {selectedLoanDetail.emiMetrics.totalEmis} EMIs
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Completion: <strong>{selectedLoanDetail.emiMetrics.paidPct}%</strong>
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>TOTAL AMOUNT PAID</span>
+                            <strong style={{ fontSize: 13.5, color: '#10B981', fontWeight: 800 }}>
+                              {currencyService.format(selectedLoanDetail.emiMetrics.completedEmis * selectedLoanDetail.emiMetrics.emi)}
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Paid to date
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMIs</span>
+                            <strong style={{ fontSize: 13.5, color: '#F59E0B', fontWeight: 800 }}>
+                              {selectedLoanDetail.emiMetrics.remainingEmis} Months
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Installments remaining
+                            </div>
+                          </div>
+
+                          <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                            <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMI AMOUNT</span>
+                            <strong style={{ fontSize: 13.5, color: '#EC4899', fontWeight: 800 }}>
+                              {currencyService.format(selectedLoanDetail.emiMetrics.remainingEmis * selectedLoanDetail.emiMetrics.emi)}
+                            </strong>
+                            <div style={{ fontSize: 10.5, color: 'var(--text-secondary)', marginTop: 2 }}>
+                              Future EMI obligation
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Remaining Amount Outstanding:</span>
+                          <strong style={{ fontSize: 15, color: selectedLoanDetail.emiMetrics.remaining > 0 ? '#EF4444' : '#10B981', fontWeight: 800 }}>
+                            {currencyService.format(selectedLoanDetail.emiMetrics.remaining)}
+                          </strong>
+                        </div>
+                      </div>
+
+                      {/* Loan Details Specifications */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 12, display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Interest Rate:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.interestRate || 0}% p.a.</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Monthly Due Date:</span>
+                          <strong style={{ color: '#F59E0B' }}>{selectedLoanDetail.dueDay || 5}th of every month</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Repayment Source:</span>
+                          <strong style={{ color: 'var(--text-secondary)' }}>
+                            {selectedLoanDetail.repaymentSource === 'credit_card'
+                              ? '💳 Credit Card (' + (selectedLoanDetail.linkedCardName || 'Linked Card') + ')'
+                              : '🏦 Direct Bank Auto-Debit'}
+                          </strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-muted)' }}>Period:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>{selectedLoanDetail.startDate || 'N/A'} &rarr; {selectedLoanDetail.endDate || 'N/A'}</strong>
+                        </div>
+                      </div>
+
+                      {/* Repayment Schedule */}
+                      <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, textTransform: 'uppercase' }}>
+                          Repayment Schedule ({selectedLoanDetail.schedule.length} Months)
+                        </div>
+                        <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {selectedLoanDetail.schedule.map((s: any) => (
+                            <div
+                              key={s.index}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                padding: '6px 10px',
+                                borderRadius: 8,
+                                background: s.isCurrentMonth ? 'rgba(99, 102, 241, 0.1)' : 'var(--bg-primary)',
+                                border: s.isCurrentMonth ? '1px solid rgba(99, 102, 241, 0.3)' : '1px solid var(--border-color)',
+                                fontSize: 11.5
+                              }}
+                            >
+                              <div>
+                                <span style={{ fontWeight: 700, color: s.isCurrentMonth ? '#6366F1' : 'var(--text-primary)' }}>
+                                  #{s.index} {s.monthStr}
+                                </span>
+                                {s.isCurrentMonth && <span style={{ marginLeft: 6, fontSize: 10, color: '#6366F1', fontWeight: 700 }}>(Current)</span>}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(s.emiAmount)}</strong>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: '2px 6px',
+                                    borderRadius: 6,
+                                    background: s.status === 'paid' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                                    color: s.status === 'paid' ? '#10B981' : '#F59E0B'
+                                  }}
+                                >
+                                  {s.status === 'paid' ? 'PAID' : 'PENDING'}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Action Buttons */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => printLoanDetailsPdf(selectedLoanDetail, user?.name, user?.email)}
+                          style={{
+                            width: '100%',
+                            padding: '11px',
+                            borderRadius: 10,
+                            background: '#6366F1',
+                            border: 'none',
+                            color: '#FFFFFF',
+                            fontSize: 13,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            boxShadow: '0 4px 12px rgba(99, 102, 241, 0.35)'
+                          }}
+                        >
+                          <Printer size={16} />
+                          <span>Print Loan Statement (PDF)</span>
+                        </button>
+
+                        {onNavigateToLoan && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveDrawer(null);
+                              setSelectedLoanDetail(null);
+                              onNavigateToLoan(selectedLoanDetail.id);
+                            }}
+                            style={{
+                              width: '100%',
+                              padding: '9px',
+                              borderRadius: 10,
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--border-color)',
+                              color: 'var(--text-primary)',
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer'
+                            }}
+                          >
+                            Open in Loans &amp; EMI Manager &rarr;
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {/* Summary Metric Header */}
+                      <div
+                        style={{
+                          background: isLight ? '#FDF2F8' : 'rgba(236, 72, 153, 0.08)',
+                          border: '1px solid rgba(236, 72, 153, 0.25)',
+                          borderRadius: 12,
+                          padding: '14px 16px',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          flexWrap: 'wrap',
+                          gap: 10
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: '#EC4899', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                            Total Monthly EMI Outflow ({activeLoansWithEmiCount} Active EMIs)
+                          </div>
+                          <div style={{ fontSize: 22, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                            {currencyService.format(totalMonthlyEmi)}
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)' }}>
+                            Monthly Obligation
+                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-secondary)', marginTop: 2 }}>
+                            Due Every Month
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Active EMIs List */}
+                      {activeLoansDetails.filter(l => l.emiMetrics.emi > 0).length === 0 ? (
+                        <div
+                          style={{
+                            padding: '40px 20px',
+                            textAlign: 'center',
+                            color: 'var(--text-muted)',
+                            background: 'var(--bg-secondary)',
+                            borderRadius: 12,
+                            border: '1px dashed var(--border-color)'
+                          }}
+                        >
+                          <Clock size={36} style={{ opacity: 0.4, marginBottom: 8 }} />
+                          <div style={{ fontWeight: 600 }}>No Active Monthly EMIs</div>
+                          <div style={{ fontSize: 12, marginTop: 4 }}>You have no recurring loan EMI obligations.</div>
+                        </div>
+                      ) : (
+                        activeLoansDetails
+                          .filter(l => l.emiMetrics.emi > 0)
+                          .map((loan, index) => (
+                            <div
+                              key={loan.id || index}
+                              onClick={() => setSelectedLoanDetail(loan)}
+                              style={{
+                                background: 'var(--bg-secondary)',
+                                border: '1px solid var(--border-color)',
+                                borderRadius: 14,
+                                padding: 16,
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 12,
+                                cursor: 'pointer',
+                                transition: 'all 0.15s ease'
+                              }}
+                              title="Click to view complete details & print PDF"
+                            >
+                              {/* Top Row: Loan Name, Status Badge & Print PDF Button */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                  <div style={{ fontSize: 14.5, fontWeight: 700, color: 'var(--text-primary)' }}>
+                                    {loan.name}
+                                  </div>
+                                  <div style={{ fontSize: 11.5, color: 'var(--text-muted)' }}>
+                                    Lender: <strong style={{ color: 'var(--text-secondary)' }}>{loan.lender}</strong>
+                                  </div>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      printLoanDetailsPdf(loan, user?.name, user?.email);
+                                    }}
+                                    style={{
+                                      background: 'rgba(99, 102, 241, 0.12)',
+                                      border: '1px solid rgba(99, 102, 241, 0.25)',
+                                      color: '#6366F1',
+                                      borderRadius: 6,
+                                      padding: '4px 8px',
+                                      fontSize: 11,
+                                      fontWeight: 700,
+                                      cursor: 'pointer',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: 4
+                                    }}
+                                    title="Print / Save Loan Details as PDF"
+                                  >
+                                    <Printer size={12} />
+                                    <span>Print PDF</span>
+                                  </button>
+
+                                  {loan.isCurrentMonthPaid ? (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        fontSize: 10.5,
+                                        fontWeight: 800,
+                                        padding: '3px 8px',
+                                        borderRadius: 999,
+                                        background: 'rgba(16, 185, 129, 0.15)',
+                                        color: '#10B981'
+                                      }}
+                                    >
+                                      <CheckCircle2 size={12} />
+                                      PAID
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 4,
+                                        fontSize: 10.5,
+                                        fontWeight: 800,
+                                        padding: '3px 8px',
+                                        borderRadius: 999,
+                                        background: 'rgba(245, 158, 11, 0.15)',
+                                        color: '#F59E0B'
+                                      }}
+                                    >
+                                      <Clock size={12} />
+                                      PENDING
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* EMI Details Box: EMI Amount & Due Date */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  padding: '12px 14px',
+                                  background: isLight ? '#FFFFFF' : 'rgba(0, 0, 0, 0.2)',
+                                  borderRadius: 10,
+                                  border: '1px solid var(--border-color)'
+                                }}
+                              >
+                                <div>
+                                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                    MONTHLY EMI AMOUNT
+                                  </div>
+                                  <div style={{ fontSize: 20, fontWeight: 800, color: '#EC4899', marginTop: 2 }}>
+                                    {currencyService.format(loan.emiMetrics.emi)}
+                                  </div>
+                                </div>
+
+                                <div style={{ textAlign: 'right' }}>
+                                  <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text-muted)' }}>
+                                    DUE SCHEDULE
+                                  </div>
+                                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginTop: 2 }}>
+                                    Due on {loan.currentMonthDueDay}th of month
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Repayment Channel & Remaining Tenures */}
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  fontSize: 11.5,
+                                  color: 'var(--text-muted)',
+                                  flexWrap: 'wrap',
+                                  gap: 6
+                                }}
+                              >
+                                <span>
+                                  Payment Mode:{' '}
+                                  <strong style={{ color: 'var(--text-secondary)' }}>
+                                    {loan.repaymentSource === 'credit_card'
+                                      ? '💳 ' + (loan.linkedCardName || 'Credit Card')
+                                      : '🏦 Auto-Debit Bank Account'}
+                                  </strong>
+                                </span>
+                                <span>
+                                  Remaining: <strong style={{ color: '#F59E0B' }}>{loan.emiMetrics.remainingEmis} of {loan.emiMetrics.totalEmis} months</strong>
+                                </span>
+                              </div>
+
+                              {/* Principal vs Remaining mini row */}
+                              <div
+                                style={{
+                                  paddingTop: 8,
+                                  borderTop: '1px dashed var(--border-color)',
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  alignItems: 'center',
+                                  fontSize: 11,
+                                  color: 'var(--text-muted)'
+                                }}
+                              >
+                                <span>Principal: <strong>{currencyService.format(loan.principal)}</strong></span>
+                                <span style={{ color: '#6366F1', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+                                  View Details &rarr;
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </>
                   )}
                 </>
               )}

@@ -18,8 +18,10 @@ import {
   Filter,
   SlidersHorizontal,
   RotateCcw,
-  Users
+  Users,
+  Printer
 } from 'lucide-react';
+import { printLoanDetailsPdf } from '../services/loanPrintService';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { currencyService } from '../services/currencyService';
@@ -1557,8 +1559,28 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                             </div>
                           </div>
 
-                          {/* Action Buttons: Edit (Requirement 3), Delete, and Active Tag */}
+                          {/* Action Buttons: Print, Edit, Delete */}
                           <div className="loan-card-actions" style={{ display: 'flex', alignItems: 'center', gap: 4 }} onClick={e => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                printLoanDetailsPdf(loan, user?.name, user?.email);
+                              }}
+                              title="Print / Save Loan Details as PDF"
+                              style={{
+                                background: 'rgba(99, 102, 241, 0.1)',
+                                border: '1px solid rgba(99, 102, 241, 0.25)',
+                                color: '#6366F1',
+                                borderRadius: 6,
+                                cursor: 'pointer',
+                                padding: '5px 7px',
+                                display: 'flex',
+                                alignItems: 'center'
+                              }}
+                            >
+                              <Printer size={14} />
+                            </button>
                             {!isViewOnly && (
                               <>
                                 <button
@@ -1845,26 +1867,50 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleCloseLoanDetails}
-                    style={{
-                      background: 'rgba(255, 255, 255, 0.08)',
-                      border: '1px solid var(--border-color)',
-                      color: 'var(--text-secondary)',
-                      cursor: 'pointer',
-                      borderRadius: 8,
-                      width: 28,
-                      height: 28,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 14
-                    }}
-                    title="Close EMI Details Panel"
-                  >
-                    ✕
-                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <button
+                      type="button"
+                      onClick={() => printLoanDetailsPdf(selectedLoan, user?.name, user?.email)}
+                      style={{
+                        background: 'rgba(99, 102, 241, 0.12)',
+                        border: '1px solid rgba(99, 102, 241, 0.3)',
+                        color: '#6366F1',
+                        cursor: 'pointer',
+                        borderRadius: 8,
+                        padding: '5px 10px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 5,
+                        fontSize: 11.5,
+                        fontWeight: 700
+                      }}
+                      title="Print / Save Loan Details as PDF"
+                    >
+                      <Printer size={13} />
+                      <span>Print PDF</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCloseLoanDetails}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.08)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-secondary)',
+                        cursor: 'pointer',
+                        borderRadius: 8,
+                        width: 28,
+                        height: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 14
+                      }}
+                      title="Close EMI Details Panel"
+                    >
+                      ✕
+                    </button>
+                  </div>
                 </div>
 
                 {/* Key Loan Figures Overview */}
@@ -1899,6 +1945,39 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                   <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span style={{ color: 'var(--text-secondary)' }}>Total Repayment:</span>
                     <strong style={{ color: 'var(--text-primary)' }}>{currencyService.format(selectedLoanMetrics.totalPayable)}</strong>
+                  </div>
+                </div>
+
+                {/* Total EMI Completed, Remaining EMI Amount, Outstanding Section (User requirement) */}
+                <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 12, marginBottom: 16, flexShrink: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>
+                    EMI Progress &amp; Outstanding
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>TOTAL EMIs COMPLETED</span>
+                      <strong style={{ fontSize: 12.5, color: '#10B981', fontWeight: 800 }}>
+                        {selectedLoanMetrics.completedEmis} of {selectedLoanMetrics.totalEmis} ({selectedLoanMetrics.paidPct}%)
+                      </strong>
+                    </div>
+                    <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMIs</span>
+                      <strong style={{ fontSize: 12.5, color: '#F59E0B', fontWeight: 800 }}>
+                        {selectedLoanMetrics.remainingEmis} Months Left
+                      </strong>
+                    </div>
+                    <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>REMAINING EMI AMOUNT</span>
+                      <strong style={{ fontSize: 12.5, color: '#EC4899', fontWeight: 800 }}>
+                        {currencyService.format(selectedLoanMetrics.remainingEmis * selectedLoanMetrics.emi)}
+                      </strong>
+                    </div>
+                    <div style={{ background: isLight ? '#FFFFFF' : 'rgba(0,0,0,0.2)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border-color)' }}>
+                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontWeight: 600, display: 'block' }}>OUTSTANDING BALANCE</span>
+                      <strong style={{ fontSize: 12.5, color: selectedLoanMetrics.remaining > 0 ? '#EF4444' : '#10B981', fontWeight: 800 }}>
+                        {currencyService.format(selectedLoanMetrics.remaining)}
+                      </strong>
+                    </div>
                   </div>
                 </div>
 
@@ -2460,6 +2539,31 @@ export const LoansEmiView: React.FC<LoansEmiViewProps> = ({ initialLoanId, onCle
                       </button>
                     )}
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={() => printLoanDetailsPdf(selectedLoan, user?.name, user?.email)}
+                    style={{
+                      width: '100%',
+                      padding: '10px 14px',
+                      borderRadius: 8,
+                      background: '#6366F1',
+                      border: 'none',
+                      color: '#FFFFFF',
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 7,
+                      marginTop: 8,
+                      boxShadow: '0 2px 10px rgba(99, 102, 241, 0.35)'
+                    }}
+                  >
+                    <Printer size={15} />
+                    <span>Print Loan Statement (PDF)</span>
+                  </button>
                 </div>
               </div>
             )}
