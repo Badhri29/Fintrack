@@ -381,12 +381,21 @@ export const SettingsView: React.FC = () => {
       const userEmail = (user?.email || 'guest').toLowerCase();
 
       if (section === 'expected' || section === 'entire_app') {
+        const cleanEmail = String(userEmail || '').trim().toLowerCase();
         localStorage.removeItem(`fintrack_budget_store_${userEmail}`);
         localStorage.removeItem(`fintrack_budgets_${userEmail}`);
         try {
           for (let i = localStorage.length - 1; i >= 0; i--) {
             const k = localStorage.key(i);
-            if (k && (k.startsWith('fintrack_budget_') || k.startsWith(`fintrack_budget_store_${userEmail}`))) {
+            if (!k) continue;
+            const matchesHyphenBudget =
+              (k.startsWith('fintrack-budget-') || k.startsWith('fintrack-budget-transactions-')) &&
+              (!cleanEmail || k.endsWith(`_${cleanEmail}`) || !k.includes('@'));
+            if (
+              k.startsWith('fintrack_budget_') ||
+              k.startsWith(`fintrack_budget_store_${userEmail}`) ||
+              matchesHyphenBudget
+            ) {
               localStorage.removeItem(k);
             }
           }
@@ -416,6 +425,7 @@ export const SettingsView: React.FC = () => {
 
         if (section === 'expected') {
           window.dispatchEvent(new CustomEvent('fintrack-budget-changed'));
+          window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed'));
         } else if (section === 'actual') {
           window.dispatchEvent(new CustomEvent('fintrack-transactions-changed'));
         } else if (section === 'loans') {

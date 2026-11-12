@@ -38,6 +38,8 @@ import { Line } from 'react-chartjs-2';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { seedDemoBudgetData } from '../services/demoBudgetSeed';
+import { budgetService } from '../services/budgetService';
+import { resolveSectionAndCategoryBudgets } from '../services/budgetAggregation';
 import { cardService } from '../services/cardService';
 import { bankAccountService, type BankAccountModel } from '../services/bankAccountService';
 import { loanService, type LoanModel, calculateLoanEMIs, generateEmiSchedule } from '../services/loanService';
@@ -68,34 +70,6 @@ interface DashboardViewProps {
 const MONTH_NAMES = [
   'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
-];
-
-const DEFAULT_INCOME_CATEGORIES = [
-  'Salary',
-  'Bonus & Incentives',
-  'Other Income',
-  'Government Subsidy',
-  'Rewards and Cashback',
-  'Borrow / Debt Collected'
-];
-
-const DEFAULT_SAVINGS_CATEGORIES = [
-  'Investments',
-  'Emergency Fund',
-  'Mutual Funds',
-  'Fixed Deposits',
-  'Retirement Savings'
-];
-
-const DEFAULT_EXPENSE_CATEGORIES = [
-  'Housing & Rent',
-  'Food & Groceries',
-  'Utilities & Internet',
-  'Dining & Entertainment',
-  'Shopping & Travel',
-  'Healthcare & Medical',
-  'Transportation & Auto',
-  'Debt Repayment'
 ];
 
 type SectionKey = 'income' | 'savings' | 'expense';
@@ -223,6 +197,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   // Raw data from backend and local storage
   const [transactions, setTransactions] = useState<any[]>([]);
   const [backendCategories, setBackendCategories] = useState<any[]>([]);
+  const [backendSubcategories, setBackendSubcategories] = useState<any[]>([]);
+  const [budgetTick, setBudgetTick] = useState(0);
   const [summaryData, setSummaryData] = useState<any>({
     totalIncome: 0,
     totalExpenses: 0,
@@ -295,10 +271,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [sumRes, txRes, catRes] = await Promise.all([
+      const [sumRes, txRes, catRes, subRes] = await Promise.all([
         api.get('/dashboard/summary').catch(() => null),
         api.get('/transactions').catch(() => null),
-        api.get('/categories').catch(() => null)
+        api.get('/categories').catch(() => null),
+        api.get('/subcategories').catch(() => null),
+        budgetService.fetchBudgetFromServer(selectedYear, user?.email).catch(() => null)
       ]);
 
       if (sumRes?.data?.success && sumRes.data.data) {
@@ -312,9 +290,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       if (catRes?.data?.success && Array.isArray(catRes.data.data)) {
         setBackendCategories(catRes.data.data);
       }
+
+      if (subRes?.data?.success && Array.isArray(subRes.data.data)) {
+        setBackendSubcategories(subRes.data.data);
+      }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
     } finally {
+      setBudgetTick(t => t + 1);
       setLoading(false);
     }
   };
@@ -324,15 +307,34 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     const onTxChange = () => {
       fetchData();
     };
+    const onBudgetChange = (e: any) => {
+      if (e?.detail?.year !== undefined && Number(e.detail.year) !== selectedYear) return;
+      setBudgetTick(t => t + 1);
+    };
+    const onStorageChange = (e: StorageEvent) => {
+      if (!e.key || e.key.includes('fintrack-budget')) {
+        setBudgetTick(t => t + 1);
+      }
+    };
     window.addEventListener('fintrack-transactions-changed', onTxChange);
     window.addEventListener('fintrack-categories-changed', onTxChange);
     window.addEventListener('fintrack-category-updated', onTxChange);
+    window.addEventListener('fintrack-cloud-sync-completed', onTxChange);
+    window.addEventListener('fintrack-data-synced', onTxChange);
+    window.addEventListener('fintrack-budget-changed', onBudgetChange);
+    window.addEventListener('fintrack-budget-transactions-changed', onBudgetChange);
+    window.addEventListener('storage', onStorageChange);
     return () => {
       window.removeEventListener('fintrack-transactions-changed', onTxChange);
       window.removeEventListener('fintrack-categories-changed', onTxChange);
       window.removeEventListener('fintrack-category-updated', onTxChange);
+      window.removeEventListener('fintrack-cloud-sync-completed', onTxChange);
+      window.removeEventListener('fintrack-data-synced', onTxChange);
+      window.removeEventListener('fintrack-budget-changed', onBudgetChange);
+      window.removeEventListener('fintrack-budget-transactions-changed', onBudgetChange);
+      window.removeEventListener('storage', onStorageChange);
     };
-  }, [selectedYear]);
+  }, [selectedYear, user?.email]);
 
   // Read budgeted values from localStorage for selected year
   const budgetStore = useMemo(() => {
@@ -340,18 +342,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       if (user?.email === 'demo@fintrack.io') {
         seedDemoBudgetData();
       }
-      const rawTxKey = getUserStorageKey(`fintrack-budget-transactions-${selectedYear}`, user?.email);
-      const rawDirectKey = getUserStorageKey(`fintrack-budget-${selectedYear}`, user?.email);
-      const rawTx = localStorage.getItem(rawTxKey);
-      const rawDirect = localStorage.getItem(rawDirectKey);
       return {
-        tx: rawTx ? JSON.parse(rawTx) : {},
-        direct: rawDirect ? JSON.parse(rawDirect) : {}
+        tx: budgetService.getBudgetTransactionsMap(selectedYear, user?.email),
+        direct: budgetService.getBudgetMap(selectedYear, user?.email)
       };
     } catch {
       return { tx: {}, direct: {} };
     }
-  }, [selectedYear, user]);
+  }, [selectedYear, user, budgetTick]);
 
   // Parse transaction date
   const parseDate = (dStr: string) => {
@@ -381,80 +379,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     return 'expense';
   };
 
-  // Helper to calculate budgeted amount across all selected months (Point 5)
-  const getBudgetAmount = (_section: SectionKey, catName: string, months: number[]): number => {
-    let monthlySums = new Array(12).fill(0);
-
-    const norm = (s: string) => s.toLowerCase().replace(/^(income|expense|savings):/, '').replace(/[^a-z0-9]/g, '');
-    const targetNorm = norm(catName);
-
-    const allKeys = Array.from(new Set([...Object.keys(budgetStore.tx), ...Object.keys(budgetStore.direct)]));
-
-    // Priority 1: Exact canonical match
-    let matchingKeys = allKeys.filter(k => norm(k) === targetNorm);
-
-    // Priority 2: Substring match
-    if (matchingKeys.length === 0) {
-      matchingKeys = allKeys.filter(k => {
-        const kn = norm(k);
-        return kn.includes(targetNorm) || targetNorm.includes(kn);
-      });
-    }
-
-    let foundValues: number[] | null = null;
-
-    for (const k of matchingKeys) {
-      const txItems = budgetStore.tx[k];
-      if (Array.isArray(txItems) && txItems.length > 0) {
-        const sumValues = new Array(12).fill(0);
-        txItems.forEach((item: any) => {
-          if (Array.isArray(item.values)) {
-            item.values.forEach((v: number, m: number) => {
-              if (m < 12) sumValues[m] += (Number(v) || 0);
-            });
-          }
-        });
-        if (sumValues.some(v => v > 0)) {
-          foundValues = sumValues;
-          break;
-        }
-      }
-
-      const directArr = budgetStore.direct[k];
-      if (Array.isArray(directArr) && directArr.some(v => Number(v) > 0)) {
-        foundValues = directArr.map(v => Number(v) || 0);
-        break;
-      }
-    }
-
-    if (foundValues) {
-      monthlySums = foundValues;
-    }
-
-    return months.reduce((sum, m) => sum + (monthlySums[m] || 0), 0);
-  };
+  // Aggregate budget estimates across DB subcategories, aliases, and synced stores
+  const resolvedBudgets = useMemo(
+    () =>
+      resolveSectionAndCategoryBudgets({
+        userEmail: user?.email,
+        apiCategories: backendCategories,
+        apiSubcategories: backendSubcategories,
+        transactions,
+        budgetTxMap: budgetStore.tx,
+        budgetDirectMap: budgetStore.direct
+      }),
+    [user?.email, backendCategories, backendSubcategories, transactions, budgetStore]
+  );
 
   // Build Category Breakdown for each section
   const sectionData = useMemo(() => {
+    const junkNames = new Set(['ht', 'sd', 'tes', 'test', 'uncategorized']);
     const catSet: Record<SectionKey, Set<string>> = {
-      income: new Set<string>(DEFAULT_INCOME_CATEGORIES),
-      savings: new Set<string>(DEFAULT_SAVINGS_CATEGORIES),
-      expense: new Set<string>(DEFAULT_EXPENSE_CATEGORIES)
+      income: new Set<string>(resolvedBudgets.categoriesBySection.income.map(r => r.name)),
+      savings: new Set<string>(resolvedBudgets.categoriesBySection.savings.map(r => r.name)),
+      expense: new Set<string>(resolvedBudgets.categoriesBySection.expense.map(r => r.name))
     };
 
-    const junkNames = new Set(['ht', 'sd', 'tes', 'test', 'uncategorized']);
-
-    backendCategories.forEach(c => {
-      const sec: SectionKey = c.type === 'income' ? 'income' : c.type === 'savings' ? 'savings' : 'expense';
-      if (c.name && c.name.trim().length > 2 && !junkNames.has(c.name.trim().toLowerCase())) {
-        catSet[sec].add(c.name.trim());
-      }
-    });
-
     transactions.forEach(t => {
-      if (t.category && t.category.trim().length > 2 && !junkNames.has(t.category.trim().toLowerCase())) {
+      const rawCat = String(t.category || '').trim();
+      if (rawCat && !junkNames.has(rawCat.toLowerCase())) {
         const sec = getSectionForTransaction(t);
-        catSet[sec].add(t.category.trim());
+        const canonicalName = resolvedBudgets.resolveCategoryName(sec, rawCat);
+        if (canonicalName) catSet[sec].add(canonicalName);
       }
     });
 
@@ -477,14 +430,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           const tSec = getSectionForTransaction(t);
           if (tSec !== sec) return sum;
 
-          if (String(t.category || '').toLowerCase() === catName.toLowerCase()) {
+          if (resolvedBudgets.resolveCategoryName(sec, String(t.category || '')).toLowerCase() === catName.toLowerCase()) {
             return sum + (Number(t.amount) || 0);
           }
           return sum;
         }, 0);
 
         // Calculate budget across all selected months
-        const budget = getBudgetAmount(sec, catName, selectedMonths);
+        const budgetRow = resolvedBudgets.categoriesBySection[sec].find(
+          r => r.name.toLowerCase() === catName.toLowerCase()
+        );
+        const budget = budgetRow
+          ? selectedMonths.reduce((sum, m) => sum + (budgetRow.monthlyBudgets[m] || 0), 0)
+          : 0;
 
         let variance = 0;
         let pctUsed = 0;
@@ -546,7 +504,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
     });
 
     return result;
-  }, [transactions, backendCategories, budgetStore, selectedYear, selectedMonths]);
+  }, [transactions, backendCategories, resolvedBudgets, selectedYear, selectedMonths]);
 
   const [loansVersion, setLoansVersion] = useState<number>(0);
   const [accountsVersion, setAccountsVersion] = useState<number>(0);
@@ -950,9 +908,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       let mAct = 0;
 
       if (trendMetric === 'income') {
-        DEFAULT_INCOME_CATEGORIES.forEach(c => {
-          mEst += getBudgetAmount('income', c, [m]);
-        });
+        mEst += resolvedBudgets.sectionMonthlyTotals.income[m] || 0;
         transactions.forEach(t => {
           const p = parseDate(t.date);
           if (p && p.year === selectedYear && p.month === m && getSectionForTransaction(t) === 'income') {
@@ -960,9 +916,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           }
         });
       } else if (trendMetric === 'expense') {
-        DEFAULT_EXPENSE_CATEGORIES.forEach(c => {
-          mEst += getBudgetAmount('expense', c, [m]);
-        });
+        mEst += resolvedBudgets.sectionMonthlyTotals.expense[m] || 0;
         transactions.forEach(t => {
           const p = parseDate(t.date);
           if (p && p.year === selectedYear && p.month === m && getSectionForTransaction(t) === 'expense') {
@@ -970,9 +924,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
           }
         });
       } else if (trendMetric === 'savings') {
-        DEFAULT_SAVINGS_CATEGORIES.forEach(c => {
-          mEst += getBudgetAmount('savings', c, [m]);
-        });
+        mEst += resolvedBudgets.sectionMonthlyTotals.savings[m] || 0;
         transactions.forEach(t => {
           const p = parseDate(t.date);
           if (p && p.year === selectedYear && p.month === m && getSectionForTransaction(t) === 'savings') {
@@ -981,9 +933,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
         });
       } else {
         // Net Surplus (Income - Expense)
-        let incEst = 0, expEst = 0, incAct = 0, expAct = 0;
-        DEFAULT_INCOME_CATEGORIES.forEach(c => { incEst += getBudgetAmount('income', c, [m]); });
-        DEFAULT_EXPENSE_CATEGORIES.forEach(c => { expEst += getBudgetAmount('expense', c, [m]); });
+        let incEst = resolvedBudgets.sectionMonthlyTotals.income[m] || 0;
+        let expEst = resolvedBudgets.sectionMonthlyTotals.expense[m] || 0;
+        let incAct = 0, expAct = 0;
         transactions.forEach(t => {
           const p = parseDate(t.date);
           if (p && p.year === selectedYear && p.month === m) {
@@ -1099,7 +1051,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onOpenNewTransacti
       labels: MONTH_NAMES,
       datasets
     };
-  }, [budgetStore, transactions, selectedYear, trendMetric, dashboardMode, currencyTick]);
+  }, [resolvedBudgets, transactions, selectedYear, trendMetric, dashboardMode, currencyTick]);
 
   // Smooth Chart config
   const smoothChartOptions: any = {
