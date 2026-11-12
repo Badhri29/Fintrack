@@ -96,19 +96,88 @@ export const budgetService = {
     }
   },
 
+  getTransactionsStorageKey(year: number, email?: string): string {
+    return getUserStorageKey(`fintrack-budget-transactions-${year}`, getActiveUserEmail(email));
+  },
+
+  getBudgetTransactionsMap(year: number, email?: string): Record<string, any[]> {
+    try {
+      const txKey = this.getTransactionsStorageKey(year, email);
+      const raw = localStorage.getItem(txKey);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  },
+
+  splitServerBudgets(serverBudgets: Record<string, any>): {
+    serverValues: Record<string, number[]>;
+    serverTxs: Record<string, any[]>;
+  } {
+    const serverValues: Record<string, number[]> = {};
+    const serverTxs: Record<string, any[]> = {};
+
+    if (serverBudgets && typeof serverBudgets === 'object') {
+      Object.entries(serverBudgets).forEach(([key, val]: [string, any]) => {
+        if (Array.isArray(val) && val.length > 0 && typeof val[0] === 'object' && val[0] !== null) {
+          const cleanKey = key.startsWith('sub:') ? key.replace('sub:', '') : key;
+          serverTxs[cleanKey] = val;
+          serverTxs[key] = val;
+        } else if (Array.isArray(val)) {
+          serverValues[key] = val;
+        }
+      });
+    }
+    return { serverValues, serverTxs };
+  },
+
+  /**
+   * Keeps the local `fintrack-budget-{year}` cache aligned when line items change locally
+   * so Dashboard reads consistent estimates immediately without waiting for a server round-trip.
+   */
+  syncLocalBudgetEntry(year: number, primaryKeyName: string, aliasKeys: string[], value: any, email?: string): void {
+    const userEmail = getActiveUserEmail(email);
+    const primaryKey = this.getStorageKey(year, userEmail);
+    try {
+      const current = this.getBudgetMap(year, userEmail);
+      const next: Record<string, any> = { ...current, [primaryKeyName]: value };
+      for (const alias of aliasKeys) {
+        if (alias && alias !== primaryKeyName && Object.prototype.hasOwnProperty.call(next, alias)) {
+          next[alias] = value;
+        }
+      }
+      localStorage.setItem(primaryKey, JSON.stringify(next));
+    } catch (err) {
+      console.debug('Could not sync local budget cache entry:', err);
+    }
+  },
+
   async fetchBudgetFromServer(year: number, email?: string): Promise<Record<string, any>> {
     const userEmail = getActiveUserEmail(email);
     const primaryKey = this.getStorageKey(year, userEmail);
+    const txKey = this.getTransactionsStorageKey(year, userEmail);
     try {
       const res = await api.get('/budgets', { params: { year } });
       if (res.data?.success && res.data.data !== undefined) {
         const serverBudgets = res.data.data || {};
         const oldStr = localStorage.getItem(primaryKey);
         const newStr = JSON.stringify(serverBudgets);
-        // Only overwrite and dispatch event if server data is actually different from current cache
+
         if (oldStr !== newStr) {
           localStorage.setItem(primaryKey, newStr);
           window.dispatchEvent(new CustomEvent('fintrack-budget-changed', { detail: { year, budgetMap: serverBudgets, source: 'server' } }));
+        }
+
+        const { serverTxs } = this.splitServerBudgets(serverBudgets);
+        if (Object.keys(serverTxs).length > 0 || userEmail !== 'demo@fintrack.io') {
+          const oldTxStr = localStorage.getItem(txKey);
+          const newTxStr = JSON.stringify(serverTxs);
+          if (oldTxStr !== newTxStr) {
+            localStorage.setItem(txKey, newTxStr);
+            window.dispatchEvent(new CustomEvent('fintrack-budget-transactions-changed', { detail: { year, source: 'server' } }));
+          }
         }
         return serverBudgets;
       }
